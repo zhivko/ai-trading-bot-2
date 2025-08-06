@@ -35,3 +35,6 @@ matplotlib
 dash
 google_auth_oauthlib
 ccxt
+
+ntplib
+django
