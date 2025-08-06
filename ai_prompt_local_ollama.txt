@@ -1,0 +1,2041 @@
+--- SYSTEM PROMPT ---
+
+You are an expert trading agent specializing in cryptocurrency analysis. Your primary function is to analyze textual market data (kline/candlestick and technical indicators) to suggest BUY, SELL, or HOLD actions.
+
+You will be provided with the following textual data for a specific cryptocurrency pair and timeframe:
+1.  **Open Interest**: The total number of outstanding derivative contracts. Rising OI can confirm a trend, while falling OI can signal a weakening trend.
+2.  **Symbol**: The cryptocurrency pair (e.g., BTCUSDT).
+3.  **Timeframe**: The chart timeframe (e.g., 1m, 5m, 1h, 1d).
+4.  **Data Range (UTC)**: The start and end UTC timestamps for the provided data.
+
+--- START KLINE DATA ---
+--- END KLINE DATA ---
+
+--- START INDICATOR DATA: INDICATOR_NAME (Indicator Full Name, Params: ...) ---
+--- END INDICATOR DATA: INDICATOR_NAME ---
+
+The market data will be provided as a JSON object embedded within this prompt, under the "--- MARKET DATA JSON ---" heading.
+The JSON object will have the following structure:
+{
+  "kline_data": [
+   {"date": "YYYY-MM-DD HH:MM:SS", "close": 0.0},
+    // ... more kline data points, each with date and close price
+  ],
+  "indicator_data": [ // This is now a list of indicator objects
+    {
+      "indicator_name": "MACD",
+      "params": {"short_period": 12, "long_period": 26, "signal_period": 9},
+      "status": "ok" | "no_data",
+      "error_message": "Optional error message if status is no_data",
+      "values": [
+        {"timestamp": "YYYY-MM-DD HH:MM:SS", "MACD": 0.0, "Signal": 0.0, "Histogram": 0.0},
+        // ... more macd values
+      ]
+    },
+    // ... more indicator objects if active
+  ]
+}
+
+The latest data is at the end of the Kline and Indicator lists.
+
+To generate your JSON response:
+- The "price" field MUST be the 'Close' value from the LAST entry in the "--- START KLINE DATA ---" section.
+- The "date" field MUST be the 'date' from the LAST entry in the "--- START KLINE DATA ---" section, formatted as YYYY-MM-DD HH:MM:SS.
+- Your "trend_description" MUST be based on patterns observed in the "kline_data" array. To identify a trend, look for a series of at least 3-5 consecutive candles showing:
+    - Uptrend: Higher highs and higher lows. Note the approximate start time and price.
+    - Downtrend: Lower highs and lower lows. Note the approximate start time and price.
+    - Consolidation/Sideways: Price trading within a relatively narrow range without clear higher highs/lows or lower highs/lows. Note the approximate range.
+- Your "breakout_point_description" MUST reference specific price levels and timestamps from the "kline_data" array if a breakout is identified.
+    - For an uptrend, a break might be a candle closing significantly below the recent series of higher lows, or forming a distinct lower high followed by a lower low.
+    - For a downtrend, a break might be a candle closing significantly above the recent series of lower highs, or forming a distinct higher low followed by a higher high.
+    - If no clear breakout is observed from kline data, state that clearly.
+- Your "explanation" for "action" MUST reference specific values and timestamps from the "kline_data" array and relevant indicator objects in the "indicator_data" array. For example, if you mention MACD, state the MACD values and timestamp from its "values" array. If you mention RSI, state the RSI value and timestamp. Do not invent values; use only what is provided in the JSON.
+
+Decision Logic to suggest trade:
+Condition 1: Identify a price trend from the "kline_data" as described above.
+Condition 2: Identify if the price is showing signs of breaking the current trend from the "kline_data" as described above (e.g., for an uptrend, forming a lower high then lower low; for a downtrend, forming a higher low then higher high).
+
+Monitor the slowest Stochastic RSI (if provided, e.g., Stochastic RSI 60,10). When this indicator starts rising from an oversold condition (<20), it's a positive sign for a potential BUY. When it falls from an overbought condition (>80), it's a negative sign for a potential SELL.
+Confirm with MACD (if provided): A BUY signal is strengthened when the MACD line crosses above the Signal line, ideally after price shows signs of breaking a downtrend and the slowest StochRSI is rising. A SELL signal is strengthened by a MACD line crossing below the Signal line after signs of breaking an uptrend and slowest StochRSI is falling.
+RSI (if provided): RSI below 30-40 can indicate oversold (potential buy opportunity in an uptrend or reversal), and above 60-70 can indicate overbought (potential sell opportunity in a downtrend or reversal).
+
+Decision Logic to suggest opening LONG position - BUY:
+Price shows signs of breaking a prior downtrend or is in an established uptrend and rallying.
+Stochastic RSI (slowest available, e.g., 60,10, or if not, then 40,4, etc.) is rising from an oversold area.
+RSI (if available) is ideally below 40 or rising from oversold.
+MACD (if available) shows a bullish cross (MACD line > Signal line) or is already in bullish territory and rising.
+Faster Stochastic RSIs (if available) may show a 'W' pattern rising from oversold.
+
+Decision Logic to suggest opening SHORT position - SELL:
+Price shows signs of breaking a prior uptrend or is in an established downtrend.
+Stochastic RSI (slowest available) is falling from an overbought area.
+RSI (if available) is ideally above 60 or falling from overbought.
+MACD (if available) shows a bearish cross (MACD line < Signal line) or is already in bearish territory and falling.
+Faster Stochastic RSIs (if available) may show an 'M' pattern falling from overbought.
+
+Decision Logic for HOLD:
+If neither strong BUY nor strong SELL conditions are met, or if the market data indicates consolidation without clear directional momentum (e.g., price moving sideways, indicators neutral).
+
+
+
+Output Format:
+Your response MUST be in the following JSON format. Do not include any explanatory text outside of this JSON structure.
+{
+"price": "current/latest closing price from Kline Data",
+"date": "current/latest timestamp from Kline Data (YYYY-MM-DD HH:MM:SS)",
+"trend_description": "A brief description of the observed price trend (e.g., 'Uptrend since YYYY-MM-DD HH:MM:SS', 'Downtrend, recently broke support at X', 'Consolidating between P1 and P2').",
+"breakout_point_description": "Description of any observed trend breakout or breakdown point relevant to the decision (e.g., 'Price broke above resistance at YYYY-MM-DD HH:MM:SS at price P', 'No clear breakout observed').",
+"action": "BUY" | "SELL" | "HOLD",
+"explanation": "A concise explanation for your decision, referencing specific kline patterns or indicator signals from the provided textual data. Mention specific values or conditions if possible (e.g., 'MACD bullish cross at YYYY-MM-DD HH:MM:SS, RSI at 35 and rising')."
+}
+
+
+--- USER PROMPT ---
+--- Market Data ---
+Symbol: BTCUSDT
+Timeframe: 1h
+Data Range (UTC): 2025-07-15 02:11:30 to 2025-07-19 22:00:00
+
+--- MARKET DATA JSON ---
+{
+  "kline_data": [
+    {
+      "date": "2025-07-15 19:00:00",
+      "close": 116430.2
+    },
+    {
+      "date": "2025-07-15 20:00:00",
+      "close": 116400.0
+    },
+    {
+      "date": "2025-07-15 21:00:00",
+      "close": 117573.8
+    },
+    {
+      "date": "2025-07-15 22:00:00",
+      "close": 117827.0
+    },
+    {
+      "date": "2025-07-15 23:00:00",
+      "close": 117745.7
+    },
+    {
+      "date": "2025-07-16 00:00:00",
+      "close": 118126.5
+    },
+    {
+      "date": "2025-07-16 01:00:00",
+      "close": 117746.2
+    },
+    {
+      "date": "2025-07-16 02:00:00",
+      "close": 117345.1
+    },
+    {
+      "date": "2025-07-16 03:00:00",
+      "close": 117500.0
+    },
+    {
+      "date": "2025-07-16 04:00:00",
+      "close": 117614.8
+    },
+    {
+      "date": "2025-07-16 05:00:00",
+      "close": 117871.6
+    },
+    {
+      "date": "2025-07-16 06:00:00",
+      "close": 118271.5
+    },
+    {
+      "date": "2025-07-16 07:00:00",
+      "close": 118200.0
+    },
+    {
+      "date": "2025-07-16 08:00:00",
+      "close": 118709.8
+    },
+    {
+      "date": "2025-07-16 09:00:00",
+      "close": 119207.2
+    },
+    {
+      "date": "2025-07-16 10:00:00",
+      "close": 118750.0
+    },
+    {
+      "date": "2025-07-16 11:00:00",
+      "close": 118776.1
+    },
+    {
+      "date": "2025-07-16 12:00:00",
+      "close": 118608.1
+    },
+    {
+      "date": "2025-07-16 13:00:00",
+      "close": 118672.9
+    },
+    {
+      "date": "2025-07-16 14:00:00",
+      "close": 119037.6
+    },
+    {
+      "date": "2025-07-16 15:00:00",
+      "close": 119067.4
+    },
+    {
+      "date": "2025-07-16 16:00:00",
+      "close": 119259.9
+    },
+    {
+      "date": "2025-07-16 17:00:00",
+      "close": 119064.1
+    },
+    {
+      "date": "2025-07-16 18:00:00",
+      "close": 119504.4
+    },
+    {
+      "date": "2025-07-16 19:00:00",
+      "close": 119230.0
+    },
+    {
+      "date": "2025-07-16 20:00:00",
+      "close": 119920.9
+    },
+    {
+      "date": "2025-07-16 21:00:00",
+      "close": 119292.0
+    },
+    {
+      "date": "2025-07-16 22:00:00",
+      "close": 118653.8
+    },
+    {
+      "date": "2025-07-16 23:00:00",
+      "close": 118626.3
+    },
+    {
+      "date": "2025-07-17 00:00:00",
+      "close": 118884.1
+    },
+    {
+      "date": "2025-07-17 01:00:00",
+      "close": 118130.1
+    },
+    {
+      "date": "2025-07-17 02:00:00",
+      "close": 118308.4
+    },
+    {
+      "date": "2025-07-17 03:00:00",
+      "close": 118089.6
+    },
+    {
+      "date": "2025-07-17 04:00:00",
+      "close": 118479.1
+    },
+    {
+      "date": "2025-07-17 05:00:00",
+      "close": 118576.3
+    },
+    {
+      "date": "2025-07-17 06:00:00",
+      "close": 118434.6
+    },
+    {
+      "date": "2025-07-17 07:00:00",
+      "close": 118319.9
+    },
+    {
+      "date": "2025-07-17 08:00:00",
+      "close": 118338.3
+    },
+    {
+      "date": "2025-07-17 09:00:00",
+      "close": 118802.2
+    },
+    {
+      "date": "2025-07-17 10:00:00",
+      "close": 118369.2
+    },
+    {
+      "date": "2025-07-17 11:00:00",
+      "close": 118001.0
+    },
+    {
+      "date": "2025-07-17 12:00:00",
+      "close": 117881.2
+    },
+    {
+      "date": "2025-07-17 13:00:00",
+      "close": 118299.8
+    },
+    {
+      "date": "2025-07-17 14:00:00",
+      "close": 118796.3
+    },
+    {
+      "date": "2025-07-17 15:00:00",
+      "close": 118911.2
+    },
+    {
+      "date": "2025-07-17 16:00:00",
+      "close": 118595.5
+    },
+    {
+      "date": "2025-07-17 17:00:00",
+      "close": 119313.0
+    },
+    {
+      "date": "2025-07-17 18:00:00",
+      "close": 119639.2
+    },
+    {
+      "date": "2025-07-17 19:00:00",
+      "close": 119000.0
+    },
+    {
+      "date": "2025-07-17 20:00:00",
+      "close": 119480.9
+    },
+    {
+      "date": "2025-07-17 21:00:00",
+      "close": 120318.0
+    },
+    {
+      "date": "2025-07-17 22:00:00",
+      "close": 119804.9
+    },
+    {
+      "date": "2025-07-17 23:00:00",
+      "close": 119218.7
+    },
+    {
+      "date": "2025-07-18 00:00:00",
+      "close": 119782.9
+    },
+    {
+      "date": "2025-07-18 01:00:00",
+      "close": 120400.6
+    },
+    {
+      "date": "2025-07-18 02:00:00",
+      "close": 120140.7
+    },
+    {
+      "date": "2025-07-18 03:00:00",
+      "close": 120257.9
+    },
+    {
+      "date": "2025-07-18 04:00:00",
+      "close": 120460.5
+    },
+    {
+      "date": "2025-07-18 05:00:00",
+      "close": 120640.6
+    },
+    {
+      "date": "2025-07-18 06:00:00",
+      "close": 120293.9
+    },
+    {
+      "date": "2025-07-18 07:00:00",
+      "close": 119420.0
+    },
+    {
+      "date": "2025-07-18 08:00:00",
+      "close": 118686.0
+    },
+    {
+      "date": "2025-07-18 09:00:00",
+      "close": 118935.7
+    },
+    {
+      "date": "2025-07-18 10:00:00",
+      "close": 119286.7
+    },
+    {
+      "date": "2025-07-18 11:00:00",
+      "close": 119222.7
+    },
+    {
+      "date": "2025-07-18 12:00:00",
+      "close": 119485.8
+    },
+    {
+      "date": "2025-07-18 13:00:00",
+      "close": 118828.2
+    },
+    {
+      "date": "2025-07-18 14:00:00",
+      "close": 118148.8
+    },
+    {
+      "date": "2025-07-18 15:00:00",
+      "close": 117866.2
+    },
+    {
+      "date": "2025-07-18 16:00:00",
+      "close": 117575.2
+    },
+    {
+      "date": "2025-07-18 17:00:00",
+      "close": 117612.1
+    },
+    {
+      "date": "2025-07-18 18:00:00",
+      "close": 117323.6
+    },
+    {
+      "date": "2025-07-18 19:00:00",
+      "close": 117380.8
+    },
+    {
+      "date": "2025-07-18 20:00:00",
+      "close": 117400.1
+    },
+    {
+      "date": "2025-07-18 21:00:00",
+      "close": 117691.3
+    },
+    {
+      "date": "2025-07-18 22:00:00",
+      "close": 117695.9
+    },
+    {
+      "date": "2025-07-18 23:00:00",
+      "close": 117930.1
+    },
+    {
+      "date": "2025-07-19 00:00:00",
+      "close": 117753.5
+    },
+    {
+      "date": "2025-07-19 01:00:00",
+      "close": 118056.2
+    },
+    {
+      "date": "2025-07-19 02:00:00",
+      "close": 118224.0
+    },
+    {
+      "date": "2025-07-19 03:00:00",
+      "close": 118349.6
+    },
+    {
+      "date": "2025-07-19 04:00:00",
+      "close": 118159.8
+    },
+    {
+      "date": "2025-07-19 05:00:00",
+      "close": 118220.5
+    },
+    {
+      "date": "2025-07-19 06:00:00",
+      "close": 118189.7
+    },
+    {
+      "date": "2025-07-19 07:00:00",
+      "close": 118175.8
+    },
+    {
+      "date": "2025-07-19 08:00:00",
+      "close": 118100.1
+    },
+    {
+      "date": "2025-07-19 09:00:00",
+      "close": 118241.0
+    },
+    {
+      "date": "2025-07-19 10:00:00",
+      "close": 118448.5
+    },
+    {
+      "date": "2025-07-19 11:00:00",
+      "close": 118330.4
+    },
+    {
+      "date": "2025-07-19 12:00:00",
+      "close": 118244.1
+    },
+    {
+      "date": "2025-07-19 13:00:00",
+      "close": 118200.0
+    },
+    {
+      "date": "2025-07-19 14:00:00",
+      "close": 117683.9
+    },
+    {
+      "date": "2025-07-19 15:00:00",
+      "close": 118058.2
+    },
+    {
+      "date": "2025-07-19 16:00:00",
+      "close": 117985.6
+    },
+    {
+      "date": "2025-07-19 17:00:00",
+      "close": 117807.5
+    },
+    {
+      "date": "2025-07-19 18:00:00",
+      "close": 117857.6
+    },
+    {
+      "date": "2025-07-19 19:00:00",
+      "close": 118005.8
+    },
+    {
+      "date": "2025-07-19 20:00:00",
+      "close": 117722.0
+    },
+    {
+      "date": "2025-07-19 21:00:00",
+      "close": 117699.0
+    },
+    {
+      "date": "2025-07-19 22:00:00",
+      "close": 117724.8
+    }
+  ],
+  "indicator_data": [
+    {
+      "indicator_name": "MACD",
+      "params": {
+        "short_period": 12,
+        "long_period": 26,
+        "signal_period": 9
+      },
+      "status": "ok",
+      "values": [
+        {
+          "timestamp": "2025-07-15 19:00:00",
+          "MACD": -694.9430290232121,
+          "Signal": -725.6281617147293,
+          "Histogram": 30.685132691517197
+        },
+        {
+          "timestamp": "2025-07-15 20:00:00",
+          "MACD": -697.13994620413,
+          "Signal": -719.9305186126095,
+          "Histogram": 22.790572408479534
+        },
+        {
+          "timestamp": "2025-07-15 21:00:00",
+          "MACD": -597.2800956056599,
+          "Signal": -695.4004340112197,
+          "Histogram": 98.12033840555978
+        },
+        {
+          "timestamp": "2025-07-15 22:00:00",
+          "MACD": -492.037419545828,
+          "Signal": -654.7278311181414,
+          "Histogram": 162.69041157231334
+        },
+        {
+          "timestamp": "2025-07-15 23:00:00",
+          "MACD": -410.46053750983265,
+          "Signal": -605.8743723964797,
+          "Histogram": 195.413834886647
+        },
+        {
+          "timestamp": "2025-07-16 00:00:00",
+          "MACD": -311.4922050028981,
+          "Signal": -546.9979389177633,
+          "Histogram": 235.50573391486523
+        },
+        {
+          "timestamp": "2025-07-16 01:00:00",
+          "MACD": -260.7404663720663,
+          "Signal": -489.746444408624,
+          "Histogram": 229.00597803655768
+        },
+        {
+          "timestamp": "2025-07-16 02:00:00",
+          "MACD": -250.00288805591117,
+          "Signal": -441.7977331380814,
+          "Histogram": 191.79484508217024
+        },
+        {
+          "timestamp": "2025-07-16 03:00:00",
+          "MACD": -226.38452455402876,
+          "Signal": -398.71509142127087,
+          "Histogram": 172.3305668672421
+        },
+        {
+          "timestamp": "2025-07-16 04:00:00",
+          "MACD": -196.14239332542638,
+          "Signal": -358.200551802102,
+          "Histogram": 162.0581584766756
+        },
+        {
+          "timestamp": "2025-07-16 05:00:00",
+          "MACD": -149.72770483208296,
+          "Signal": -316.5059824080982,
+          "Histogram": 166.77827757601523
+        },
+        {
+          "timestamp": "2025-07-16 06:00:00",
+          "MACD": -79.75576706854918,
+          "Signal": -269.1559393401884,
+          "Histogram": 189.40017227163924
+        },
+        {
+          "timestamp": "2025-07-16 07:00:00",
+          "MACD": -29.729254381236387,
+          "Signal": -221.27060234839803,
+          "Histogram": 191.54134796716164
+        },
+        {
+          "timestamp": "2025-07-16 08:00:00",
+          "MACD": 50.471908030551276,
+          "Signal": -166.92210027260816,
+          "Histogram": 217.39400830315944
+        },
+        {
+          "timestamp": "2025-07-16 09:00:00",
+          "MACD": 152.41103062633192,
+          "Signal": -103.05547409282015,
+          "Histogram": 255.46650471915206
+        },
+        {
+          "timestamp": "2025-07-16 10:00:00",
+          "MACD": 194.06919185518927,
+          "Signal": -43.63054090321826,
+          "Histogram": 237.69973275840755
+        },
+        {
+          "timestamp": "2025-07-16 11:00:00",
+          "MACD": 226.57778892219358,
+          "Signal": 10.411125061864105,
+          "Histogram": 216.16666386032946
+        },
+        {
+          "timestamp": "2025-07-16 12:00:00",
+          "MACD": 236.06369501260633,
+          "Signal": 55.541639052012556,
+          "Histogram": 180.52205596059378
+        },
+        {
+          "timestamp": "2025-07-16 13:00:00",
+          "MACD": 245.97471892944304,
+          "Signal": 93.62825502749865,
+          "Histogram": 152.3464639019444
+        },
+        {
+          "timestamp": "2025-07-16 14:00:00",
+          "MACD": 280.0295129505539,
+          "Signal": 130.9085066121097,
+          "Histogram": 149.1210063384442
+        },
+        {
+          "timestamp": "2025-07-16 15:00:00",
+          "MACD": 305.89660783376894,
+          "Signal": 165.90612685644157,
+          "Histogram": 139.99048097732737
+        },
+        {
+          "timestamp": "2025-07-16 16:00:00",
+          "MACD": 338.0329743908951,
+          "Signal": 200.3314963633323,
+          "Histogram": 137.7014780275628
+        },
+        {
+          "timestamp": "2025-07-16 17:00:00",
+          "MACD": 343.739438509554,
+          "Signal": 229.01308479257665,
+          "Histogram": 114.72635371697737
+        },
+        {
+          "timestamp": "2025-07-16 18:00:00",
+          "MACD": 379.41670312092174,
+          "Signal": 259.0938084582457,
+          "Histogram": 120.32289466267605
+        },
+        {
+          "timestamp": "2025-07-16 19:00:00",
+          "MACD": 381.1556802025152,
+          "Signal": 283.5061828070996,
+          "Histogram": 97.64949739541561
+        },
+        {
+          "timestamp": "2025-07-16 20:00:00",
+          "MACD": 433.2890020732448,
+          "Signal": 313.46274666032866,
+          "Histogram": 119.82625541291611
+        },
+        {
+          "timestamp": "2025-07-16 21:00:00",
+          "MACD": 419.0277698970749,
+          "Signal": 334.57575130767793,
+          "Histogram": 84.45201858939697
+        },
+        {
+          "timestamp": "2025-07-16 22:00:00",
+          "MACD": 352.16865329297434,
+          "Signal": 338.0943317047372,
+          "Histogram": 14.074321588237126
+        },
+        {
+          "timestamp": "2025-07-16 23:00:00",
+          "MACD": 293.57910434910445,
+          "Signal": 329.1912862336107,
+          "Histogram": -35.61218188450624
+        },
+        {
+          "timestamp": "2025-07-17 00:00:00",
+          "MACD": 264.895222933279,
+          "Signal": 316.33207357354433,
+          "Histogram": -51.436850640265334
+        },
+        {
+          "timestamp": "2025-07-17 01:00:00",
+          "MACD": 179.25519934043405,
+          "Signal": 288.9166987269223,
+          "Histogram": -109.66149938648823
+        },
+        {
+          "timestamp": "2025-07-17 02:00:00",
+          "MACD": 124.33888228802243,
+          "Signal": 256.00113543914233,
+          "Histogram": -131.6622531511199
+        },
+        {
+          "timestamp": "2025-07-17 03:00:00",
+          "MACD": 62.4421793861402,
+          "Signal": 217.2893442285419,
+          "Histogram": -154.8471648424017
+        },
+        {
+          "timestamp": "2025-07-17 04:00:00",
+          "MACD": 44.307244868876296,
+          "Signal": 182.69292435660878,
+          "Histogram": -138.3856794877325
+        },
+        {
+          "timestamp": "2025-07-17 05:00:00",
+          "MACD": 37.3478831260727,
+          "Signal": 153.62391611050157,
+          "Histogram": -116.27603298442887
+        },
+        {
+          "timestamp": "2025-07-17 06:00:00",
+          "MACD": 20.166071126703173,
+          "Signal": 126.93234711374188,
+          "Histogram": -106.76627598703871
+        },
+        {
+          "timestamp": "2025-07-17 07:00:00",
+          "MACD": -2.6751328172540525,
+          "Signal": 101.0108511275427,
+          "Histogram": -103.68598394479675
+        },
+        {
+          "timestamp": "2025-07-17 08:00:00",
+          "MACD": -19.072370860914816,
+          "Signal": 76.99420672985119,
+          "Histogram": -96.066577590766
+        },
+        {
+          "timestamp": "2025-07-17 09:00:00",
+          "MACD": 5.304406977928011,
+          "Signal": 62.65624677946656,
+          "Histogram": -57.351839801538546
+        },
+        {
+          "timestamp": "2025-07-17 10:00:00",
+          "MACD": -10.198737529834034,
+          "Signal": 48.08524991760644,
+          "Histogram": -58.283987447440474
+        },
+        {
+          "timestamp": "2025-07-17 11:00:00",
+          "MACD": -51.60093066236004,
+          "Signal": 28.148013801613146,
+          "Histogram": -79.74894446397319
+        },
+        {
+          "timestamp": "2025-07-17 12:00:00",
+          "MACD": -93.00719672731066,
+          "Signal": 3.916971695828387,
+          "Histogram": -96.92416842313904
+        },
+        {
+          "timestamp": "2025-07-17 13:00:00",
+          "MACD": -90.99549980694428,
+          "Signal": -15.065522604726148,
+          "Histogram": -75.92997720221814
+        },
+        {
+          "timestamp": "2025-07-17 14:00:00",
+          "MACD": -48.77556062651274,
+          "Signal": -21.807530209083467,
+          "Histogram": -26.968030417429276
+        },
+        {
+          "timestamp": "2025-07-17 15:00:00",
+          "MACD": -5.975601888276287,
+          "Signal": -18.64114454492203,
+          "Histogram": 12.665542656645744
+        },
+        {
+          "timestamp": "2025-07-17 16:00:00",
+          "MACD": 2.4411817600775976,
+          "Signal": -14.424679283922107,
+          "Histogram": 16.865861043999704
+        },
+        {
+          "timestamp": "2025-07-17 17:00:00",
+          "MACD": 66.2441754246247,
+          "Signal": 1.7090916577872548,
+          "Histogram": 64.53508376683745
+        },
+        {
+          "timestamp": "2025-07-17 18:00:00",
+          "MACD": 141.49900891764264,
+          "Signal": 29.667075109758333,
+          "Histogram": 111.83193380788431
+        },
+        {
+          "timestamp": "2025-07-17 19:00:00",
+          "MACD": 147.85651084047277,
+          "Signal": 53.30496225590122,
+          "Histogram": 94.55154858457155
+        },
+        {
+          "timestamp": "2025-07-17 20:00:00",
+          "MACD": 189.51487832028943,
+          "Signal": 80.54694546877886,
+          "Histogram": 108.96793285151057
+        },
+        {
+          "timestamp": "2025-07-17 21:00:00",
+          "MACD": 286.7706946840335,
+          "Signal": 121.7916953118298,
+          "Histogram": 164.9789993722037
+        },
+        {
+          "timestamp": "2025-07-17 22:00:00",
+          "MACD": 318.7691753714753,
+          "Signal": 161.1871913237589,
+          "Histogram": 157.5819840477164
+        },
+        {
+          "timestamp": "2025-07-17 23:00:00",
+          "MACD": 293.4441197804699,
+          "Signal": 187.6385770151011,
+          "Histogram": 105.80554276536881
+        },
+        {
+          "timestamp": "2025-07-18 00:00:00",
+          "MACD": 315.26586688401585,
+          "Signal": 213.16403498888405,
+          "Histogram": 102.1018318951318
+        },
+        {
+          "timestamp": "2025-07-18 01:00:00",
+          "MACD": 378.0451175562048,
+          "Signal": 246.1402515023482,
+          "Histogram": 131.90486605385658
+        },
+        {
+          "timestamp": "2025-07-18 02:00:00",
+          "MACD": 402.1901701619936,
+          "Signal": 277.3502352342773,
+          "Histogram": 124.83993492771629
+        },
+        {
+          "timestamp": "2025-07-18 03:00:00",
+          "MACD": 425.87315815612965,
+          "Signal": 307.0548198186478,
+          "Histogram": 118.81833833748186
+        },
+        {
+          "timestamp": "2025-07-18 04:00:00",
+          "MACD": 455.73677372811653,
+          "Signal": 336.79121060054155,
+          "Histogram": 118.94556312757499
+        },
+        {
+          "timestamp": "2025-07-18 05:00:00",
+          "MACD": 488.3075634357665,
+          "Signal": 367.09448116758654,
+          "Histogram": 121.21308226817996
+        },
+        {
+          "timestamp": "2025-07-18 06:00:00",
+          "MACD": 480.6042498057359,
+          "Signal": 389.79643489521646,
+          "Histogram": 90.80781491051943
+        },
+        {
+          "timestamp": "2025-07-18 07:00:00",
+          "MACD": 399.37909810351266,
+          "Signal": 391.71296753687574,
+          "Histogram": 7.666130566636923
+        },
+        {
+          "timestamp": "2025-07-18 08:00:00",
+          "MACD": 272.637123429653,
+          "Signal": 367.89779871543124,
+          "Histogram": -95.26067528577823
+        },
+        {
+          "timestamp": "2025-07-18 09:00:00",
+          "MACD": 190.1499680762936,
+          "Signal": 332.3482325876037,
+          "Histogram": -142.19826451131013
+        },
+        {
+          "timestamp": "2025-07-18 10:00:00",
+          "MACD": 151.35632820597675,
+          "Signal": 296.1498517112783,
+          "Histogram": -144.79352350530155
+        },
+        {
+          "timestamp": "2025-07-18 11:00:00",
+          "MACD": 114.13217926819925,
+          "Signal": 259.74631722266247,
+          "Histogram": -145.61413795446322
+        },
+        {
+          "timestamp": "2025-07-18 12:00:00",
+          "MACD": 104.65534258738626,
+          "Signal": 228.72812229560725,
+          "Histogram": -124.07277970822099
+        },
+        {
+          "timestamp": "2025-07-18 13:00:00",
+          "MACD": 43.579697409120854,
+          "Signal": 191.69843731830997,
+          "Histogram": -148.11873990918912
+        },
+        {
+          "timestamp": "2025-07-18 14:00:00",
+          "MACD": -58.965377273678314,
+          "Signal": 141.56567439991233,
+          "Histogram": -200.53105167359064
+        },
+        {
+          "timestamp": "2025-07-18 15:00:00",
+          "MACD": -161.17857963457936,
+          "Signal": 81.016823593014,
+          "Histogram": -242.19540322759337
+        },
+        {
+          "timestamp": "2025-07-18 16:00:00",
+          "MACD": -262.6370307192119,
+          "Signal": 12.286052730568812,
+          "Histogram": -274.92308344978073
+        },
+        {
+          "timestamp": "2025-07-18 17:00:00",
+          "MACD": -336.19066583430686,
+          "Signal": -57.409290982406326,
+          "Histogram": -278.7813748519005
+        },
+        {
+          "timestamp": "2025-07-18 18:00:00",
+          "MACD": -413.00117008876987,
+          "Signal": -128.52766680367904,
+          "Histogram": -284.4735032850908
+        },
+        {
+          "timestamp": "2025-07-18 19:00:00",
+          "MACD": -463.91081108483195,
+          "Signal": -195.60429565990964,
+          "Histogram": -268.3065154249223
+        },
+        {
+          "timestamp": "2025-07-18 20:00:00",
+          "MACD": -496.97094792123244,
+          "Signal": -255.8776261121742,
+          "Histogram": -241.09332180905824
+        },
+        {
+          "timestamp": "2025-07-18 21:00:00",
+          "MACD": -493.9796483153332,
+          "Signal": -303.49803055280603,
+          "Histogram": -190.48161776252715
+        },
+        {
+          "timestamp": "2025-07-18 22:00:00",
+          "MACD": -485.63968824443873,
+          "Signal": -339.92636209113255,
+          "Histogram": -145.71332615330618
+        },
+        {
+          "timestamp": "2025-07-18 23:00:00",
+          "MACD": -454.8885549895058,
+          "Signal": -362.91880067080723,
+          "Histogram": -91.96975431869856
+        },
+        {
+          "timestamp": "2025-07-19 00:00:00",
+          "MACD": -439.69962090101035,
+          "Signal": -378.2749647168479,
+          "Histogram": -61.42465618416247
+        },
+        {
+          "timestamp": "2025-07-19 01:00:00",
+          "MACD": -398.64162842826045,
+          "Signal": -382.34829745913044,
+          "Histogram": -16.29333096913001
+        },
+        {
+          "timestamp": "2025-07-19 02:00:00",
+          "MACD": -348.5450060814619,
+          "Signal": -375.58763918359676,
+          "Histogram": 27.042633102134857
+        },
+        {
+          "timestamp": "2025-07-19 03:00:00",
+          "MACD": -295.3041195581318,
+          "Signal": -359.5309352585038,
+          "Histogram": 64.22681570037201
+        },
+        {
+          "timestamp": "2025-07-19 04:00:00",
+          "MACD": -265.36662590529886,
+          "Signal": -340.69807338786285,
+          "Histogram": 75.33144748256399
+        },
+        {
+          "timestamp": "2025-07-19 05:00:00",
+          "MACD": -234.04503827521694,
+          "Signal": -319.36746636533366,
+          "Histogram": 85.32242809011672
+        },
+        {
+          "timestamp": "2025-07-19 06:00:00",
+          "MACD": -209.29513300066174,
+          "Signal": -297.3529996923993,
+          "Histogram": 88.05786669173756
+        },
+        {
+          "timestamp": "2025-07-19 07:00:00",
+          "MACD": -188.62788376274693,
+          "Signal": -275.60797650646884,
+          "Histogram": 86.98009274372191
+        },
+        {
+          "timestamp": "2025-07-19 08:00:00",
+          "MACD": -176.32473539956845,
+          "Signal": -255.7513282850888,
+          "Histogram": 79.42659288552034
+        },
+        {
+          "timestamp": "2025-07-19 09:00:00",
+          "MACD": -153.4362318626081,
+          "Signal": -235.28830900059268,
+          "Histogram": 81.85207713798457
+        },
+        {
+          "timestamp": "2025-07-19 10:00:00",
+          "MACD": -117.20237602182897,
+          "Signal": -211.67112240483993,
+          "Histogram": 94.46874638301097
+        },
+        {
+          "timestamp": "2025-07-19 11:00:00",
+          "MACD": -96.89947043692518,
+          "Signal": -188.71679201125698,
+          "Histogram": 91.8173215743318
+        },
+        {
+          "timestamp": "2025-07-19 12:00:00",
+          "MACD": -86.77269859191438,
+          "Signal": -168.32797332738846,
+          "Histogram": 81.55527473547409
+        },
+        {
+          "timestamp": "2025-07-19 13:00:00",
+          "MACD": -81.36770414248167,
+          "Signal": -150.9359194904071,
+          "Histogram": 69.56821534792542
+        },
+        {
+          "timestamp": "2025-07-19 14:00:00",
+          "MACD": -117.3761249682284,
+          "Signal": -144.22396058597135,
+          "Histogram": 26.84783561774296
+        },
+        {
+          "timestamp": "2025-07-19 15:00:00",
+          "MACD": -114.39154156995937,
+          "Signal": -138.25747678276898,
+          "Histogram": 23.865935212809603
+        },
+        {
+          "timestamp": "2025-07-19 16:00:00",
+          "MACD": -116.54103843378834,
+          "Signal": -133.91418911297285,
+          "Histogram": 17.373150679184505
+        },
+        {
+          "timestamp": "2025-07-19 17:00:00",
+          "MACD": -131.10442157856596,
+          "Signal": -133.35223560609148,
+          "Histogram": 2.2478140275255214
+        },
+        {
+          "timestamp": "2025-07-19 18:00:00",
+          "MACD": -137.0238309190172,
+          "Signal": -134.08655466867663,
+          "Histogram": -2.937276250340574
+        },
+        {
+          "timestamp": "2025-07-19 19:00:00",
+          "MACD": -128.27779742883286,
+          "Signal": -132.92480322070787,
+          "Histogram": 4.647005791875017
+        },
+        {
+          "timestamp": "2025-07-19 20:00:00",
+          "MACD": -142.60295298576239,
+          "Signal": -134.86043317371877,
+          "Histogram": -7.742519812043611
+        },
+        {
+          "timestamp": "2025-07-19 21:00:00",
+          "MACD": -154.03601841657655,
+          "Signal": -138.69555022229034,
+          "Histogram": -15.340468194286217
+        },
+        {
+          "timestamp": "2025-07-19 22:00:00",
+          "MACD": -159.1800324331125,
+          "Signal": -142.7924466644548,
+          "Histogram": -16.387585768657715
+        }
+      ]
+    },
+    {
+      "indicator_name": "RSI",
+      "params": {
+        "period": 14
+      },
+      "status": "ok",
+      "values": [
+        {
+          "timestamp": "2025-07-15 19:00:00",
+          "RSI": 38.55373110276367
+        },
+        {
+          "timestamp": "2025-07-15 20:00:00",
+          "RSI": 38.3610821083896
+        },
+        {
+          "timestamp": "2025-07-15 21:00:00",
+          "RSI": 49.023225733669186
+        },
+        {
+          "timestamp": "2025-07-15 22:00:00",
+          "RSI": 50.992500632028346
+        },
+        {
+          "timestamp": "2025-07-15 23:00:00",
+          "RSI": 50.320315537387124
+        },
+        {
+          "timestamp": "2025-07-16 00:00:00",
+          "RSI": 53.41769637587074
+        },
+        {
+          "timestamp": "2025-07-16 01:00:00",
+          "RSI": 50.06087462480465
+        },
+        {
+          "timestamp": "2025-07-16 02:00:00",
+          "RSI": 46.72576176010515
+        },
+        {
+          "timestamp": "2025-07-16 03:00:00",
+          "RSI": 48.16205564976362
+        },
+        {
+          "timestamp": "2025-07-16 04:00:00",
+          "RSI": 49.25400622124152
+        },
+        {
+          "timestamp": "2025-07-16 05:00:00",
+          "RSI": 51.70474749299733
+        },
+        {
+          "timestamp": "2025-07-16 06:00:00",
+          "RSI": 55.323168807677554
+        },
+        {
+          "timestamp": "2025-07-16 07:00:00",
+          "RSI": 54.5364118832042
+        },
+        {
+          "timestamp": "2025-07-16 08:00:00",
+          "RSI": 59.01217294781463
+        },
+        {
+          "timestamp": "2025-07-16 09:00:00",
+          "RSI": 62.85454569209786
+        },
+        {
+          "timestamp": "2025-07-16 10:00:00",
+          "RSI": 57.51717609364203
+        },
+        {
+          "timestamp": "2025-07-16 11:00:00",
+          "RSI": 57.73780459174748
+        },
+        {
+          "timestamp": "2025-07-16 12:00:00",
+          "RSI": 55.73147523336646
+        },
+        {
+          "timestamp": "2025-07-16 13:00:00",
+          "RSI": 56.36136353333265
+        },
+        {
+          "timestamp": "2025-07-16 14:00:00",
+          "RSI": 59.826009810827486
+        },
+        {
+          "timestamp": "2025-07-16 15:00:00",
+          "RSI": 60.104733756716335
+        },
+        {
+          "timestamp": "2025-07-16 16:00:00",
+          "RSI": 61.94160588635889
+        },
+        {
+          "timestamp": "2025-07-16 17:00:00",
+          "RSI": 58.96762723345677
+        },
+        {
+          "timestamp": "2025-07-16 18:00:00",
+          "RSI": 63.24160807957415
+        },
+        {
+          "timestamp": "2025-07-16 19:00:00",
+          "RSI": 59.109396323285125
+        },
+        {
+          "timestamp": "2025-07-16 20:00:00",
+          "RSI": 65.26370082168272
+        },
+        {
+          "timestamp": "2025-07-16 21:00:00",
+          "RSI": 56.87275680058964
+        },
+        {
+          "timestamp": "2025-07-16 22:00:00",
+          "RSI": 49.86619090981691
+        },
+        {
+          "timestamp": "2025-07-16 23:00:00",
+          "RSI": 49.582730800914575
+        },
+        {
+          "timestamp": "2025-07-17 00:00:00",
+          "RSI": 52.319042843295776
+        },
+        {
+          "timestamp": "2025-07-17 01:00:00",
+          "RSI": 44.68099679346606
+        },
+        {
+          "timestamp": "2025-07-17 02:00:00",
+          "RSI": 46.66393039376269
+        },
+        {
+          "timestamp": "2025-07-17 03:00:00",
+          "RSI": 44.55338271707245
+        },
+        {
+          "timestamp": "2025-07-17 04:00:00",
+          "RSI": 48.97744171324032
+        },
+        {
+          "timestamp": "2025-07-17 05:00:00",
+          "RSI": 50.0485598047336
+        },
+        {
+          "timestamp": "2025-07-17 06:00:00",
+          "RSI": 48.45167998339244
+        },
+        {
+          "timestamp": "2025-07-17 07:00:00",
+          "RSI": 47.140527102288765
+        },
+        {
+          "timestamp": "2025-07-17 08:00:00",
+          "RSI": 47.38649634577996
+        },
+        {
+          "timestamp": "2025-07-17 09:00:00",
+          "RSI": 53.288180873773904
+        },
+        {
+          "timestamp": "2025-07-17 10:00:00",
+          "RSI": 47.88861044637584
+        },
+        {
+          "timestamp": "2025-07-17 11:00:00",
+          "RSI": 43.82226982359591
+        },
+        {
+          "timestamp": "2025-07-17 12:00:00",
+          "RSI": 42.55610255179349
+        },
+        {
+          "timestamp": "2025-07-17 13:00:00",
+          "RSI": 48.18915716237425
+        },
+        {
+          "timestamp": "2025-07-17 14:00:00",
+          "RSI": 53.95646856158334
+        },
+        {
+          "timestamp": "2025-07-17 15:00:00",
+          "RSI": 55.19932999608122
+        },
+        {
+          "timestamp": "2025-07-17 16:00:00",
+          "RSI": 51.1165597565498
+        },
+        {
+          "timestamp": "2025-07-17 17:00:00",
+          "RSI": 58.60952256449035
+        },
+        {
+          "timestamp": "2025-07-17 18:00:00",
+          "RSI": 61.49894585838097
+        },
+        {
+          "timestamp": "2025-07-17 19:00:00",
+          "RSI": 53.602474483021744
+        },
+        {
+          "timestamp": "2025-07-17 20:00:00",
+          "RSI": 57.97448439872863
+        },
+        {
+          "timestamp": "2025-07-17 21:00:00",
+          "RSI": 64.28351061683568
+        },
+        {
+          "timestamp": "2025-07-17 22:00:00",
+          "RSI": 58.48759077960651
+        },
+        {
+          "timestamp": "2025-07-17 23:00:00",
+          "RSI": 52.64738594842997
+        },
+        {
+          "timestamp": "2025-07-18 00:00:00",
+          "RSI": 57.08866743376142
+        },
+        {
+          "timestamp": "2025-07-18 01:00:00",
+          "RSI": 61.36148163170087
+        },
+        {
+          "timestamp": "2025-07-18 02:00:00",
+          "RSI": 58.71245917777317
+        },
+        {
+          "timestamp": "2025-07-18 03:00:00",
+          "RSI": 59.56027976858509
+        },
+        {
+          "timestamp": "2025-07-18 04:00:00",
+          "RSI": 61.049287203347674
+        },
+        {
+          "timestamp": "2025-07-18 05:00:00",
+          "RSI": 62.37551534490749
+        },
+        {
+          "timestamp": "2025-07-18 06:00:00",
+          "RSI": 58.26288542663927
+        },
+        {
+          "timestamp": "2025-07-18 07:00:00",
+          "RSI": 49.41815515142702
+        },
+        {
+          "timestamp": "2025-07-18 08:00:00",
+          "RSI": 43.451675836623124
+        },
+        {
+          "timestamp": "2025-07-18 09:00:00",
+          "RSI": 45.84698416486385
+        },
+        {
+          "timestamp": "2025-07-18 10:00:00",
+          "RSI": 49.11019920450127
+        },
+        {
+          "timestamp": "2025-07-18 11:00:00",
+          "RSI": 48.535892865140525
+        },
+        {
+          "timestamp": "2025-07-18 12:00:00",
+          "RSI": 51.06915531045931
+        },
+        {
+          "timestamp": "2025-07-18 13:00:00",
+          "RSI": 45.094352973661614
+        },
+        {
+          "timestamp": "2025-07-18 14:00:00",
+          "RSI": 39.90047909771406
+        },
+        {
+          "timestamp": "2025-07-18 15:00:00",
+          "RSI": 37.942849678277035
+        },
+        {
+          "timestamp": "2025-07-18 16:00:00",
+          "RSI": 35.98499978453968
+        },
+        {
+          "timestamp": "2025-07-18 17:00:00",
+          "RSI": 36.432919084418856
+        },
+        {
+          "timestamp": "2025-07-18 18:00:00",
+          "RSI": 34.405912146653975
+        },
+        {
+          "timestamp": "2025-07-18 19:00:00",
+          "RSI": 35.17598547850948
+        },
+        {
+          "timestamp": "2025-07-18 20:00:00",
+          "RSI": 35.451345283588914
+        },
+        {
+          "timestamp": "2025-07-18 21:00:00",
+          "RSI": 39.618927625461545
+        },
+        {
+          "timestamp": "2025-07-18 22:00:00",
+          "RSI": 39.685175539248945
+        },
+        {
+          "timestamp": "2025-07-18 23:00:00",
+          "RSI": 43.10764096204435
+        },
+        {
+          "timestamp": "2025-07-19 00:00:00",
+          "RSI": 41.20877964885233
+        },
+        {
+          "timestamp": "2025-07-19 01:00:00",
+          "RSI": 45.62964759421119
+        },
+        {
+          "timestamp": "2025-07-19 02:00:00",
+          "RSI": 47.96552714875184
+        },
+        {
+          "timestamp": "2025-07-19 03:00:00",
+          "RSI": 49.70723836127537
+        },
+        {
+          "timestamp": "2025-07-19 04:00:00",
+          "RSI": 47.13944144580729
+        },
+        {
+          "timestamp": "2025-07-19 05:00:00",
+          "RSI": 48.063482003625424
+        },
+        {
+          "timestamp": "2025-07-19 06:00:00",
+          "RSI": 47.60871136133343
+        },
+        {
+          "timestamp": "2025-07-19 07:00:00",
+          "RSI": 47.39077995867371
+        },
+        {
+          "timestamp": "2025-07-19 08:00:00",
+          "RSI": 46.15173467352772
+        },
+        {
+          "timestamp": "2025-07-19 09:00:00",
+          "RSI": 48.83325392433353
+        },
+        {
+          "timestamp": "2025-07-19 10:00:00",
+          "RSI": 52.578467410596765
+        },
+        {
+          "timestamp": "2025-07-19 11:00:00",
+          "RSI": 50.32083566072606
+        },
+        {
+          "timestamp": "2025-07-19 12:00:00",
+          "RSI": 48.676061796017855
+        },
+        {
+          "timestamp": "2025-07-19 13:00:00",
+          "RSI": 47.8159719569164
+        },
+        {
+          "timestamp": "2025-07-19 14:00:00",
+          "RSI": 39.10706649696382
+        },
+        {
+          "timestamp": "2025-07-19 15:00:00",
+          "RSI": 46.69049947505439
+        },
+        {
+          "timestamp": "2025-07-19 16:00:00",
+          "RSI": 45.50670628792352
+        },
+        {
+          "timestamp": "2025-07-19 17:00:00",
+          "RSI": 42.6499214380613
+        },
+        {
+          "timestamp": "2025-07-19 18:00:00",
+          "RSI": 43.720239517107174
+        },
+        {
+          "timestamp": "2025-07-19 19:00:00",
+          "RSI": 46.8784752119677
+        },
+        {
+          "timestamp": "2025-07-19 20:00:00",
+          "RSI": 42.016015332505624
+        },
+        {
+          "timestamp": "2025-07-19 21:00:00",
+          "RSI": 41.63906541271332
+        },
+        {
+          "timestamp": "2025-07-19 22:00:00",
+          "RSI": 42.26479409778273
+        }
+      ]
+    },
+    {
+      "indicator_name": "Stochastic RSI (60,10)",
+      "params": {
+        "rsi_period": 60,
+        "stoch_period": 60,
+        "k_period": 10,
+        "d_period": 10
+      },
+      "status": "ok",
+      "values": [
+        {
+          "timestamp": "2025-07-15 19:00:00",
+          "StochK": 7.376808470314218,
+          "StochD": 3.913358715426648
+        },
+        {
+          "timestamp": "2025-07-15 20:00:00",
+          "StochK": 7.493288235310556,
+          "StochD": 4.570038911790263
+        },
+        {
+          "timestamp": "2025-07-15 21:00:00",
+          "StochK": 8.68780171802356,
+          "StochD": 5.301923349544343
+        },
+        {
+          "timestamp": "2025-07-15 22:00:00",
+          "StochK": 10.04609030451742,
+          "StochD": 6.117845532900029
+        },
+        {
+          "timestamp": "2025-07-15 23:00:00",
+          "StochK": 10.226200560077267,
+          "StochD": 6.790291743014319
+        },
+        {
+          "timestamp": "2025-07-16 00:00:00",
+          "StochK": 12.381805587687436,
+          "StochD": 7.718588074665209
+        },
+        {
+          "timestamp": "2025-07-16 01:00:00",
+          "StochK": 13.710693222111619,
+          "StochD": 8.75286842156808
+        },
+        {
+          "timestamp": "2025-07-16 02:00:00",
+          "StochK": 13.824045514943284,
+          "StochD": 9.672181019092367
+        },
+        {
+          "timestamp": "2025-07-16 03:00:00",
+          "StochK": 13.888814674100624,
+          "StochD": 10.45176140869184
+        },
+        {
+          "timestamp": "2025-07-16 04:00:00",
+          "StochK": 14.738514099237722,
+          "StochD": 11.23740623863237
+        },
+        {
+          "timestamp": "2025-07-16 05:00:00",
+          "StochK": 16.132331100113266,
+          "StochD": 12.112958501612276
+        },
+        {
+          "timestamp": "2025-07-16 06:00:00",
+          "StochK": 17.937614778549495,
+          "StochD": 13.157391155936171
+        },
+        {
+          "timestamp": "2025-07-16 07:00:00",
+          "StochK": 18.497080797129975,
+          "StochD": 14.138319063846811
+        },
+        {
+          "timestamp": "2025-07-16 08:00:00",
+          "StochK": 19.299178164180773,
+          "StochD": 15.063627849813145
+        },
+        {
+          "timestamp": "2025-07-16 09:00:00",
+          "StochK": 20.63674292397048,
+          "StochD": 16.104682086202466
+        },
+        {
+          "timestamp": "2025-07-16 10:00:00",
+          "StochK": 21.127268128679713,
+          "StochD": 16.979228340301695
+        },
+        {
+          "timestamp": "2025-07-16 11:00:00",
+          "StochK": 22.025424935763887,
+          "StochD": 17.810701511666924
+        },
+        {
+          "timestamp": "2025-07-16 12:00:00",
+          "StochK": 23.14019695225657,
+          "StochD": 18.74231665539825
+        },
+        {
+          "timestamp": "2025-07-16 13:00:00",
+          "StochK": 24.16615913124388,
+          "StochD": 19.77005110111258
+        },
+        {
+          "timestamp": "2025-07-16 14:00:00",
+          "StochK": 25.425411690571533,
+          "StochD": 20.838740860245956
+        },
+        {
+          "timestamp": "2025-07-16 15:00:00",
+          "StochK": 26.462960885311816,
+          "StochD": 21.87180383876581
+        },
+        {
+          "timestamp": "2025-07-16 16:00:00",
+          "StochK": 27.300311918734604,
+          "StochD": 22.80807355278432
+        },
+        {
+          "timestamp": "2025-07-16 17:00:00",
+          "StochK": 28.034236022906043,
+          "StochD": 23.76178907536193
+        },
+        {
+          "timestamp": "2025-07-16 18:00:00",
+          "StochK": 28.71076488268949,
+          "StochD": 24.7029477472128
+        },
+        {
+          "timestamp": "2025-07-16 19:00:00",
+          "StochK": 28.72524834936374,
+          "StochD": 25.51179828975213
+        },
+        {
+          "timestamp": "2025-07-16 20:00:00",
+          "StochK": 30.35713966186784,
+          "StochD": 26.43478544307094
+        },
+        {
+          "timestamp": "2025-07-16 21:00:00",
+          "StochK": 31.196148098606006,
+          "StochD": 27.351857759355152
+        },
+        {
+          "timestamp": "2025-07-16 22:00:00",
+          "StochK": 31.534058864867188,
+          "StochD": 28.19124395061622
+        },
+        {
+          "timestamp": "2025-07-16 23:00:00",
+          "StochK": 31.774253441451265,
+          "StochD": 28.95205338163695
+        },
+        {
+          "timestamp": "2025-07-17 00:00:00",
+          "StochK": 32.12597574360564,
+          "StochD": 29.622109786940364
+        },
+        {
+          "timestamp": "2025-07-17 01:00:00",
+          "StochK": 31.692430932949623,
+          "StochD": 30.145056791704143
+        },
+        {
+          "timestamp": "2025-07-17 02:00:00",
+          "StochK": 32.13283719856015,
+          "StochD": 30.628309319686696
+        },
+        {
+          "timestamp": "2025-07-17 03:00:00",
+          "StochK": 32.32629360166743,
+          "StochD": 31.057515077562833
+        },
+        {
+          "timestamp": "2025-07-17 04:00:00",
+          "StochK": 33.14015109607732,
+          "StochD": 31.500453698901616
+        },
+        {
+          "timestamp": "2025-07-17 05:00:00",
+          "StochK": 34.355784362891875,
+          "StochD": 32.063507300254436
+        },
+        {
+          "timestamp": "2025-07-17 06:00:00",
+          "StochK": 34.132786865851735,
+          "StochD": 32.441072020652825
+        },
+        {
+          "timestamp": "2025-07-17 07:00:00",
+          "StochK": 34.428681304279536,
+          "StochD": 32.76432534122018
+        },
+        {
+          "timestamp": "2025-07-17 08:00:00",
+          "StochK": 35.55731351178855,
+          "StochD": 33.16665080591231
+        },
+        {
+          "timestamp": "2025-07-17 09:00:00",
+          "StochK": 37.7107668137847,
+          "StochD": 33.76030214314566
+        },
+        {
+          "timestamp": "2025-07-17 10:00:00",
+          "StochK": 38.66533700857151,
+          "StochD": 34.41423826964224
+        },
+        {
+          "timestamp": "2025-07-17 11:00:00",
+          "StochK": 39.92383717712728,
+          "StochD": 35.23737889406001
+        },
+        {
+          "timestamp": "2025-07-17 12:00:00",
+          "StochK": 40.09049220851861,
+          "StochD": 36.03314439505586
+        },
+        {
+          "timestamp": "2025-07-17 13:00:00",
+          "StochK": 41.8644056109859,
+          "StochD": 36.98695559598771
+        },
+        {
+          "timestamp": "2025-07-17 14:00:00",
+          "StochK": 43.95221244692027,
+          "StochD": 38.068161731071996
+        },
+        {
+          "timestamp": "2025-07-17 15:00:00",
+          "StochK": 46.155705234239264,
+          "StochD": 39.24815381820674
+        },
+        {
+          "timestamp": "2025-07-17 16:00:00",
+          "StochK": 47.72498475161043,
+          "StochD": 40.6073736067826
+        },
+        {
+          "timestamp": "2025-07-17 17:00:00",
+          "StochK": 51.46173566595346,
+          "StochD": 42.31067904295
+        },
+        {
+          "timestamp": "2025-07-17 18:00:00",
+          "StochK": 55.88554771062921,
+          "StochD": 44.34350246283407
+        },
+        {
+          "timestamp": "2025-07-17 19:00:00",
+          "StochK": 57.42392165516925,
+          "StochD": 46.31481794697252
+        },
+        {
+          "timestamp": "2025-07-17 20:00:00",
+          "StochK": 60.93888107264244,
+          "StochD": 48.54217235337961
+        },
+        {
+          "timestamp": "2025-07-17 21:00:00",
+          "StochK": 66.9522730385144,
+          "StochD": 51.245015939518325
+        },
+        {
+          "timestamp": "2025-07-17 22:00:00",
+          "StochK": 71.50531272561544,
+          "StochD": 54.38649799122801
+        },
+        {
+          "timestamp": "2025-07-17 23:00:00",
+          "StochK": 73.22921757424146,
+          "StochD": 57.52297918755356
+        },
+        {
+          "timestamp": "2025-07-18 00:00:00",
+          "StochK": 74.96093701833661,
+          "StochD": 60.62385164469519
+        },
+        {
+          "timestamp": "2025-07-18 01:00:00",
+          "StochK": 77.82093581366786,
+          "StochD": 63.790374702638054
+        },
+        {
+          "timestamp": "2025-07-18 02:00:00",
+          "StochK": 80.71044278955245,
+          "StochD": 67.08892050643226
+        },
+        {
+          "timestamp": "2025-07-18 03:00:00",
+          "StochK": 81.98509056897367,
+          "StochD": 70.14125599673427
+        },
+        {
+          "timestamp": "2025-07-18 04:00:00",
+          "StochK": 82.96265687205839,
+          "StochD": 72.8489669128772
+        },
+        {
+          "timestamp": "2025-07-18 05:00:00",
+          "StochK": 86.31836445812723,
+          "StochD": 75.738411193173
+        },
+        {
+          "timestamp": "2025-07-18 06:00:00",
+          "StochK": 87.28285313745893,
+          "StochD": 78.37280839965464
+        },
+        {
+          "timestamp": "2025-07-18 07:00:00",
+          "StochK": 83.40651947963114,
+          "StochD": 80.01823304376632
+        },
+        {
+          "timestamp": "2025-07-18 08:00:00",
+          "StochK": 76.36542785105954,
+          "StochD": 80.50424455631072
+        },
+        {
+          "timestamp": "2025-07-18 09:00:00",
+          "StochK": 71.95447617154873,
+          "StochD": 80.37677041604147
+        },
+        {
+          "timestamp": "2025-07-18 10:00:00",
+          "StochK": 67.5433469993839,
+          "StochD": 79.63501141414619
+        },
+        {
+          "timestamp": "2025-07-18 11:00:00",
+          "StochK": 61.42370643674631,
+          "StochD": 77.99528847645402
+        },
+        {
+          "timestamp": "2025-07-18 12:00:00",
+          "StochK": 57.24560798080222,
+          "StochD": 75.64880499557901
+        },
+        {
+          "timestamp": "2025-07-18 13:00:00",
+          "StochK": 49.989387833863674,
+          "StochD": 72.44923472206801
+        },
+        {
+          "timestamp": "2025-07-18 14:00:00",
+          "StochK": 40.63031241639118,
+          "StochD": 68.21600027650128
+        },
+        {
+          "timestamp": "2025-07-18 15:00:00",
+          "StochK": 30.789760430651928,
+          "StochD": 62.66313987375376
+        },
+        {
+          "timestamp": "2025-07-18 16:00:00",
+          "StochK": 22.106012830714604,
+          "StochD": 56.14545584307932
+        },
+        {
+          "timestamp": "2025-07-18 17:00:00",
+          "StochK": 16.333402440052044,
+          "StochD": 49.43814413912141
+        },
+        {
+          "timestamp": "2025-07-18 18:00:00",
+          "StochK": 15.105828558181987,
+          "StochD": 43.31218420983366
+        },
+        {
+          "timestamp": "2025-07-18 19:00:00",
+          "StochK": 13.0668358895105,
+          "StochD": 37.42342018162983
+        },
+        {
+          "timestamp": "2025-07-18 20:00:00",
+          "StochK": 9.720161362908689,
+          "StochD": 31.641101617982315
+        },
+        {
+          "timestamp": "2025-07-18 21:00:00",
+          "StochK": 7.53113923927261,
+          "StochD": 26.251844898234946
+        },
+        {
+          "timestamp": "2025-07-18 22:00:00",
+          "StochK": 4.32696290262951,
+          "StochD": 20.959980390417673
+        },
+        {
+          "timestamp": "2025-07-18 23:00:00",
+          "StochK": 4.616740682538322,
+          "StochD": 16.42271567528514
+        },
+        {
+          "timestamp": "2025-07-19 00:00:00",
+          "StochK": 5.947305838063798,
+          "StochD": 12.9544150174524
+        },
+        {
+          "timestamp": "2025-07-19 01:00:00",
+          "StochK": 8.212317275458613,
+          "StochD": 10.696670701933067
+        },
+        {
+          "timestamp": "2025-07-19 02:00:00",
+          "StochK": 10.991686884710232,
+          "StochD": 9.58523810733263
+        },
+        {
+          "timestamp": "2025-07-19 03:00:00",
+          "StochK": 14.04124575538884,
+          "StochD": 9.35602243886631
+        },
+        {
+          "timestamp": "2025-07-19 04:00:00",
+          "StochK": 16.619768319661464,
+          "StochD": 9.507416415014259
+        },
+        {
+          "timestamp": "2025-07-19 05:00:00",
+          "StochK": 19.217504915271217,
+          "StochD": 10.12248331759033
+        },
+        {
+          "timestamp": "2025-07-19 06:00:00",
+          "StochK": 21.659223256501456,
+          "StochD": 11.316389506949605
+        },
+        {
+          "timestamp": "2025-07-19 07:00:00",
+          "StochK": 23.169299894899815,
+          "StochD": 12.880205572512327
+        },
+        {
+          "timestamp": "2025-07-19 08:00:00",
+          "StochK": 24.456959342830398,
+          "StochD": 14.893205216532417
+        },
+        {
+          "timestamp": "2025-07-19 09:00:00",
+          "StochK": 25.50215734644734,
+          "StochD": 16.981746882923318
+        },
+        {
+          "timestamp": "2025-07-19 10:00:00",
+          "StochK": 27.76622675571114,
+          "StochD": 19.16363897468805
+        },
+        {
+          "timestamp": "2025-07-19 11:00:00",
+          "StochK": 28.69101099615687,
+          "StochD": 21.211508346757878
+        },
+        {
+          "timestamp": "2025-07-19 12:00:00",
+          "StochK": 28.80404178416698,
+          "StochD": 22.99274383670355
+        },
+        {
+          "timestamp": "2025-07-19 13:00:00",
+          "StochK": 28.377969083520657,
+          "StochD": 24.426416169516735
+        },
+        {
+          "timestamp": "2025-07-19 14:00:00",
+          "StochK": 26.77069202141913,
+          "StochD": 25.4415085396925
+        },
+        {
+          "timestamp": "2025-07-19 15:00:00",
+          "StochK": 26.29874180889713,
+          "StochD": 26.14963222905509
+        },
+        {
+          "timestamp": "2025-07-19 16:00:00",
+          "StochK": 25.675249935586482,
+          "StochD": 26.551234896963592
+        },
+        {
+          "timestamp": "2025-07-19 17:00:00",
+          "StochK": 24.48438957527886,
+          "StochD": 26.6827438650015
+        },
+        {
+          "timestamp": "2025-07-19 18:00:00",
+          "StochK": 23.68401971760672,
+          "StochD": 26.60544990247913
+        },
+        {
+          "timestamp": "2025-07-19 19:00:00",
+          "StochK": 22.949044243242163,
+          "StochD": 26.35013859215861
+        },
+        {
+          "timestamp": "2025-07-19 20:00:00",
+          "StochK": 20.51617229553244,
+          "StochD": 25.62513314614074
+        },
+        {
+          "timestamp": "2025-07-19 21:00:00",
+          "StochK": 18.407327185766153,
+          "StochD": 24.59676476510167
+        },
+        {
+          "timestamp": "2025-07-19 22:00:00",
+          "StochK": 16.69391980229702,
+          "StochD": 23.385752566914675
+        }
+      ]
+    }
+  ]
+}
+--- END MARKET DATA JSON ---
+
+--- End Market Data ---
+

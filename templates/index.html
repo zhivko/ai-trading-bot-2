@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Chart</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex; 
+            flex-direction: column;
+            height: 100vh;
+            margin: 0;
+        }
+        #controls {
+            display: flex;
+            justify-content: space-around;
+            padding: 10px;
+            background-color: #f0f0f0;
+        }
+        #main {
+            display: flex;
+            flex: 1;
+            /* padding: 10px; */
+        }
+        #chart {
+            flex-grow: 1; /* Allow chart to grow and take remaining space */
+            flex-basis: 0; /* Optional: ensures flex-grow works as expected from a zero base */
+            height: 100%;
+            padding: 10px; /* Added padding directly to chart if spacing for its content is desired */
+        }
+        #right-panel {
+            width: 320px; /* Reduced width for the right panel */
+            padding: 10px;
+            background-color: #e0e0e0;
+            overflow-y: auto; 
+            font-size: 13px; /* Reduced base font size for the right panel */
+        }
+        #right-panel p {
+            margin: 0.5em 0; 
+        }
+        #event-output { /* Changed from #event-output p to style the textarea itself */
+            width: 98%; /* Take most of the panel width */
+            height: 100px; /* Further reduced fixed height for event log */
+            overflow-y: auto; /* Make it scrollable (default for textarea, but good to be explicit) */
+            font-size: 0.9em;
+            word-break: break-all;
+            border: 1px solid #ccc;
+            padding: 5px;
+            box-sizing: border-box; /* Include padding and border in the element's total width and height */
+            white-space: pre-wrap; /* Allow line breaks and wrap text */
+            resize: none; /* Prevent manual resizing by user */
+        }
+        #indicator-checkbox-list div {
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+  <div>
+    <strong>Crypto Pair:</strong>
+    <select id="symbol-select">
+    </select>
+    </div>
+  
+  <div>
+    <strong>Time Scale:</strong>
+    <select id="resolution-select">
+    </select>
+  </div>
+  
+  <div>
+    <strong>Time Range:</strong>
+    <select id="range-select">
+    </select>
+ </div>
+
+  <div>
+    {% if request.session.email %}Logged in as: {{ request.session.email }}{% endif %} 
+  </div>
+
+</div>
+    <div id="main">
+        <div id="chart"></div>
+        <div id="right-panel">
+            <h3>Right Panel</h3>
+            <div>
+                <input type="checkbox" id="live-data-checkbox"/>
+                <label for="live-data-checkbox">Enable Live Data</label>
+            </div>
+            <div id="stream-delta-time-div" style="margin-top: 5px;">
+                <label for="stream-delta-slider">Live Update Interval: <span id="stream-delta-value">0</span>s</label><br>
+                <input type="range" id="stream-delta-slider" min="0" max="5" value="0" step="1" style="width: 95%;">
+            </div>
+
+            <hr>
+            <div id="replay-section">
+   <h4>Replay Controls</h4>
+                <label>From: <input type="date" id="replay-from" {% if not authenticated %} disabled {% endif %}></label><br>
+                <label>To: <input type="date" id="replay-to" {% if not authenticated %} disabled {% endif %}></label><br>
+                <label>Speed (candle/sec): <input type="number" id="replay-speed" value="1" min="0.1" step="0.1" {% if not authenticated %} disabled {% endif %}></label><br>
+                <input type="checkbox" id="use-local-ollama-checkbox" />
+                <label for="use-local-ollama-checkbox">Use local Ollama</label><br>
+                <div id="local-ollama-model-selection-div" style="display: none;">
+                    <label for="local-ollama-model-select" style="display: block; margin-bottom: 2px;">Select Local Model:</label>
+                    <select id="local-ollama-model-select" style="width: 50%; margin-bottom: 5px;"></select><br>
+                </div>                
+                <button id="ai-suggestion-btn" {% if not authenticated %} disabled {% endif %}>Get AI Suggestion</button><br>
+                <button id="start-replay" {% if not authenticated %} disabled {% endif %}>Start</button> <button id="stop-replay" {% if not authenticated %} disabled {% endif %}></button><br>
+                <textarea id="ai-suggestion" placeholder="AI suggestion..." style="width: 95%; height: 90px;" {% if not authenticated %} disabled {% endif %}></textarea>
+            </div>
+
+            <p>Additional controls or data display can go here.</p>
+            <hr>
+            <h4>Chart View State:</h4>
+            <p><strong>X-Axis Min:</strong> <span id="x-axis-min-display">Auto</span></p>
+            <p><strong>X-Axis Max:</strong> <span id="x-axis-max-display">Auto</span></p>
+            <p><strong>Y-Axis Min:</strong> <span id="y-axis-min-display">Auto</span></p>
+            <p><strong>Y-Axis Max:</strong> <span id="y-axis-max-display">Auto</span></p>
+            <hr>
+            <h4>Selected Shape:</h4>
+            <div id="selected-shape-info">
+                <p>No shape selected.</p>
+            </div>
+            <div>
+                <button id="delete-all-shapes-btn">Delete ALL Drawings</button>
+            </div>
+            <hr>
+            <h4>Cursor Info:</h4>
+            <p><strong>Price:</strong> <span id="cursor-price-display">N/A</span></p>
+            <p><strong>Time:</strong> <span id="cursor-time-display">N/A</span></p>
+            <hr>
+            <h4>Event Log:</h4>
+            <textarea id="event-output" readonly></textarea>
+            <hr>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="showAgentTradesCheckbox">
+                <label class="form-check-label" for="showAgentTradesCheckbox">
+                    Show Agent Trades
+                </label>
+            </div>
+            <h4>Indicators:</h4>
+            <div id="indicator-checkbox-list">
+                <div>
+                    <input type="checkbox" id="indicator-macd" value="macd" {% if not authenticated %} disabled {% endif %}>
+                    <label for="indicator-macd">Macd</label>
+                </div>
+                <div>
+                    <input type="checkbox" id="indicator-rsi" value="rsi" {% if not authenticated %} disabled {% endif %}>
+                    <label for="indicator-rsi">RSI</label>
+                </div>
+                <div>
+                    <input type="checkbox" id="indicator-stoch-rsi-9-3" value="stochrsi_9_3" {% if not authenticated %} disabled {% endif %}>
+                    <label for="indicator-stoch-rsi-9-3">Stochastic RSI 9,3</label>
+                </div>
+                <div>
+                    <input type="checkbox" id="indicator-stoch-rsi-14-3" value="stochrsi_14_3">
+                    <label for="indicator-stoch-rsi-14-3">Stochastic RSI 14,3</label>
+                </div>
+                <div>
+                    <input type="checkbox" id="indicator-stoch-rsi-40-4" value="stochrsi_40_4">
+                    <label for="indicator-stoch-rsi-40-4">Stochastic RSI 40,4</label>
+                </div>
+                <div>
+                    <input type="checkbox" id="indicator-stoch-rsi-60-10" value="stochrsi_60_10">
+                    <label for="indicator-stoch-rsi-60-10">Stochastic RSI 60,10</label>
+                </div>
+                <div class="indicator-item">
+                    <input type="checkbox" id="indicator-open_interest" value="open_interest">
+                    <label for="indicator-open_interest">Open Interest</label>
+                </div>                
+                <div>
+                    <input type="checkbox" id="indicator-jma" value="jma">
+                    <label for="indicator-jma">Jurik MA</label>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="shape-properties-dialog" style="display:none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 20px; border: 1px solid black; z-index: 1000;">
+        <h3>Shape Properties</h3>
+        <label for="buy-on-cross">Buy on Cross:</label>
+        <input type="checkbox" id="buy-on-cross"><br><br>
+
+        <label for="sell-on-cross">Sell on Cross:</label>
+        <input type="checkbox" id="sell-on-cross"><br><br>
+
+        <label for="amount">Amount:</label>
+        <input type="number" id="amount"><br><br>
+
+        <button onclick="saveShapeProperties()">Save</button>
+        <button onclick="closeShapePropertiesDialog()">Cancel</button>
+    </div>
+
+    <script src="https://cdn.plot.ly/plotly-3.0.1.min.js" charset="utf-8"></script>
+    <!-- External JavaScript files -->
+    <!-- Core utilities and API functions first -->
+    <script src="/static/js/config.js"></script>
+    <script src="/static/js/state.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/api.js"></script>       <!-- Ensure api.js is loaded before scripts that depend on it -->
+    
+    <!-- Scripts that depend on core utilities and API functions -->
+    <script src="/static/js/chartUpdater.js"></script>
+    <script src="/static/js/liveData.js"></script>
+    <script src="/static/js/chartInteractions.js"></script>
+    <script src="/static/js/aiFeatures.js"></script>
+    <script src="/static/js/replay.js"></script>
+    <script src="/static/js/settingsManager.js"></script>
+    <script src="/static/js/uiUpdaters.js"></script> <!-- Added this line -->
+    <script src="/static/js/plotlyEventHandlers.js"></script>
+
+    <!-- Main application logic last - This should be fine if dependent logic is within functions -->
+    <script src="/static/js/main.js"></script>
+</body>
+</html>

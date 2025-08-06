@@ -1,0 +1,17 @@
+/.history
+/.venv
+/.vscode
+/__pycache__
+/trading_view.log
+trading_agent_tensorboard_logs/*.*
+/*.png
+/trading_agent_models/*.*
+/trading_agent_eval_logs/*.*
+trading_agent_log.txt
+trading_agent2_log.txt
+trading_model_ppo_BTCUSDT_5m_1750496383.zip
+episode*.*
+evaluation_metrics_*.*
+CERs/*.*
+*.csv
+data/*.*
