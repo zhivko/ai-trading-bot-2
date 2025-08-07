@@ -2,16 +2,18 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
-from datetime import datetime
+from datetime import datetime, timezone
+import pytz
 import asyncio
 import json
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 import logging
 from redis.asyncio import Redis
 from pathlib import Path
 from AppTradingView import get_redis_connection, SUPPORTED_SYMBOLS, _calculate_and_return_indicators, get_timeframe_seconds, BybitCredentials, fetch_klines_from_bybit, cache_klines, get_cached_klines
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -57,52 +59,51 @@ class EmailAlertService:
                         logger.error(f"Invalid drawing data in {key_str}")
         return drawings
 
-    async def generate_alert_chart(self, symbol: str, resolution: str, cross_time: int, cross_price: float, drawing: Dict, klines: List[Dict]) -> Optional[bytes]:
-        """Generate a chart image for the alert."""
+    async def generate_alert_chart(self, user_email: str, symbol: str, resolution: str, triggered_alerts: List[Dict]) -> Optional[bytes]:
+        """Generate a comprehensive, multi-pane chart for an email alert."""
+        redis = await get_redis_connection()
+        settings_key = f"settings:{user_email}:{symbol}"
+        settings_json = await redis.get(settings_key)
+        active_indicators = json.loads(settings_json).get('activeIndicators', []) if settings_json else []
+
+        num_subplots = 1 + len(active_indicators)
+        fig = make_subplots(rows=num_subplots, cols=1, shared_xaxes=True, vertical_spacing=0.05)
+
+        cross_time = triggered_alerts[0]['cross_time']
+        klines = await get_cached_klines(symbol, resolution, cross_time - 3600 * 100, cross_time)
         if not klines:
             return None
-
         df = pd.DataFrame(klines)
-        df['time'] = pd.to_datetime(df['time'], unit='s', utc=True)
+        df['time'] = pd.to_datetime(df['time'], unit='s', utc=True).dt.tz_convert('America/New_York')
 
-        fig = go.Figure()
+        fig.add_trace(go.Candlestick(x=df['time'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Price'), row=1, col=1)
 
-        # Add candlestick trace
-        fig.add_trace(go.Candlestick(x=df['time'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Price'))
+        for i, indicator_name in enumerate(active_indicators, start=2):
+            indicator_data_response = await _calculate_and_return_indicators(symbol, resolution, cross_time - 3600 * 100, cross_time, [indicator_name])
+            indicator_data = indicator_data_response.get('data', {}).get(indicator_name, {})
+            if indicator_data and indicator_data.get('t'):
+                indicator_df = pd.DataFrame(indicator_data)
+                indicator_df['t'] = pd.to_datetime(indicator_df['t'], unit='s', utc=True).dt.tz_convert('America/New_York')
+                fig.add_trace(go.Scatter(x=indicator_df['t'], y=indicator_df.iloc[:, 1], mode='lines', name=indicator_name), row=i, col=1)
 
-        # Add trendline by projecting it onto the chart's visible time range
-        t1_ts = drawing['start_time']
-        p1 = drawing['start_price']
-        t2_ts = drawing['end_time']
-        p2 = drawing['end_price']
+        all_drawings = await self.get_all_drawings(redis)
+        for drawing in all_drawings:
+            if drawing['user_email'] == user_email and drawing['symbol'] == symbol:
+                t1_dt = datetime.fromtimestamp(drawing['start_time'], tz=timezone.utc).astimezone(pytz.timezone('America/New_York'))
+                p1 = drawing['start_price']
+                t2_dt = datetime.fromtimestamp(drawing['end_time'], tz=timezone.utc).astimezone(pytz.timezone('America/New_York'))
+                p2 = drawing['end_price']
+                subplot_name = drawing.get('subplot_name', symbol)
+                row = 1 if subplot_name == symbol else active_indicators.index(subplot_name.split('-', 1)[1]) + 2
+                fig.add_trace(go.Scatter(x=[t1_dt, t2_dt], y=[p1, p2], mode='lines', name='Trendline'), row=row, col=1)
 
-        chart_start_dt = df['time'].iloc[0]
-        chart_end_dt = df['time'].iloc[-1]
+        for alert in triggered_alerts:
+            cross_dt = datetime.fromtimestamp(alert['cross_time'], tz=timezone.utc).astimezone(pytz.timezone('America/New_York'))
+            cross_value = alert['cross_value']
+            row = 1 if alert['trigger_type'] == 'price' else active_indicators.index(alert['indicator_name']) + 2
+            fig.add_trace(go.Scatter(x=[cross_dt], y=[cross_value], mode='markers', name='Cross Event', marker=dict(color='red', size=10, symbol='circle')), row=row, col=1)
 
-        # Handle vertical line case
-        if t1_ts == t2_ts:
-            line_dt = datetime.fromtimestamp(t1_ts, tz=timezone.utc)
-            # Only draw if the line is within the chart's time range
-            if chart_start_dt <= line_dt <= chart_end_dt:
-                fig.add_trace(go.Scatter(x=[line_dt, line_dt], y=[p1, p2], mode='lines', name='Trendline', line=dict(color='blue', width=2)))
-        else:
-            # Calculate slope and project the line onto the chart's x-axis
-            slope = (p2 - p1) / (t2_ts - t1_ts)
-            
-            chart_start_ts = int(chart_start_dt.timestamp())
-            chart_end_ts = int(chart_end_dt.timestamp())
-
-            projected_start_price = slope * (chart_start_ts - t1_ts) + p1
-            projected_end_price = slope * (chart_end_ts - t1_ts) + p1
-            
-            fig.add_trace(go.Scatter(x=[chart_start_dt, chart_end_dt], y=[projected_start_price, projected_end_price], mode='lines', name='Trendline', line=dict(color='blue', width=2)))
-
-        # Add circle for crossing point
-        cross_dt = datetime.fromtimestamp(cross_time, tz=timezone.utc)
-        fig.add_trace(go.Scatter(x=[cross_dt], y=[cross_price], mode='markers', name='Cross Event', marker=dict(color='red', size=10, symbol='circle')))
-
-        fig.update_layout(title=f'{symbol} Price Chart', xaxis_title='Time', yaxis_title='Price', xaxis_rangeslider_visible=False)
-
+        fig.update_layout(title=f'{symbol} Alert', xaxis_rangeslider_visible=False)
         try:
             img_bytes = fig.to_image(format="png")
             return img_bytes
@@ -110,169 +111,151 @@ class EmailAlertService:
             logger.error(f"Failed to generate chart image: {e}", exc_info=True)
             return None
 
-    async def detect_cross(self, redis: Redis, symbol: str, resolution: str, line_id: str,
-                           current_value: float, line_start: float, line_end: float,
-                           bar_low: float, bar_high: float,
-                           indicator_name: Optional[str] = None,
-                           prev_price: Optional[float] = None) -> bool:
-        """Detect if value or indicator crosses a trend line over time"""
-        prev_value = None
-        if indicator_name:
-            from datetime import datetime, timezone
-            try:
-                to_ts = int(datetime.now(timezone.utc).timestamp())
-                timeframe_sec = get_timeframe_seconds(resolution)
-                from_ts = to_ts - (100 * timeframe_sec)
-                indicator_data_response = await _calculate_and_return_indicators(symbol, resolution, from_ts, to_ts, [indicator_name])
-                if hasattr(indicator_data_response, 'body'):
-                    response_data = json.loads(indicator_data_response.body)
-                    if response_data.get('s') == 'ok':
-                        data = response_data.get('data', {})
-                        if indicator_name in data:
-                            indicator_result = data[indicator_name]
-                            value_key = None
-                            if indicator_result.get('s') == 'ok':
-                                value_keys = [k for k, v in indicator_result.items() if isinstance(v, list) and k != 't']
-                                if value_keys:
-                                    value_key = value_keys[0]
-                            if value_key and indicator_result.get(value_key):
-                                values = [v for v in indicator_result[value_key] if v is not None]
-                                if len(values) >= 2:
-                                    current_value = values[-1]
-                                    prev_value = values[-2]
-            except Exception as e:
-                logger.error(f"Error calculating indicator {indicator_name} for cross detection: {str(e)}", exc_info=True)
+    async def detect_cross(self, redis: Redis, drawing: Dict, current_kline: Dict, prev_kline: Optional[Dict]) -> Optional[Dict]:
+        """Detect if a price bar or indicator crosses a trendline."""
+        t1 = drawing['start_time']
+        p1 = drawing['start_price']
+        t2 = drawing['end_time']
+        p2 = drawing['end_price']
+        symbol = drawing['symbol']
+        resolution = drawing['resolution']
+        subplot_name = drawing.get('subplot_name', symbol)
+
+        bar_time = current_kline['time']
+
+        if subplot_name != symbol:
+            indicator_name = subplot_name.split('-', 1)[1]
+            indicator_values = await self._get_indicator_values_at_times(
+                symbol, resolution, [prev_kline['time'] if prev_kline else bar_time - 3600, bar_time], indicator_name
+            )
+
+            if len(indicator_values) < 2 or indicator_values[0] is None or indicator_values[1] is None:
+                return None
+
+            prev_indicator_value, current_indicator_value = indicator_values
+            slope = (p2 - p1) / (t2 - t1) if t2 != t1 else 0
+            line_price_prev = p1 + slope * ((prev_kline['time'] if prev_kline else bar_time - 3600) - t1)
+            line_price_current = p1 + slope * (bar_time - t1)
+
+            if (prev_indicator_value < line_price_prev and current_indicator_value > line_price_current) or \
+               (prev_indicator_value > line_price_prev and current_indicator_value < line_price_current):
+                return {"type": "indicator", "value": current_indicator_value, "indicator_name": indicator_name}
         else:
-            prev_value = prev_price
+            bar_low = current_kline['low']
+            bar_high = current_kline['high']
 
-        if prev_value is None:
-            return False
+            if t1 == t2:
+                if bar_time == t1 and not (bar_high < min(p1, p2) or bar_low > max(p1, p2)):
+                    return {"type": "price", "value": current_kline['close']}
+            elif min(t1, t2) <= bar_time <= max(t1, t2):
+                slope = (p2 - p1) / (t2 - t1)
+                line_price_at_bar_time = p1 + slope * (bar_time - t1)
+                if bar_low <= line_price_at_bar_time <= bar_high:
+                    return {"type": "price", "value": line_price_at_bar_time}
+        return None
 
-        if indicator_name:
-            line_min = min(line_start, line_end)
-            line_max = max(line_start, line_end)
-            return ((prev_value < line_min and current_value > line_max) or (prev_value > line_max and current_value < line_min))
+    async def _get_indicator_values_at_times(self, symbol: str, resolution: str, timestamps: List[int], indicator_name: str) -> List[Optional[float]]:
+        """(Helper) Fetches indicator values for a list of specific timestamps."""
+        if not timestamps:
+            return []
+        
+        start_ts = min(timestamps) - (10 * get_timeframe_seconds(resolution))
+        end_ts = max(timestamps) + (10 * get_timeframe_seconds(resolution))
 
-        def line_intersects_bar(x1, y1, x2, y2, bar_low, bar_high):
-            if x2 == x1:
-                return min(bar_low, bar_high) <= y1 <= max(bar_low, bar_high)
-            m = (y2 - y1) / (x2 - x1)
-            y_at_bar_low = m * (bar_low - x1) + y1
-            y_at_bar_high = m * (bar_high - x1) + y1
-            return ((bar_low <= y_at_bar_low <= bar_high) or (bar_low <= y_at_bar_high <= bar_high) or (min(y_at_bar_low, y_at_bar_high) <= bar_low <= max(y_at_bar_low, y_at_bar_high)) or (min(y_at_bar_low, y_at_bar_high) <= bar_high <= max(y_at_bar_low, y_at_bar_high)))
-
-        return line_intersects_bar(line_start, line_start, line_end, line_end, bar_low, bar_high)
+        indicator_data_response = await _calculate_and_return_indicators(symbol, resolution, start_ts, end_ts, [indicator_name])
+        
+        if hasattr(indicator_data_response, 'body'):
+            response_data = json.loads(indicator_data_response.body)
+            if response_data.get('s') == 'ok' and indicator_name in response_data.get('data', {}):
+                indicator_result = response_data['data'][indicator_name]
+                if indicator_result.get('s') == 'ok':
+                    value_keys = [k for k, v in indicator_result.items() if isinstance(v, list) and k != 't']
+                    if not value_keys:
+                        return [None] * len(timestamps)
+                    value_key = value_keys[0]
+                    
+                    result_values: List[Optional[float]] = []
+                    for ts in timestamps:
+                        closest_t = min(indicator_result['t'], key=lambda x: abs(x - ts))
+                        idx = indicator_result['t'].index(closest_t)
+                        result_values.append(indicator_result[value_key][idx])
+                    return result_values
+        return [None] * len(timestamps)
 
     async def check_price_alerts(self):
-        redis = await get_redis_connection()
-        drawings = await self.get_all_drawings(redis)
-        logger.info(f"🔄 Starting price alert check for {len(drawings)} drawings")
-        
+        logger.info("Starting check_price_alerts cycle.")
+        try:
+            redis = await get_redis_connection()
+            drawings = await self.get_all_drawings(redis)
+            logger.info(f"Found {len(drawings)} drawings to check.")
+        except Exception as e:
+            logger.error(f"Error connecting to Redis or getting drawings: {e}", exc_info=True)
+            return
+
         alerts_by_user = {}
 
-        for idx, drawing in enumerate(drawings, 1):
-            symbol = drawing.get('symbol')
-            if symbol not in SUPPORTED_SYMBOLS:
-                logger.debug(f"⏩ Skipping unsupported symbol: {symbol} ({idx}/{len(drawings)})")
-                continue
-
-            timeframe_for_price = "1m"
-            kline_zset_key = f"zset:kline:{symbol}:{timeframe_for_price}"
-            latest_kline_list = await redis.zrevrange(kline_zset_key, 0, 1)
-
-            current_price, current_low, current_high, prev_price, cross_time = None, None, None, None, None
-            if latest_kline_list:
-                try:
-                    if len(latest_kline_list) >= 1:
-                        latest_kline = json.loads(latest_kline_list[0])
-                        current_price = float(latest_kline['close'])
-                        current_low = float(latest_kline['low'])
-                        current_high = float(latest_kline['high'])
-                        cross_time = latest_kline['time']
-                    if len(latest_kline_list) >= 2:
-                        prev_kline = json.loads(latest_kline_list[1])
-                        prev_price = float(prev_kline['close'])
-                except (json.JSONDecodeError, KeyError, IndexError) as e:
-                    logger.error(f"Error parsing kline from Redis for {symbol}: {e}")
-            
-            if current_price is None:
-                logger.warning(f"⚠️ No valid kline data for {symbol} in Redis. Fetching from Bybit.")
-                try:
-                    end_ts = int(datetime.now(timezone.utc).timestamp())
-                    timeframe_seconds = get_timeframe_seconds(timeframe_for_price)
-                    start_ts = end_ts - (3 * timeframe_seconds)
-                    bybit_klines = fetch_klines_from_bybit(symbol, timeframe_for_price, start_ts, end_ts)
-                    if bybit_klines:
-                        await cache_klines(symbol, timeframe_for_price, bybit_klines)
-                        if len(bybit_klines) >= 1:
-                            current_price = float(bybit_klines[-1]['close'])
-                            current_low = float(bybit_klines[-1]['low'])
-                            current_high = float(bybit_klines[-1]['high'])
-                            cross_time = bybit_klines[-1]['time']
-                        if len(bybit_klines) >= 2:
-                            prev_price = float(bybit_klines[-2]['close'])
-                        logger.info(f"Successfully fetched price for {symbol} from Bybit: {current_price}")
-                except Exception as e:
-                    logger.error(f"Error during Bybit fallback fetch for {symbol}: {e}", exc_info=True)
+        for idx, drawing in enumerate(drawings):
+            try:
+                symbol = drawing.get('symbol')
+                user_email = drawing.get('user_email')
+                if not symbol or not user_email:
+                    logger.warning(f"Skipping drawing with missing symbol or email: {drawing.get('id', 'N/A')}")
                     continue
 
-            if current_price is None:
-                logger.warning(f"⚠️ Could not determine current price for {symbol}. Skipping.")
-                continue
+                logger.debug(f"Checking drawing {idx+1}/{len(drawings)} for {symbol} by {user_email}")
 
-            line_start, line_end, resolution, line_id = drawing.get('start_price'), drawing.get('end_price'), drawing.get('resolution', '1h'), drawing.get('id')
-            if None in (line_start, line_end, line_id):
-                logger.debug(f"❌ Incomplete data for {symbol} drawing {line_id or 'unknown'}")
-                continue
+                timeframe_for_price = "1m"
+                kline_zset_key = f"zset:kline:{symbol}:{timeframe_for_price}"
+                latest_kline_list = await redis.zrevrange(kline_zset_key, 0, 1)
 
-            subplot_name = drawing.get('subplot_name')
-            indicator_name = None
-            if subplot_name and subplot_name.startswith(f"{symbol}-"):
-                indicator_name = subplot_name.split('-', 1)[1]
-            
-            crossed = await self.detect_cross(redis, symbol, resolution, line_id, current_price, line_start, line_end, current_low, current_high, indicator_name=indicator_name, prev_price=prev_price)
-            
-            if crossed:
-                logger.info(f"Price cross detected for {symbol} line {line_id} at {current_price}")
-                user_email = drawing.get('user_email')
-                if user_email:
-                    cross_time_str = datetime.fromtimestamp(cross_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                if not latest_kline_list or len(latest_kline_list) < 2:
+                    logger.warning(f"Not enough kline data for {symbol} to check for crosses.")
+                    continue
+
+                latest_kline = json.loads(latest_kline_list[0])
+                prev_kline = json.loads(latest_kline_list[1])
+
+                cross_info = await self.detect_cross(redis, drawing, latest_kline, prev_kline)
+                
+                if cross_info:
+                    logger.info(f"Cross detected for {symbol} by {user_email}: {cross_info}")
                     alert_details = {
                         'symbol': symbol,
-                        'resolution': resolution,
-                        'line_id': line_id,
-                        'cross_price': current_price,
-                        'cross_time': cross_time,
-                        'cross_time_str': cross_time_str,
+                        'resolution': drawing['resolution'],
+                        'line_id': drawing['id'],
+                        'cross_time': latest_kline['time'],
+                        'cross_value': cross_info['value'],
+                        'trigger_type': cross_info['type'],
+                        'indicator_name': cross_info.get('indicator_name'),
                         'drawing': drawing
                     }
                     if user_email not in alerts_by_user:
-                        alerts_by_user[user_email] = []
-                    alerts_by_user[user_email].append(alert_details)
-
-        for user_email, alerts in alerts_by_user.items():
-            if not alerts:
-                continue
-            
-            message_body = "<h2>Price Alerts Triggered</h2>"
-            images = []
-            for alert in alerts:
-                cross_time_str = datetime.fromtimestamp(alert['cross_time']).strftime('%Y-%m-%d %H:%M:%S UTC')
-                message_body += f"<p><b>{alert['symbol']}</b> crossed a trendline at <b>{alert['cross_price']}</b> on {cross_time_str}.</p>"
-                
-                # Generate chart
-                end_ts = alert['cross_time']
-                start_ts = end_ts - (100 * get_timeframe_seconds(alert['resolution']))
-                klines = await get_cached_klines(alert['symbol'], alert['resolution'], start_ts, end_ts)
-                chart_image = await self.generate_alert_chart(alert['symbol'], alert['resolution'], alert['cross_time'], alert['cross_price'], alert['drawing'], klines)
-                if chart_image:
-                    images.append((f"{alert['symbol']}_chart.png", chart_image))
-
-            try:
-                await self.send_alert_email(user_email, f"Price Alerts for {', '.join(set(a['symbol'] for a in alerts))}", message_body, images)
-                logger.info(f"Sent cumulative alert email to {user_email} for {len(alerts)} events.")
+                        alerts_by_user[user_email] = {}
+                    if symbol not in alerts_by_user[user_email]:
+                        alerts_by_user[user_email][symbol] = []
+                    alerts_by_user[user_email][symbol].append(alert_details)
             except Exception as e:
-                logger.error(f"Failed to send cumulative alert email to {user_email}: {str(e)}")
+                logger.error(f"Error processing drawing {drawing.get('id', 'N/A')}: {e}", exc_info=True)
+
+        for user_email, symbol_alerts in alerts_by_user.items():
+            for symbol, alerts in symbol_alerts.items():
+                try:
+                    logger.info(f"Processing {len(alerts)} alerts for {user_email} on {symbol}.")
+                    message_body = "<h2>Price Alerts Triggered</h2>"
+                    for alert in alerts:
+                        cross_time_str = datetime.fromtimestamp(alert['cross_time']).strftime('%Y-%m-%d %H:%M:%S UTC')
+                        if alert['trigger_type'] == 'price':
+                            message_body += f"<p><b>{alert['symbol']}</b> price crossed a trendline at <b>{alert['cross_value']:.2f}</b> on {cross_time_str}.</p>"
+                        else:
+                            message_body += f"<p><b>{alert['symbol']}</b> indicator <b>{alert['indicator_name']}</b> crossed a trendline at <b>{alert['cross_value']:.2f}</b> on {cross_time_str}.</p>"
+                    
+                    chart_image = await self.generate_alert_chart(user_email, symbol, alerts[0]['resolution'], alerts)
+                    images = [(f"{symbol}_alert_chart.png", chart_image)] if chart_image else []
+
+                    await self.send_alert_email(user_email, f"Price Alerts for {symbol}", message_body, images)
+                    logger.info(f"Sent cumulative alert email to {user_email} for {len(alerts)} events on {symbol}.")
+                except Exception as e:
+                    logger.error(f"Failed to send alert email to {user_email} for {symbol}: {e}", exc_info=True)
 
     def _send_email_sync(self, to_email: str, subject: str, body: str, images: List[tuple[str, bytes]] = None):
         msg = MIMEMultipart('related')
