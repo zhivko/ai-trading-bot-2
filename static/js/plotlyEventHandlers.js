@@ -1,5 +1,6 @@
 async function handleNewShapeSave(shapeObject) {
     const symbol = window.symbolSelect.value; // Assumes symbolSelect is global
+    const resolution = window.resolutionSelect.value;
     if (!symbol) {
         console.warn("Cannot save drawing: No symbol selected.");
         return null;
@@ -16,7 +17,8 @@ async function handleNewShapeSave(shapeObject) {
                 end_time: Math.floor(end_time_ms / 1000),
                 start_price: parseFloat(shapeObject.y0),
                 end_price: parseFloat(shapeObject.y1),
-                subplot_name: determineSubplotNameForShape(shapeObject) // Assumes determineSubplotNameForShape is global
+                subplot_name: determineSubplotNameForShape(shapeObject), // Assumes determineSubplotNameForShape is global
+                resolution: resolution
             };
             console.log(`Attempting to save new shape for ${symbol}:`, drawingData);
             const response = await fetch(`/save_drawing/${symbol}`, {

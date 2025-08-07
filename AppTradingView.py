@@ -214,6 +214,9 @@ async def lifespan(app_instance: FastAPI): # Renamed app to app_instance to avoi
         await init_redis()
         # Store the task in the application state so it can be accessed during shutdown
         app_instance.state.fetch_klines_task = asyncio.create_task(fetch_and_publish_klines())
+        # Start email alert monitoring
+        from email_alert_service import alert_service
+        app_instance.state.alert_monitor_task = asyncio.create_task(alert_service.monitor_alerts())
         # The bybit_realtime_feed_listener is conceptual for a shared WS connection.
         # The /stream/live/{symbol} endpoint now creates its own Bybit WS per client.
         # If you intend for bybit_realtime_feed_listener to be a shared connection
@@ -237,6 +240,15 @@ async def lifespan(app_instance: FastAPI): # Renamed app to app_instance to avoi
             logger.info("fetch_and_publish_klines task successfully cancelled.")
         except Exception as e:
             logger.error(f"Error during fetch_and_publish_klines task shutdown: {e}", exc_info=True)
+    
+    # Cancel email alert monitoring
+    alert_task = getattr(app_instance.state, 'alert_monitor_task', None)
+    if alert_task:
+        alert_task.cancel()
+        try:
+            await alert_task
+        except asyncio.CancelledError:
+            logger.info("Email alert monitoring task cancelled")
     
     if redis_client:
         await redis_client.close()
@@ -536,15 +548,29 @@ class BybitCredentials:
     GOOGLE_CLIENT_ID: str
     DEEPSEEK_API_KEY: str
     GEMINI_API_KEY: str
-    
-    GOOGLE_CLIENT_ID: str
+    SMTP_SERVER: str
+    SMTP_PORT: int
+    gmailEmail: str
+    gmailPwd: str
     GOOGLE_CLIENT_SECRET: str
 
     @classmethod
     def from_file(cls, path: Path) -> "BybitCredentials":
         if not path.is_file():
             logger.warning(f"Credentials file not found at {path}. Using placeholder credentials.")
-            return cls(api_key="YOUR_BYBIT_API_KEY", api_secret="YOUR_BYBIT_API_SECRET")
+            return cls(
+                api_key="YOUR_BYBIT_API_KEY",
+                api_secret="YOUR_BYBIT_API_SECRET",
+                TRUSTED_CLIENT_CERT_SUBJECTS=[],
+                GOOGLE_CLIENT_ID="",
+                DEEPSEEK_API_KEY="",
+                GEMINI_API_KEY="",
+                SMTP_SERVER="",
+                SMTP_PORT=0,
+                gmailEmail="",
+                gmailPwd="",
+                GOOGLE_CLIENT_SECRET=""
+            )
         
         creds_text = path.read_text(encoding="utf-8")
         try:
@@ -556,11 +582,27 @@ class BybitCredentials:
                 DEEPSEEK_API_KEY=creds_json.get("DEEPSEEK_API_KEY"), 
                 GEMINI_API_KEY=creds_json.get("GEMINI_API_KEY"),
                 GOOGLE_CLIENT_ID=creds_json.get("GOOGLE_CLIENT_ID"),
-                GOOGLE_CLIENT_SECRET=creds_json.get("GOOGLE_CLIENT_SECRET")
+                GOOGLE_CLIENT_SECRET=creds_json.get("GOOGLE_CLIENT_SECRET"),
+                SMTP_SERVER=creds_json.get("SMTP_SERVER"),
+                SMTP_PORT=creds_json.get("SMTP_PORT", 0),
+                gmailEmail=creds_json.get("gmailEmail"),
+                gmailPwd=creds_json.get("gmailPwd")
                 )
         except (json.JSONDecodeError, KeyError) as e:
             logger.error(f"Error reading credentials file {path}: {e}. Using placeholder credentials.")
-            return cls(api_key="YOUR_BYBIT_API_KEY", api_secret="YOUR_BYBIT_API_SECRET")
+            return cls(
+                api_key="YOUR_BYBIT_API_KEY",
+                api_secret="YOUR_BYBIT_API_SECRET",
+                TRUSTED_CLIENT_CERT_SUBJECTS=[],
+                GOOGLE_CLIENT_ID="",
+                DEEPSEEK_API_KEY="",
+                GEMINI_API_KEY="",
+                SMTP_SERVER="",
+                SMTP_PORT=0,
+                gmailEmail="",
+                gmailPwd="",
+                GOOGLE_CLIENT_SECRET=""
+            )
 
 
 class KlineData(TypedDict):
@@ -579,6 +621,7 @@ class DrawingData(BaseModel):
     start_price: float
     end_price: float
     subplot_name: str # Identifies the main plot or subplot (e.g., "BTCUSDT" or "BTCUSDT-MACD")
+    resolution: Optional[str] = None
     properties: Optional[Dict[str, Any]] = None # New field for additional properties
 
     def to_dict(self) -> Dict[str, Any]:
@@ -1227,6 +1270,7 @@ async def save_shape_properties_api_endpoint(symbol: str, drawing_id: str, prope
             start_price=existing_drawing['start_price'],
             end_price=existing_drawing['end_price'],
             subplot_name=existing_drawing['subplot_name'],
+            resolution=existing_drawing.get('resolution'),
             properties=existing_drawing.get('properties', {}) # Start with existing properties
         )
         # Merge new properties with existing ones
@@ -1706,8 +1750,8 @@ async def _calculate_and_return_indicators(symbol: str, resolution: str, from_ts
             if current_indicator_lookback > max_lookback_periods:
                 max_lookback_periods = current_indicator_lookback
     
-    buffer_candles = 30
-    min_overall_candles = 50
+    buffer_candles = 1
+    min_overall_candles = 1
     lookback_candles_needed = max(max_lookback_periods + buffer_candles, min_overall_candles)
     timeframe_secs = get_timeframe_seconds(resolution)
 
@@ -2750,117 +2794,6 @@ async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str)
         
         logger.info(f"Cleanup finished for WebSocket and Bybit connection for live data: {symbol}")
 
-@app.get("/get_trend_drawings/{symbol}")
-async def get_trend_drawings_endpoint(symbol: str, resolution: str, from_ts: int, to_ts: int, request: Request):
-    logger.info(f"GET /get_trend_drawings/{symbol} request: res={resolution}, from={from_ts}, to={to_ts}")
-    if symbol not in SUPPORTED_SYMBOLS:
-        return JSONResponse({"status": "error", "message": "Unsupported symbol"}, status_code=400)
-    if resolution not in timeframe_config.supported_resolutions:
-        return JSONResponse({"status": "error", "message": "Unsupported resolution"}, status_code=400)
-
-    trend_drawings = []
-
-    # --- Fetch and Analyze Price Data ---
-    try:
-        # Fetch a slightly wider range for better trend context if desired, but for now use exact
-        klines = await get_cached_klines(symbol, resolution, from_ts, to_ts)
-        if not klines or klines[0]['time'] > from_ts or klines[-1]['time'] < to_ts: # Basic check for full coverage
-            bybit_klines = fetch_klines_from_bybit(symbol, resolution, from_ts, to_ts)
-            if bybit_klines:
-                await cache_klines(symbol, resolution, bybit_klines)
-                klines = await get_cached_klines(symbol, resolution, from_ts, to_ts)
-        
-        klines = [k for k in klines if from_ts <= k['time'] <= to_ts]
-        klines.sort(key=lambda x: x['time'])
-
-        if klines and len(klines) >= 10: # Need enough data for trend_analyzer
-            price_df_data = [{"date": datetime.fromtimestamp(k['time'], timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), "close": k['close']} for k in klines]
-            
-            # Create DataFrame for trend_analyzer
-            price_analysis_df = pd.DataFrame(price_df_data)
-            price_analysis_df['datetime'] = pd.to_datetime(price_analysis_df['date'])
-            price_analysis_df.sort_values('datetime', inplace=True)
-            if not price_analysis_df.empty:
-                price_analysis_df['timestamp_numeric'] = (price_analysis_df['datetime'] - price_analysis_df['datetime'].iloc[0]).dt.total_seconds()
-                price_analysis_df.rename(columns={'close': 'y_price'}, inplace=True)
-
-                base_datetime_for_price_regression = price_analysis_df['datetime'].iloc[0]
-
-                price_trend_models = trend_analyzer.find_trend_segments_and_models(
-                    price_analysis_df[['datetime', 'timestamp_numeric', 'y_price']],
-                    peak_prominence_factor=0.10, # Adjust as needed
-                    trough_prominence_factor=0.10,
-                    min_segment_len=5,
-                    slope_threshold=1e-6 # More sensitive for price
-                )
-                for i, model in enumerate(price_trend_models):
-                    x0_abs_ts = int(datetime.strptime(model['start_datetime'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp())
-                    x1_abs_ts = int(datetime.strptime(model['end_datetime'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp())
-                    
-                    x0_relative_for_model = x0_abs_ts - base_datetime_for_price_regression.timestamp()
-                    x1_relative_for_model = x1_abs_ts - base_datetime_for_price_regression.timestamp()
-
-                    y0_val = model['k_slope'] * x0_relative_for_model + model['n_intercept']
-                    y1_val = model['k_slope'] * x1_relative_for_model + model['n_intercept']
-
-                    trend_drawings.append({
-                        "x0_ts": x0_abs_ts, "y0_val": y0_val,
-                        "x1_ts": x1_abs_ts, "y1_val": y1_val,
-                        "y_axis_id": "price", "trend_type": model['segment_type'],
-                        "name": f"Price-{model['segment_type']}-{i}",
-                        "line_style": {"color": "rgba(30,144,255,0.6)", "dash": "dash"} # DodgerBlue
-                    })
-        else:
-            logger.info(f"Not enough kline data for price trend analysis for {symbol} {resolution}.")
-    except Exception as e:
-        logger.error(f"Error during price trend analysis for {symbol} {resolution}: {e}", exc_info=True)
-
-    # --- Fetch and Analyze RSI Data ---
-    try:
-        # Assuming /indicatorHistory can return just RSI if 'rsi' is the indicator_id
-        rsi_response = await indicator_history(symbol, resolution, from_ts, to_ts, "rsi")
-        rsi_content = json.loads(rsi_response.body.decode())
-
-        if rsi_content.get("s") == "ok" and rsi_content.get("data", {}).get("rsi", {}).get("s") == "ok":
-            rsi_data = rsi_content["data"]["rsi"]
-            if rsi_data.get("t") and rsi_data.get("rsi") and len(rsi_data["t"]) >= 10:
-                rsi_df_data = [{"date": datetime.fromtimestamp(ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), "rsi_value": val} 
-                               for ts, val in zip(rsi_data["t"], rsi_data["rsi"]) if val is not None]
-                
-                rsi_analysis_df = pd.DataFrame(rsi_df_data)
-                rsi_analysis_df['datetime'] = pd.to_datetime(rsi_analysis_df['date'])
-                rsi_analysis_df.sort_values('datetime', inplace=True)
-                if not rsi_analysis_df.empty:
-                    rsi_analysis_df['timestamp_numeric'] = (rsi_analysis_df['datetime'] - rsi_analysis_df['datetime'].iloc[0]).dt.total_seconds()
-                    rsi_analysis_df.rename(columns={'rsi_value': 'y_price'}, inplace=True)
-                    
-                    base_datetime_for_rsi_regression = rsi_analysis_df['datetime'].iloc[0]
-
-                    rsi_trend_models = trend_analyzer.find_trend_segments_and_models(
-                        rsi_analysis_df[['datetime', 'timestamp_numeric', 'y_price']],
-                        peak_prominence_factor=0.15, trough_prominence_factor=0.15, min_segment_len=5, slope_threshold=0.01 # Slope threshold for RSI might need tuning
-                    )
-                    for i, model in enumerate(rsi_trend_models):
-                        x0_abs_ts = int(datetime.strptime(model['start_datetime'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp())
-                        x1_abs_ts = int(datetime.strptime(model['end_datetime'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp())
-                        x0_relative_for_model = x0_abs_ts - base_datetime_for_rsi_regression.timestamp()
-                        x1_relative_for_model = x1_abs_ts - base_datetime_for_rsi_regression.timestamp()
-                        y0_val = model['k_slope'] * x0_relative_for_model + model['n_intercept']
-                        y1_val = model['k_slope'] * x1_relative_for_model + model['n_intercept']
-                        trend_drawings.append({
-                            "x0_ts": x0_abs_ts, "y0_val": y0_val,
-                            "x1_ts": x1_abs_ts, "y1_val": y1_val,
-                            "y_axis_id": "rsi", "trend_type": model['segment_type'],
-                            "name": f"RSI-{model['segment_type']}-{i}",
-                            "line_style": {"color": "rgba(255,165,0,0.6)", "dash": "dashdot"} # Orange
-                        })
-            else:
-                logger.info(f"Not enough data points for RSI trend analysis for {symbol} {resolution}.")
-    except Exception as e:
-        logger.error(f"Error during RSI trend analysis for {symbol} {resolution}: {e}", exc_info=True)
-
-    return JSONResponse({"status": "success", "drawings": trend_drawings})
-
 
 @app.get("/get_agent_trades")
 async def get_trades_from_csv(
@@ -3466,37 +3399,3 @@ if __name__ == "__main__":
     s.close()    
 
     uvicorn.run("AppTradingView:app", host=IP_ADDRESS, port=5000, reload=False)
-
-class TradingLogic:
-    def execute_trading_logic(self, data):
-        # Implement your trading logic here
-        pass
-
-# Example usage within an existing method or class
-def some_method(self):
-    trading_logic = TradingLogic()
-    result = trading_logic.execute_trading_logic(data)
-    return result
-
-class TradingLogic:
-    def execute_trading_logic(self, data):
-        # Implement your trading logic here
-        pass
-
-# Example usage within an existing method or class
-def some_method(self):
-    trading_logic = TradingLogic()
-    result = trading_logic.execute_trading_logic(data)
-    return result
-
-class TradingLogic:
-    def execute_trading_logic(self, data):
-        # Implement your trading logic here
-        pass
-
-# Example usage within an existing method or class
-def some_method(self):
-    trading_logic = TradingLogic()
-    result = trading_logic.execute_trading_logic(data)
-
-    return result

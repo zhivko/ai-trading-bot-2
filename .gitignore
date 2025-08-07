@@ -15,3 +15,4 @@ evaluation_metrics_*.*
 CERs/*.*
 *.csv
 data/*.*
+.gemini

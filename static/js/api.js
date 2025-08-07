@@ -25,6 +25,7 @@ async function sendShapeUpdateToServer(shapeToUpdate, symbol) {
         console.warn("sendShapeUpdateToServer: Missing shape, backendId, or symbol.");
         return false;
     }
+    const resolution = window.resolutionSelect.value;
     const start_time_ms = (shapeToUpdate.x0 instanceof Date) ? shapeToUpdate.x0.getTime() : new Date(shapeToUpdate.x0).getTime();
     const end_time_ms = (shapeToUpdate.x1 instanceof Date) ? shapeToUpdate.x1.getTime() : new Date(shapeToUpdate.x1).getTime();
     const drawingData = {
@@ -34,7 +35,8 @@ async function sendShapeUpdateToServer(shapeToUpdate, symbol) {
         end_time: Math.floor(end_time_ms / 1000),
         start_price: parseFloat(shapeToUpdate.y0),
         end_price: parseFloat(shapeToUpdate.y1),
-        subplot_name: determineSubplotNameForShape(shapeToUpdate) // Assumes determineSubplotNameForShape is global
+        subplot_name: determineSubplotNameForShape(shapeToUpdate), // Assumes determineSubplotNameForShape is global
+        resolution: resolution
     };
     try {
         const response = await fetch(`/update_drawing/${symbol}/${shapeToUpdate.backendId}`, {

@@ -90,6 +90,7 @@ async function openShapePropertiesDialog(shapeId) {
             
             document.getElementById('buy-on-cross').checked = props.buyOnCross || false;
             document.getElementById('sell-on-cross').checked = props.sellOnCross || false;
+            document.getElementById('send-email-on-cross').checked = props.sendEmailOnCross || false;
             document.getElementById('amount').value = props.amount || '';
         } catch (error) {
             console.error("Error fetching shape properties:", error);
@@ -100,6 +101,7 @@ async function openShapePropertiesDialog(shapeId) {
                 const props = window.activeShapeForPotentialDeletion.properties || {};
                 document.getElementById('buy-on-cross').checked = props.buyOnCross || false;
                 document.getElementById('sell-on-cross').checked = props.sellOnCross || false;
+                document.getElementById('send-email-on-cross').checked = props.sendEmailOnCross || false;
                 document.getElementById('amount').value = props.amount || '';
             }
         }
@@ -108,6 +110,7 @@ async function openShapePropertiesDialog(shapeId) {
             const props = window.activeShapeForPotentialDeletion.properties || {};
             document.getElementById('buy-on-cross').checked = props.buyOnCross || false;
             document.getElementById('sell-on-cross').checked = props.sellOnCross || false;
+            document.getElementById('send-email-on-cross').checked = props.sendEmailOnCross || false;
             document.getElementById('amount').value = props.amount || '';
         }
     }
@@ -116,6 +119,7 @@ async function openShapePropertiesDialog(shapeId) {
             const props = window.activeShapeForPotentialDeletion.properties || {};
             document.getElementById('buy-on-cross').checked = props.buyOnCross || false;
             document.getElementById('sell-on-cross').checked = props.sellOnCross || false;
+            document.getElementById('send-email-on-cross').checked = props.sendEmailOnCross || false;
             document.getElementById('amount').value = props.amount || '';
         }
     }
@@ -144,6 +148,7 @@ async function saveShapeProperties() {
     const properties = {
         buyOnCross: document.getElementById('buy-on-cross').checked,
         sellOnCross: document.getElementById('sell-on-cross').checked,
+        sendEmailOnCross: document.getElementById('send-email-on-cross').checked,
         amount: parseFloat(document.getElementById('amount').value) || 0
     };
 
