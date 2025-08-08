@@ -1228,10 +1228,27 @@ async def update_drawing(symbol: str, drawing_id: str, drawing_data: DrawingData
     drawings = json.loads(drawings_data_str)
     found = False
     for i, drawing_item in enumerate(drawings): # Renamed drawing to drawing_item
+        if not isinstance(drawing_item, dict):
+            continue
         if drawing_item.get("id") == drawing_id:
-            updated_drawing_dict = drawing_data.to_dict()
-            updated_drawing_dict['id'] = drawing_id 
-            drawings[i] = updated_drawing_dict
+            # Preserve existing properties to prevent them from being overwritten.
+            existing_properties = drawing_item.get('properties', {})
+            update_payload = drawing_data.to_dict() if hasattr(drawing_data, 'to_dict') else {}
+
+            # If the incoming data has properties, merge them with existing ones.
+            if isinstance(update_payload, dict) and update_payload.get('properties'):
+                if isinstance(existing_properties, dict) and isinstance(update_payload['properties'], dict):
+                    existing_properties.update(update_payload['properties'])
+            
+            # Ensure properties are properly set
+            if not isinstance(existing_properties, dict):
+                existing_properties = {}
+            
+            update_payload['properties'] = existing_properties
+            update_payload['id'] = drawing_id # Ensure the ID is preserved.
+            
+            if isinstance(update_payload, dict):
+                drawings[i] = update_payload
             found = True
 
             break
@@ -1247,21 +1264,30 @@ async def update_drawing(symbol: str, drawing_id: str, drawing_data: DrawingData
 
 @never_cache
 @app.post("/save_shape_properties/{symbol}/{drawing_id}")
-async def save_shape_properties_api_endpoint(symbol: str, drawing_id: str, properties: Dict[str, Any], request: Request): 
+async def save_shape_properties_api_endpoint(symbol: str, drawing_id: str, properties: Dict[str, Any], request: Request):
+    if not isinstance(properties, dict):
+        return JSONResponse({"status": "error", "message": "Invalid properties format"}, status_code=400)
+        
     logger.info(f"POST /save_shape_properties/{symbol}/{drawing_id} request received with properties: {properties}")
     if symbol not in SUPPORTED_SYMBOLS:
         return JSONResponse({"status": "error", "message": f"Unsupported symbol: {symbol}"}, status_code=400)
 
     # Fetch the existing drawing to merge properties
     existing_drawings = await get_drawings(symbol, request)
-    existing_drawing = next((d for d in existing_drawings if d.get("id") == drawing_id), None)
+    if not isinstance(existing_drawings, list):
+        existing_drawings = []
+        
+    existing_drawing = next((d for d in existing_drawings if isinstance(d, dict) and d.get("id") == drawing_id), None)
     
-    if not existing_drawing:
+    if not existing_drawing or not isinstance(existing_drawing, dict):
         logger.warning(f"Shape {drawing_id} not found for symbol {symbol}.")
         return JSONResponse({"status": "error", "message": "Shape not found"}, status_code=404)
     
     # Create a DrawingData object from the existing drawing, then update properties
     try:
+        if not all(key in existing_drawing for key in ['symbol', 'type']):
+            return JSONResponse({"status": "error", "message": "Invalid drawing format"}, status_code=400)
+            
         drawing_data_instance = DrawingData(
             symbol=existing_drawing['symbol'],
             type=existing_drawing['type'],
@@ -2720,6 +2746,9 @@ async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str)
     symbols = [f'{symbol}']
     logger.info(f"Subscribing Bybit WebSocket to:  ")
     bybit_ws_client.subscribe(topic=topics, callback=bybit_message_handler,symbol=symbols)
+    
+    # Store reference to client for proper cleanup
+    websocket_client_ref = bybit_ws_client
     
     # Start the settings update listener task (ensure 'settings_update_listener' is defined before this line)
     redis_for_pubsub = await get_redis_connection() # Get a connection for PubSub

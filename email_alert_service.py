@@ -80,7 +80,15 @@ class EmailAlertService:
 
         for i, indicator_name in enumerate(active_indicators, start=2):
             indicator_data_response = await _calculate_and_return_indicators(symbol, resolution, cross_time - 3600 * 100, cross_time, [indicator_name])
-            indicator_data = indicator_data_response.get('data', {}).get(indicator_name, {})
+            # Handle both JSONResponse and dict responses
+            if hasattr(indicator_data_response, 'body'):
+                try:
+                    response_data = json.loads(indicator_data_response.body)
+                    indicator_data = response_data.get('data', {}).get(indicator_name, {})
+                except (json.JSONDecodeError, AttributeError):
+                    indicator_data = {}
+            else:
+                indicator_data = indicator_data_response.get('data', {}).get(indicator_name, {})
             if indicator_data and indicator_data.get('t'):
                 indicator_df = pd.DataFrame(indicator_data)
                 indicator_df['t'] = pd.to_datetime(indicator_df['t'], unit='s', utc=True).dt.tz_convert('America/New_York')
