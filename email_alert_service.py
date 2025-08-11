@@ -60,40 +60,75 @@ class EmailAlertService:
         return drawings
 
     async def generate_alert_chart(self, user_email: str, symbol: str, resolution: str, triggered_alerts: List[Dict]) -> Optional[bytes]:
-        """Generate a comprehensive, multi-pane chart for an email alert."""
+        """Generate a comprehensive, multi-pane chart for an email alert, styled like the web portal."""
         redis = await get_redis_connection()
         settings_key = f"settings:{user_email}:{symbol}"
         settings_json = await redis.get(settings_key)
         active_indicators = json.loads(settings_json).get('activeIndicators', []) if settings_json else []
 
         num_subplots = 1 + len(active_indicators)
-        fig = make_subplots(rows=num_subplots, cols=1, shared_xaxes=True, vertical_spacing=0.05)
+        row_heights = [0.7] + [0.3] * len(active_indicators) if active_indicators else [1.0]
+        fig = make_subplots(rows=num_subplots, cols=1, shared_xaxes=True, 
+                              vertical_spacing=0.04, row_heights=row_heights)
 
         cross_time = triggered_alerts[0]['cross_time']
-        klines = await get_cached_klines(symbol, resolution, cross_time - 3600 * 100, cross_time)
+        timeframe_seconds = get_timeframe_seconds(resolution)
+        start_time = cross_time - (timeframe_seconds * 200) # Get 200 candles of context
+        klines = await get_cached_klines(symbol, resolution, start_time, cross_time + timeframe_seconds) # Fetch slightly past cross time
         if not klines:
+            logger.error(f"Could not fetch klines for {symbol} to generate chart.")
             return None
         df = pd.DataFrame(klines)
         df['time'] = pd.to_datetime(df['time'], unit='s', utc=True).dt.tz_convert('America/New_York')
 
-        fig.add_trace(go.Candlestick(x=df['time'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Price'), row=1, col=1)
+        # --- Price Candlestick Chart ---
+        fig.add_trace(go.Candlestick(
+            x=df['time'], open=df['open'], high=df['high'], low=df['low'], close=df['close'],
+            name='Price', increasing_line_color='green', decreasing_line_color='red'
+        ), row=1, col=1)
 
+        # --- Indicators ---
+        indicator_colors = {'macd': '#00E5FF', 'signal': '#FF007F', 'histogram': '#BEBEBE', 'rsi': '#FFD700', 'stoch_k': '#00E5FF', 'stoch_d': '#FF007F'}
+        logger.info(f"Active indicators for chart generation: {active_indicators}")
         for i, indicator_name in enumerate(active_indicators, start=2):
-            indicator_data_response = await _calculate_and_return_indicators(symbol, resolution, cross_time - 3600 * 100, cross_time, [indicator_name])
-            # Handle both JSONResponse and dict responses
+            indicator_data_response = await _calculate_and_return_indicators(symbol, resolution, start_time, cross_time + timeframe_seconds, [indicator_name])
+            
+            logger.debug(f"Indicator response for {indicator_name}: {indicator_data_response}")
+
+            indicator_data = None
             if hasattr(indicator_data_response, 'body'):
                 try:
                     response_data = json.loads(indicator_data_response.body)
+                    logger.debug(f"Response data for {indicator_name}: {response_data}")
                     indicator_data = response_data.get('data', {}).get(indicator_name, {})
-                except (json.JSONDecodeError, AttributeError):
+                except (json.JSONDecodeError, AttributeError): 
                     indicator_data = {}
             else:
                 indicator_data = indicator_data_response.get('data', {}).get(indicator_name, {})
+            
+            logger.debug(f"Final indicator data for {indicator_name}: {indicator_data}")
+
             if indicator_data and indicator_data.get('t'):
                 indicator_df = pd.DataFrame(indicator_data)
                 indicator_df['t'] = pd.to_datetime(indicator_df['t'], unit='s', utc=True).dt.tz_convert('America/New_York')
-                fig.add_trace(go.Scatter(x=indicator_df['t'], y=indicator_df.iloc[:, 1], mode='lines', name=indicator_name), row=i, col=1)
+                
+                # Plot all data columns from the indicator except 't'
+                for col in indicator_df.columns:
+                    if col != 't':
+                        trace_color = indicator_colors.get(col.lower(), 'blue')
+                        fig.add_trace(go.Scatter(
+                            x=indicator_df['t'], y=indicator_df[col], mode='lines', 
+                            name=f"{indicator_name}-{col}", line=dict(color=trace_color, width=1.5)
+                        ), row=i, col=1)
+                
+                # Special handling for RSI overbought/oversold lines
+                if 'rsi' in indicator_name.lower():
+                    fig.add_hline(y=70, line_dash="dash", line_color="red", line_width=1, row=i, col=1)
+                    fig.add_hline(y=30, line_dash="dash", line_color="green", line_width=1, row=i, col=1)
 
+            fig.update_yaxes(title_text=indicator_name.upper(), row=i, col=1)
+
+        # --- Drawings (Trendlines) ---
         all_drawings = await self.get_all_drawings(redis)
         for drawing in all_drawings:
             if drawing['user_email'] == user_email and drawing['symbol'] == symbol:
@@ -102,18 +137,51 @@ class EmailAlertService:
                 t2_dt = datetime.fromtimestamp(drawing['end_time'], tz=timezone.utc).astimezone(pytz.timezone('America/New_York'))
                 p2 = drawing['end_price']
                 subplot_name = drawing.get('subplot_name', symbol)
-                row = 1 if subplot_name == symbol else active_indicators.index(subplot_name.split('-', 1)[1]) + 2
-                fig.add_trace(go.Scatter(x=[t1_dt, t2_dt], y=[p1, p2], mode='lines', name='Trendline'), row=row, col=1)
+                
+                try:
+                    row = 1 if subplot_name == symbol else active_indicators.index(subplot_name.split('-', 1)[1]) + 2
+                    fig.add_trace(go.Scatter(
+                        x=[t1_dt, t2_dt], y=[p1, p2], mode='lines', name='Trendline',
+                        line=dict(color='blue', width=2, dash='dot')
+                    ), row=row, col=1)
+                except (ValueError, IndexError):
+                    logger.warning(f"Could not find subplot for drawing '{subplot_name}'. Defaulting to price chart.")
+                    fig.add_trace(go.Scatter(
+                        x=[t1_dt, t2_dt], y=[p1, p2], mode='lines', name='Trendline',
+                        line=dict(color='blue', width=2, dash='dot')
+                    ), row=1, col=1)
 
+        # --- Cross Event Markers ---
         for alert in triggered_alerts:
             cross_dt = datetime.fromtimestamp(alert['cross_time'], tz=timezone.utc).astimezone(pytz.timezone('America/New_York'))
             cross_value = alert['cross_value']
-            row = 1 if alert['trigger_type'] == 'price' else active_indicators.index(alert['indicator_name']) + 2
-            fig.add_trace(go.Scatter(x=[cross_dt], y=[cross_value], mode='markers', name='Cross Event', marker=dict(color='red', size=10, symbol='circle')), row=row, col=1)
+            try:
+                row = 1 if alert['trigger_type'] == 'price' else active_indicators.index(alert['indicator_name']) + 2
+                fig.add_trace(go.Scatter(
+                    x=[cross_dt], y=[cross_value], mode='markers', name='Cross Event',
+                    marker=dict(color='#FF0000', size=10, symbol='circle', line=dict(width=2, color='DarkSlateGrey'))
+                ), row=row, col=1)
+            except (ValueError, IndexError):
+                 logger.warning(f"Could not find subplot for alert on '{alert.get('indicator_name', 'price')}'. Defaulting to price chart.")
+                 fig.add_trace(go.Scatter(
+                    x=[cross_dt], y=[cross_value], mode='markers', name='Cross Event',
+                    marker=dict(color='#FF0000', size=10, symbol='circle', line=dict(width=2, color='DarkSlateGrey'))
+                ), row=1, col=1)
 
-        fig.update_layout(title=f'{symbol} Alert', xaxis_rangeslider_visible=False)
+        # --- Layout and Theming ---
+        fig.update_layout(
+            title_text=f'{symbol} Alert ({resolution}) - {datetime.now(pytz.timezone("America/New_York")).strftime("%Y-%m-%d %H:%M:%S")}',
+            template='plotly_white',
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            margin=dict(l=70, r=70, t=100, b=80),
+            xaxis_rangeslider_visible=False,
+            font=dict(family="Arial, sans-serif", size=12, color="black")
+        )
+        fig.update_yaxes(title_text="Price (USD)", row=1, col=1)
+
         try:
-            img_bytes = fig.to_image(format="png")
+            img_bytes = fig.to_image(format="png", width=1200, height=600 + (len(active_indicators) * 200))
             return img_bytes
         except Exception as e:
             logger.error(f"Failed to generate chart image: {e}", exc_info=True)
@@ -212,8 +280,8 @@ class EmailAlertService:
 
                 logger.debug(f"Checking drawing {idx+1}/{len(drawings)} for {symbol} by {user_email}")
 
-                timeframe_for_price = "1m"
-                kline_zset_key = f"zset:kline:{symbol}:{timeframe_for_price}"
+                resolution = drawing['resolution']
+                kline_zset_key = f"zset:kline:{symbol}:{resolution}"
                 latest_kline_list = await redis.zrevrange(kline_zset_key, 0, 1)
 
                 if not latest_kline_list or len(latest_kline_list) < 2:
@@ -310,7 +378,7 @@ class EmailAlertService:
     async def monitor_alerts(self):
         while True:
             await self.check_price_alerts()
-            await asyncio.sleep(60)
+            await asyncio.sleep(20)
 
 def get_smtp_config() -> SMTPConfig:
     try:

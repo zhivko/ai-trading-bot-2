@@ -68,16 +68,36 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveSettings(); updateChart(); // updateChart from chartUpdater.js
     }); // Replaced .onchange with addEventListener('change',...)
     window.rangeSelect.addEventListener('change', () => {
-        // Important: Clear only currentXAxisRange to allow dropdown to fully control the range
-        window.currentXAxisRange = null; 
-        window.xAxisMinDisplay.textContent = 'Auto'; window.xAxisMaxDisplay.textContent = 'Auto';
-        window.yAxisMinDisplay.textContent = 'Auto'; window.yAxisMaxDisplay.textContent = 'Auto';
+        const rangeDropdownValue = window.rangeSelect.value;
+        const now = Math.floor(Date.now() / 1000);
+        let fromTs;
+        switch(rangeDropdownValue) {
+            case '1h': fromTs = now - 3600; break;
+            case '8h': fromTs = now - 8 * 3600; break;
+            case '24h': fromTs = now - 86400; break;
+            case '3d': fromTs = now - 3 * 86400; break;
+            case '7d': fromTs = now - 7 * 86400; break;
+            case '30d': fromTs = now - 30 * 86400; break;
+            case '3m': fromTs = now - 90 * 86400; break;
+            case '6m': fromTs = now - 180 * 86400; break;
+            case '1y': fromTs = now - 365 * 86400; break;
+            case '3y': fromTs = now - 3 * 365 * 86400; break;
+            default: fromTs = now - 30 * 86400;
+        }
+        const toTs = now;
+
+        window.currentXAxisRange = [fromTs * 1000, toTs * 1000]; // Set the range in milliseconds
+        window.xAxisMinDisplay.textContent = new Date(fromTs * 1000).toLocaleString();
+        window.xAxisMaxDisplay.textContent = new Date(toTs * 1000).toLocaleString();
+        
+        window.yAxisMinDisplay.textContent = 'Auto'; 
+        window.yAxisMaxDisplay.textContent = 'Auto';
         window.activeShapeForPotentialDeletion = null;
         updateSelectedShapeInfoPanel(null);
         if (window.cancelRequests) window.cancelRequests("Range change initiated by user");
-        console.log("[main.js] Range changed by user. Clearing custom x-axis range, deselecting shape, triggering chart update with new dropdown value.");
+        console.log("[main.js] Range changed by user. Calculating and setting new x-axis range, triggering chart update.");
         if (window.gd) removeRealtimePriceLine(window.gd);
-        saveSettings(); updateChart();
+        updateChart();
     }); // Replaced .onchange with addEventListener('change',...)
 
     window.liveDataCheckbox.addEventListener('change', () => {

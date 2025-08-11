@@ -15,7 +15,10 @@ async function updateChart() {
     } else {
         const now = Math.floor(Date.now() / 1000);
         switch(rangeDropdownValue) {
+            case '1h': fromTs = now - 3600; break;
+            case '8h': fromTs = now - 8 * 3600; break;
             case '24h': fromTs = now - 86400; break;
+            case '3d': fromTs = now - 3 * 86400; break;
             case '7d': fromTs = now - 7 * 86400; break;
             case '30d': fromTs = now - 30 * 86400; break;
             case '3m': fromTs = now - 90 * 86400; break;

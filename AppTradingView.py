@@ -1202,12 +1202,28 @@ async def save_drawing(drawing_data: Dict[str, Any], request: Request) -> str:
 
     return drawing_with_id["id"]
 
-async def get_drawings(symbol: str, request: Request) -> List[Dict[str, Any]]:
+async def get_drawings(symbol: str, request: Request, resolution: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Retrieves drawings for a given symbol from Redis.
+    If a resolution is provided, it filters drawings to only include those
+    matching the specified resolution.
+    """
     redis = await get_redis_connection()
     key = get_drawings_redis_key(symbol, request)
 
     drawings_data_str = await redis.get(key)
-    return json.loads(drawings_data_str) if drawings_data_str else []
+    all_drawings = json.loads(drawings_data_str) if drawings_data_str else []
+
+    if not resolution:
+        # If no resolution is specified, return all drawings for backward compatibility or other uses.
+        return all_drawings
+
+    # If a resolution is specified, filter the drawings.
+    # A drawing is included if its 'resolution' property matches the requested resolution.
+    # Drawings without a 'resolution' property will be excluded.
+    filtered_drawings = [d for d in all_drawings if d.get("resolution") == resolution]
+    logger.info(f"get_drawings for {symbol} with resolution '{resolution}': found {len(all_drawings)} total, returning {len(filtered_drawings)} filtered.")
+    return filtered_drawings
 async def delete_drawing(symbol: str, drawing_id: str, request: Request) -> bool:
     redis = await get_redis_connection()
     key = get_drawings_redis_key(symbol, request)
@@ -1379,10 +1395,10 @@ async def symbols_endpoint(symbol: str):
     })
 
 @app.get("/get_drawings/{symbol}")
-async def get_drawings_api_endpoint(symbol: str, request: Request):
+async def get_drawings_api_endpoint(symbol: str, request: Request, resolution: Optional[str] = Query(None, description="The chart resolution/timescale to filter drawings for.")):
     if symbol not in SUPPORTED_SYMBOLS:
         return JSONResponse({"status": "error", "message": f"Unsupported symbol: {symbol}"}, status_code=400)    
-    drawings = await get_drawings(symbol, request)
+    drawings = await get_drawings(symbol, request, resolution=resolution)
     return JSONResponse({"status": "success", "drawings": drawings})
 
 @app.post("/save_drawing/{symbol}")
