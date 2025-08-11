@@ -3443,4 +3443,4 @@ if __name__ == "__main__":
     logger.info(f'Local address: {IP_ADDRESS}')
     s.close()    
 
-    uvicorn.run("AppTradingView:app", host=IP_ADDRESS, port=5000, reload=False)
+    uvicorn.run("AppTradingView:app", host=IP_ADDRESS, port=5000, reload=True)

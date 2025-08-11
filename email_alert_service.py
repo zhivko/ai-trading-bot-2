@@ -111,18 +111,59 @@ class EmailAlertService:
             if indicator_data and indicator_data.get('t'):
                 indicator_df = pd.DataFrame(indicator_data)
                 indicator_df['t'] = pd.to_datetime(indicator_df['t'], unit='s', utc=True).dt.tz_convert('America/New_York')
-                
-                # Plot all data columns from the indicator except 't'
+
+                # Convert all indicator value columns to numeric type to ensure correct plotting
                 for col in indicator_df.columns:
                     if col != 't':
-                        trace_color = indicator_colors.get(col.lower(), 'blue')
+                        indicator_df[col] = pd.to_numeric(indicator_df[col], errors='coerce')
+
+                # Plotly handles NaNs gracefully by creating gaps, so we don't drop rows.
+
+                # Special handling for different indicators
+                if 'macd' in indicator_name.lower():
+                    # MACD: macd line, signal line, and histogram
+                    if 'macd' in indicator_df.columns:
                         fig.add_trace(go.Scatter(
-                            x=indicator_df['t'], y=indicator_df[col], mode='lines', 
-                            name=f"{indicator_name}-{col}", line=dict(color=trace_color, width=1.5)
+                            x=indicator_df['t'], y=indicator_df['macd'], mode='lines',
+                            name='MACD', line=dict(color='blue', width=1.5)
                         ), row=i, col=1)
-                
+                    if 'signal' in indicator_df.columns:
+                        fig.add_trace(go.Scatter(
+                            x=indicator_df['t'], y=indicator_df['signal'], mode='lines',
+                            name='Signal', line=dict(color='orange', width=1.5)
+                        ), row=i, col=1)
+                    if 'histogram' in indicator_df.columns:
+                        colors = ['green' if v >= 0 else 'red' for v in indicator_df['histogram']]
+                        fig.add_trace(go.Bar(
+                            x=indicator_df['t'], y=indicator_df['histogram'],
+                            name='Histogram', marker_color=colors
+                        ), row=i, col=1)
+                elif 'stochrsi' in indicator_name.lower():
+                    # Stochastic RSI: k and d lines, with overbought/oversold zones
+                    if 'stoch_k' in indicator_df.columns:
+                        fig.add_trace(go.Scatter(
+                            x=indicator_df['t'], y=indicator_df['stoch_k'], mode='lines',
+                            name='StochK', line=dict(color='dodgerblue', width=1.5)
+                        ), row=i, col=1)
+                    if 'stoch_d' in indicator_df.columns:
+                        fig.add_trace(go.Scatter(
+                            x=indicator_df['t'], y=indicator_df['stoch_d'], mode='lines',
+                            name='StochD', line=dict(color='darkorange', width=1.5)
+                        ), row=i, col=1)
+                    fig.add_hline(y=80, line_dash="dash", line_color="red", line_width=1, row=i, col=1)
+                    fig.add_hline(y=20, line_dash="dash", line_color="green", line_width=1, row=i, col=1)
+                else:
+                    # Default plotting for other indicators (like RSI)
+                    for col in indicator_df.columns:
+                        if col != 't':
+                            trace_color = indicator_colors.get(col.lower(), 'blue')
+                            fig.add_trace(go.Scatter(
+                                x=indicator_df['t'], y=indicator_df[col], mode='lines',
+                                name=f"{indicator_name}-{col}", line=dict(color=trace_color, width=1.5)
+                            ), row=i, col=1)
+
                 # Special handling for RSI overbought/oversold lines
-                if 'rsi' in indicator_name.lower():
+                if 'rsi' in indicator_name.lower() and 'stochrsi' not in indicator_name.lower():
                     fig.add_hline(y=70, line_dash="dash", line_color="red", line_width=1, row=i, col=1)
                     fig.add_hline(y=30, line_dash="dash", line_color="green", line_width=1, row=i, col=1)
 
@@ -170,11 +211,17 @@ class EmailAlertService:
 
         # --- Layout and Theming ---
         fig.update_layout(
-            title_text=f'{symbol} Alert ({resolution}) - {datetime.now(pytz.timezone("America/New_York")).strftime("%Y-%m-%d %H:%M:%S")}',
+            title={
+                'text': f'{symbol} Alert ({resolution}) - {datetime.now(pytz.timezone("America/New_York")).strftime("%Y-%m-%d %H:%M:%S")}',
+                'y':0.95,
+                'x':0.5,
+                'xanchor': 'center',
+                'yanchor': 'top'
+            },
             template='plotly_white',
             showlegend=True,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            margin=dict(l=70, r=70, t=100, b=80),
+            margin=dict(l=70, r=70, t=120, b=80), # Increased top margin
             xaxis_rangeslider_visible=False,
             font=dict(family="Arial, sans-serif", size=12, color="black")
         )
