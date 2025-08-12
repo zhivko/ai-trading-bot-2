@@ -92,6 +92,8 @@ async function openShapePropertiesDialog(shapeId) {
             document.getElementById('sell-on-cross').checked = props.sellOnCross || false;
             document.getElementById('send-email-on-cross').checked = props.sendEmailOnCross || false;
             document.getElementById('amount').value = props.amount || '';
+
+            
         } catch (error) {
             console.error("Error fetching shape properties:", error);
             alert("Failed to load shape properties. Please ensure a symbol is selected and try again.");

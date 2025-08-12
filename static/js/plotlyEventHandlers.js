@@ -1,3 +1,5 @@
+console.log('[DEBUG] plotlyEventHandlers.js loaded.');
+
 async function handleNewShapeSave(shapeObject) {
     const symbol = window.symbolSelect.value; // Assumes symbolSelect is global
     const resolution = window.resolutionSelect.value;
@@ -41,7 +43,40 @@ async function handleNewShapeSave(shapeObject) {
     return null;
 }
 
-function initializePlotlyEventHandlers(gd) { // Pass gd (the Plotly graph div object)
+function initializePlotlyEventHandlers(gd) {
+    console.log('[DEBUG] initializePlotlyEventHandlers called with gd:', gd);
+    
+    let currentDragMode = gd.layout.dragmode || 'pan';
+    let isDragging = false;
+    let shapeWasMoved = false;
+    
+    /* OLD DRAG DETECTION DISABLED - Using SVG observer instead
+    // Track drag state
+    gd.addEventListener('mousedown', function() {
+        isDragging = true;
+        console.log('ISDRAGGING TRUE');
+    });
+    
+    gd.addEventListener('mouseup', function() {
+        isDragging = false;
+        console.log('ISDRAGGING false');
+        if (shapeWasMoved) {
+            console.log('Detected shape movement - switching to edit mode');
+            currentDragMode = gd.layout.dragmode;
+            Plotly.relayout(gd, 'dragmode', 'drawline');
+            shapeWasMoved = false;
+        }
+    });
+    
+    // Detect shape movement
+    gd.on('plotly_relayout', function(eventData) {
+        const shapeKeys = Object.keys(eventData).filter(key => key.startsWith('shapes['));
+        if (shapeKeys.length > 0 && isDragging) {
+            shapeWasMoved = true;
+        }
+    });
+    */
+    
     gd.on('plotly_shapedrawn', async function(eventShapeData) {
         console.log('[DEBUG] plotly_shapedrawn FIRED. Shape from event:', JSON.parse(JSON.stringify(eventShapeData)));
 
@@ -97,7 +132,23 @@ function initializePlotlyEventHandlers(gd) { // Pass gd (the Plotly graph div ob
     });
 
     const originalRelayoutHandler = gd.onplotly_relayout;
+
+    let shapeDragEndTimer = null;
+    const DEBOUNCE_DELAY = 500; // ms
+
+    gd.on('plotly_relayouting', function(eventData) {
+        // Clean up duplicate drag helpers that might interfere with dragging
+        if (window.d3) {
+            d3.selectAll('g[drag-helper="true"]').remove();
+        }
+        console.log('[plotly_relayouting] event fired - drag helpers cleaned', eventData);
+    });
+
     gd.on('plotly_relayout', async function(eventData) {
+        if(eventData.shape) {
+            console.log('Shape hovered:', eventData.shape);
+            return;
+        }
         if (originalRelayoutHandler) originalRelayoutHandler(eventData);
 
         let interactedShapeIndex = -1;
@@ -113,34 +164,41 @@ function initializePlotlyEventHandlers(gd) { // Pass gd (the Plotly graph div ob
 
         if (interactedShapeIndex !== -1 && gd.layout.shapes && gd.layout.shapes[interactedShapeIndex]) {
             const interactedShape = gd.layout.shapes[interactedShapeIndex];
-            if (interactedShape.backendId && !interactedShape.isSystemShape) { // Ensure it's a user drawing and not a system shape
-                let shapeWasModifiedByThisEvent = false;
-                for (const key in eventData) {
-                    if (key.startsWith(`shapes[${interactedShapeIndex}]`)) {
-                        shapeWasModifiedByThisEvent = true;
-                        break;
+            if (interactedShape.backendId && !interactedShape.isSystemShape) {
+                
+                // --- Visual feedback on drag start (Temporarily disabled to fix line disappearing)---
+                // if (interactedShape.line.color !== 'rgba(255, 0, 255, 0.5)') {
+                //     const currentShapes = [...gd.layout.shapes];
+                //     currentShapes[interactedShapeIndex].line.color = 'rgba(255, 0, 255, 0.5)'; // Temporary color
+                //     Plotly.relayout(gd, { shapes: currentShapes });
+                //     }
+                // --- Debounced save on drag end ---
+                clearTimeout(shapeDragEndTimer);
+                shapeDragEndTimer = setTimeout(async () => {
+                    console.log(`[plotly_relayout] Drag end detected for shape ${interactedShape.backendId}, attempting to save.`);
+                    
+                    // It's possible the shape was deleted or changed, so we get the latest version
+                    const finalShapeState = gd.layout.shapes[interactedShapeIndex];
+                    if (finalShapeState && finalShapeState.backendId === interactedShape.backendId) {
+                        
+                        const saveSuccess = await sendShapeUpdateToServer(finalShapeState, window.symbolSelect.value);
+                        if (!saveSuccess) {
+                            loadDrawingsAndRedraw(window.symbolSelect.value);
+                        } else {
+                            // Restore original color after successful save
+                            await updateShapeVisuals(); // This should handle restoring the color
+                        }
                     }
-                }
-
-                console.log(`[plotly_relayout] Shape index ${interactedShapeIndex} (ID: ${interactedShape.backendId}) - shapeWasModifiedByThisEvent: ${shapeWasModifiedByThisEvent}`);
-                if (shapeWasModifiedByThisEvent) {
-                    console.log(`[plotly_relayout] Detected modification for shape ${interactedShape.backendId}, attempting to save.`);
-                    const saveSuccess = await sendShapeUpdateToServer(interactedShape, window.symbolSelect.value);
-                    if (!saveSuccess) {
-                        loadDrawingsAndRedraw(window.symbolSelect.value);
-                        return;
-                    }
-                }
+                }, DEBOUNCE_DELAY);
 
                 const selectionChanged = !activeShapeForPotentialDeletion || activeShapeForPotentialDeletion.id !== interactedShape.backendId;
                 if (selectionChanged) {
                     activeShapeForPotentialDeletion = { id: interactedShape.backendId, index: interactedShapeIndex, shape: interactedShape };
                     await updateShapeVisuals();
-                } else { // It's the same shape, ensure its state is current
+                } else {
                     activeShapeForPotentialDeletion.shape = interactedShape;
                 }
                 updateSelectedShapeInfoPanel(activeShapeForPotentialDeletion);
-                console.log('[plotly_relayout] Shape interaction processed. Active shape ID:', activeShapeForPotentialDeletion ? activeShapeForPotentialDeletion.id : 'none');
             }
         }
 
@@ -316,3 +374,87 @@ function initializePlotlyEventHandlers(gd) { // Pass gd (the Plotly graph div ob
         }
     });
 }
+
+function observeShapeDAttributeChanges(plotDivId) {
+    const plotDiv = document.getElementById(plotDivId);
+    if (!plotDiv) {
+        console.error(`Plotly div with id "${plotDivId}" not found.`);
+        return;
+    }
+
+    // Target the 'g' element with class 'shapelayer'
+    const shapeLayer = plotDiv.querySelector('.shapelayer');
+    if (!shapeLayer) {
+        console.error('Shape layer not found. Is a shape being drawn?');
+        return;
+    }
+
+    // Select all 'path' elements that are part of the 'drag-helper' groups
+    const dragHelperPaths = shapeLayer.querySelectorAll('g[drag-helper="true"] > path');
+
+    if (dragHelperPaths.length === 0) {
+        console.warn('No draggable shape paths found. Make sure shape editing is enabled.');
+        return;
+    }
+
+    dragHelperPaths.forEach(pathElement => {
+        // Create an observer instance
+        const observer = new MutationObserver(mutationsList => {
+            for (const mutation of mutationsList) {
+                // Check if the 'd' attribute was the one that changed
+                if (mutation.type === 'attributes' && mutation.attributeName === 'd') {
+                    const newDValue = mutation.target.getAttribute('d');
+                    console.log('Path d attribute changed:', newDValue);
+                    // You can perform an action here, like updating a different element or triggering a function
+                }
+            }
+        });
+
+        // Start observing the target path element for attribute changes
+        observer.observe(pathElement, { attributes: true, attributeFilter: ['d'] });
+    });
+}
+
+// Function to observe changes to the 'd' attribute of paths in the shape layer
+function observeShapeDAttributeChanges(plotDivId) {
+    const plotDiv = document.getElementById(plotDivId);
+    if (!plotDiv) {
+        console.error(`Plotly div with id "${plotDivId}" not found.`);
+        return;
+    }
+
+    // Target the 'g' element with class 'shapelayer'
+    const shapeLayer = plotDiv.querySelector('.shapelayer');
+    if (!shapeLayer) {
+        console.error('Shape layer not found. Is a shape being drawn?');
+        return;
+    }
+
+    // Select all 'path' elements that are part of the 'drag-helper' groups
+    const dragHelperPaths = shapeLayer.querySelectorAll('g[drag-helper="true"] > path');
+
+    if (dragHelperPaths.length === 0) {
+        console.warn('No draggable shape paths found. Make sure shape editing is enabled.');
+        return;
+    }
+
+    dragHelperPaths.forEach(pathElement => {
+        // Create an observer instance
+        const observer = new MutationObserver(mutationsList => {
+            for (const mutation of mutationsList) {
+                // Check if the 'd' attribute was the one that changed
+                if (mutation.type === 'attributes' && mutation.attributeName === 'd') {
+                    const newDValue = mutation.target.getAttribute('d');
+                    console.log('Path d attribute changed:', newDValue);
+                    // You can perform an action here, like updating a different element or triggering a function
+                }
+            }
+        });
+
+        // Start observing the target path element for attribute changes
+        observer.observe(pathElement, { attributes: true, attributeFilter: ['d'] });
+    });
+}
+
+// Initialize observer for main chart
+observeShapeDAttributeChanges('chart'); // Use your actual chart div ID

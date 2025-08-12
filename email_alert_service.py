@@ -425,7 +425,7 @@ class EmailAlertService:
     async def monitor_alerts(self):
         while True:
             await self.check_price_alerts()
-            await asyncio.sleep(20)
+            await asyncio.sleep(60)
 
 def get_smtp_config() -> SMTPConfig:
     try:

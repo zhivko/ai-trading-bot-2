@@ -165,6 +165,7 @@ function colorTheLine()
                 if (distSq < HOVER_THRESHOLD_PIXELS_SQ && distSq < minDistanceSq) {
                     minDistanceSq = distSq;
                     newHoveredShapeId = shape.backendId;
+                    if(window.gd) activateShape(window.gd, `shapes[${i}]`);
                 }
                 //console.groupEnd(); // End group for this shape
             }

@@ -424,6 +424,8 @@ async function updateChart() {
                 console.log(`[DEBUG chartUpdater] Skipping drawing for ${adjustedSubplotName} (original: ${drawing.subplot_name}) as its indicator is not active or refs could not be determined.`);
             }
         });
+
+        
         console.log(`Added ${drawings.length} saved drawing shapes to layout (post-indicator setup).`);
     } catch (error) {
         console.error('Error loading drawings (post-indicator setup):', error);
@@ -791,9 +793,11 @@ function initializeLogStream() {
             logElement.value = lines.join('\n');
 
             // Auto-scroll to the top to show the latest message if already there
+            /*
             if (logElement.scrollTop < 10) { // A small tolerance
                 logElement.scrollTop = 0;
             }
+            */
 
         } catch (e) {
             console.error("Error parsing log data:", e, "Raw data:", event.data);
