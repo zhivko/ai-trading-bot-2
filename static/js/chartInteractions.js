@@ -39,6 +39,7 @@ function updateOrAddCrosshairVLine(gd, xDataValue, doRelayout = true) {
 function colorTheLine()
 {
         //console.groupCollapsed('[NativeMousemove] Event Processing');
+        console.log('[colorTheLine] Current dragmode:', window.gd ? window.gd.layout.dragmode : 'N/A');
         if (!window.gd || !window.gd.layout || window.gd.layout.dragmode !== 'pan') {
             //console.log('[NativeMousemove] Exiting early: Chart not ready or dragmode not pan.');
             if (hoveredShapeBackendId !== null) { // Assumes hoveredShapeBackendId is global from state.js

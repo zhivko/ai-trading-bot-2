@@ -104,9 +104,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         const selectedSymbol = window.symbolSelect.value;
         if (!selectedSymbol) return;
         if (window.liveDataCheckbox.checked) {
-            console.log("Live data enabled by user.");
+            console.log("Live data enabled by user. Setting dragmode to 'pan'.");
             saveSettings();
             setupWebSocket(selectedSymbol); // from liveData.js
+            if (window.gd) {
+                Plotly.relayout(window.gd, { dragmode: 'pan' });
+            }
         } else {
             console.log("Live data disabled by user.");
             closeWebSocket("Live data disabled by user via checkbox."); // from liveData.js

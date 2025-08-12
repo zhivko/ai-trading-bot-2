@@ -145,6 +145,16 @@ function initializePlotlyEventHandlers(gd) {
     });
 
     gd.on('plotly_relayout', async function(eventData) {
+        // Check if dragmode changed to 'drawline'
+        if (eventData['dragmode'] === 'drawline') {
+            if (window.liveDataCheckbox && window.liveDataCheckbox.checked) {
+                window.liveDataCheckbox.checked = false;
+                // Optionally, trigger the change event if other listeners depend on it
+                window.liveDataCheckbox.dispatchEvent(new Event('change'));
+                console.log('Live data unchecked due to drawline mode activation.');
+            }
+        }
+
         if(eventData.shape) {
             console.log('Shape hovered:', eventData.shape);
             return;
