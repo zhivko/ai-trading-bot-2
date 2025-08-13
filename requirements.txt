@@ -38,4 +38,3 @@ ccxt
 
 ntplib
 django
-apexomni

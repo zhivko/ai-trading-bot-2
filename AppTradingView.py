@@ -55,10 +55,7 @@ from pydantic import BaseModel
 from urllib.parse import quote_plus, urlencode
 
 
-from apexomni.websocket_api import WebSocket as ApexProWS # Renamed for clarity
-from apexomni.http_public import HttpPublic
-from apexomni.http_private import HttpPrivate_v3 # For private endpoints if needed later
-
+from pybit.unified_trading import WebSocket as BybitWS # Renamed for clarity
 from openai import OpenAI, APIError, APIStatusError, APIConnectionError # For DeepSeek
 from starlette.websockets import WebSocketState
 from starlette.middleware import Middleware
@@ -220,11 +217,12 @@ async def lifespan(app_instance: FastAPI): # Renamed app to app_instance to avoi
         # Start email alert monitoring
         from email_alert_service import alert_service
         app_instance.state.alert_monitor_task = asyncio.create_task(alert_service.monitor_alerts())
-        # The real-time feed listener is conceptual for a shared WS connection.
-        # The /stream/live/{symbol} endpoint now creates its own WS per client.
-        # If you intend for a shared connection that feeds into Redis,
+        # The bybit_realtime_feed_listener is conceptual for a shared WS connection.
+        # The /stream/live/{symbol} endpoint now creates its own Bybit WS per client.
+        # If you intend for bybit_realtime_feed_listener to be a shared connection
+        # that feeds into Redis (as it was before the direct WS endpoint change),
         # then you would uncomment its invocation here.
-        # asyncio.create_task(apexpro_realtime_feed_listener())
+        # asyncio.create_task(bybit_realtime_feed_listener())
         logger.info("Background task (fetch_and_publish_klines) started.")
     except Exception as e:
         logger.error(f"Failed to initialize Redis or start background tasks: {e}", exc_info=True)
@@ -392,51 +390,49 @@ REDIS_OPEN_INTEREST_KEY_PREFIX = f"zset:open_interest:{TRADING_SYMBOL}:{TRADING_
 def get_sorted_set_oi_key(symbol: str, resolution: str) -> str:
     return f"zset:open_interest:{symbol}:{resolution}"
 
-def fetch_open_interest_from_apexpro(symbol: str, interval: str, start_ts: int, end_ts: int) -> list[Dict[str, Any]]:
-    """Fetches Open Interest data from Apex Pro."""
+def fetch_open_interest_from_bybit(symbol: str, interval: str, start_ts: int, end_ts: int) -> list[Dict[str, Any]]:
+    """Fetches Open Interest data from Bybit."""
     #logger.info(f"Fetching Open Interest for {symbol} {interval} from {datetime.fromtimestamp(start_ts, timezone.utc)} to {datetime.fromtimestamp(end_ts, timezone.utc)}")
     all_oi_data: list[Dict[str, Any]] = []
     current_start = start_ts
     
-    # Apex Pro's get_open_interest intervalTime parameter has specific values.
-    # This mapping needs to be consistent with what Apex Pro's API expects for `intervalTime`.
-    # Assuming same mapping for now, verify with docs
-    oi_interval_map = {"1m": "5min", "5m": "5min", "1h": "1h", "1d": "1d", "1w": "1d"} 
-    apexpro_oi_interval = oi_interval_map.get(interval, "5min") # Default to 5min if not found
+    # Bybit's get_open_interest intervalTime parameter has specific values.
+    # We assume TRADING_TIMEFRAME (e.g., "5m") maps to a valid intervalTime like "5min".
+    # This mapping needs to be consistent with what Bybit's API expects for `intervalTime`.
+    oi_interval_map = {"1m": "5min", "5m": "5min", "1h": "1h", "1d": "1d", "1w": "1d"} # "1w" might need "1d" OI
+    bybit_oi_interval = oi_interval_map.get(interval, "5min") # Default to 5min if not found
 
     # Convert interval string to seconds for calculation (e.g., "5min" -> 300 seconds)
     oi_interval_seconds_map = {"5min": 300, "15min": 900, "30min": 1800, "1h": 3600, "4h": 14400, "1d": 86400}
-    interval_seconds = oi_interval_seconds_map.get(apexpro_oi_interval)
+    interval_seconds = oi_interval_seconds_map.get(bybit_oi_interval)
     if not interval_seconds:
-        logger.error(f"Unsupported Open Interest interval for calculation: {apexpro_oi_interval}")
+        logger.error(f"Unsupported Open Interest interval for calculation: {bybit_oi_interval}")
         return []
 
     while current_start < end_ts:
-        # Apex Pro get_open_interest limit might be different, verify with docs
+        # Bybit get_open_interest limit is 200 per request
         batch_end = min(current_start + (200 * interval_seconds) - 1, end_ts)
         logger.debug(f"  Fetching OI batch: {datetime.fromtimestamp(current_start, timezone.utc)} to {datetime.fromtimestamp(batch_end, timezone.utc)}")
         try:
-            # Replace with Apex Pro API call for Open Interest
-            # response = session.get_open_interest(
-            #     category="linear", # Assuming linear perpetuals
-            #     symbol=symbol,
-            #     intervalTime=apexpro_oi_interval, # Use the string interval like "5min"
-            #     start=current_start * 1000, # Apex Pro expects milliseconds
-            #     end=batch_end * 1000,       # Apex Pro expects milliseconds
-            #     limit=200
-            # )
-            response = {"retCode": 1, "retMsg": "Not Implemented"} # Placeholder for now
+            response = session.get_open_interest(
+                category="linear", # Assuming linear perpetuals
+                symbol=symbol,
+                intervalTime=bybit_oi_interval, # Use the string interval like "5min"
+                start=current_start * 1000, # Bybit expects milliseconds
+                end=batch_end * 1000,       # Bybit expects milliseconds
+                limit=200
+            )
         except Exception as e:
-            logger.error(f"Apex Pro API request for Open Interest failed: {e}")
+            logger.error(f"Bybit API request for Open Interest failed: {e}")
             break
 
         if response.get("retCode") != 0:
-            logger.error(f"Apex Pro API error for Open Interest: {response.get('retMsg', 'Unknown error')}")
+            logger.error(f"Bybit API error for Open Interest: {response.get('retMsg', 'Unknown error')}")
             break
 
         list_data = response.get("result", {}).get("list", [])
         if not list_data:
-            logger.info("  No more Open Interest data available from Apex Pro for this range.")
+            logger.info("  No more Open Interest data available from Bybit for this range.")
             break
         
         # Data is usually newest first, reverse to get chronological order
@@ -456,7 +452,7 @@ def fetch_open_interest_from_apexpro(symbol: str, interval: str, start_ts: int, 
         current_start = last_fetched_ts_in_batch + interval_seconds
         
     all_oi_data.sort(key=lambda x: x["time"]) # Ensure chronological order
-    #logger.info(f"Total Open Interest data fetched from Apex Pro: {len(all_oi_data)}")
+    #logger.info(f"Total Open Interest data fetched from Bybit: {len(all_oi_data)}")
     return all_oi_data
 
 async def get_cached_open_interest(symbol: str, resolution: str, start_ts: int, end_ts: int) -> list[Dict[str, Any]]:
@@ -503,11 +499,6 @@ BYBIT_RESOLUTION_MAP = {
     "1m": "1", "5m": "5", "1h": "60", "1d": "D", "1w": "W"
 }
 
-# Apex Pro resolution map
-APEXPRO_RESOLUTION_MAP = {
-    "1m": "1", "5m": "5", "1h": "60", "1d": "D", "1w": "W" # Assuming same mapping for now, verify with docs
-}
-
 # Initialize Redis client (using AsyncRedis for consistency)
 redis_client: Optional[AsyncRedis] = None
 
@@ -550,12 +541,9 @@ async def get_redis_connection() -> AsyncRedis:
 
 
 @dataclass(frozen=True)
-class ApexProCredentials:
+class BybitCredentials:
     api_key: str
     api_secret: str
-    api_passphrase: str
-    zk_seeds: Optional[str] = None
-    zk_l2Key: Optional[str] = None
     TRUSTED_CLIENT_CERT_SUBJECTS: List[str]
     GOOGLE_CLIENT_ID: str
     DEEPSEEK_API_KEY: str
@@ -567,15 +555,12 @@ class ApexProCredentials:
     GOOGLE_CLIENT_SECRET: str
 
     @classmethod
-    def from_file(cls, path: Path) -> "ApexProCredentials":
+    def from_file(cls, path: Path) -> "BybitCredentials":
         if not path.is_file():
             logger.warning(f"Credentials file not found at {path}. Using placeholder credentials.")
             return cls(
-                api_key="YOUR_APEXPRO_API_KEY",
-                api_secret="YOUR_APEXPRO_API_SECRET",
-                api_passphrase="YOUR_APEXPRO_API_PASSPHRASE",
-                zk_seeds=None,
-                zk_l2Key=None,
+                api_key="YOUR_BYBIT_API_KEY",
+                api_secret="YOUR_BYBIT_API_SECRET",
                 TRUSTED_CLIENT_CERT_SUBJECTS=[],
                 GOOGLE_CLIENT_ID="",
                 DEEPSEEK_API_KEY="",
@@ -591,12 +576,9 @@ class ApexProCredentials:
         try:
             creds_json = json.loads(creds_text)
             return cls(
-                api_key=creds_json["apex_key"], 
-                api_secret=creds_json["apex_secret"], 
-                api_passphrase=creds_json["apex_passphrase"],
-                zk_seeds=creds_json.get("apex_zk_seeds"),
-                zk_l2Key=creds_json.get("apex_zk_l2Key"),
-                TRUSTED_CLIENT_CERT_SUBJECTS=creds_json.get("TRUSTED_CLIENT_CERT_SUBJECTS", []),
+                api_key=creds_json["kljuc"], 
+                api_secret=creds_json["geslo"], 
+                TRUSTED_CLIENT_CERT_SUBJECTS=creds_json.get("TRUSTED_CLIENT_CERT_SUBJECTS", []), 
                 DEEPSEEK_API_KEY=creds_json.get("DEEPSEEK_API_KEY"), 
                 GEMINI_API_KEY=creds_json.get("GEMINI_API_KEY"),
                 GOOGLE_CLIENT_ID=creds_json.get("GOOGLE_CLIENT_ID"),
@@ -609,11 +591,8 @@ class ApexProCredentials:
         except (json.JSONDecodeError, KeyError) as e:
             logger.error(f"Error reading credentials file {path}: {e}. Using placeholder credentials.")
             return cls(
-                api_key="YOUR_APEXPRO_API_KEY",
-                api_secret="YOUR_APEXPRO_API_SECRET",
-                api_passphrase="YOUR_APEXPRO_API_PASSPHRASE",
-                zk_seeds=None,
-                zk_l2Key=None,
+                api_key="YOUR_BYBIT_API_KEY",
+                api_secret="YOUR_BYBIT_API_SECRET",
                 TRUSTED_CLIENT_CERT_SUBJECTS=[],
                 GOOGLE_CLIENT_ID="",
                 DEEPSEEK_API_KEY="",
@@ -652,10 +631,10 @@ class DrawingData(BaseModel):
 class TimeframeConfig:
     # Use the global SUPPORTED_RESOLUTIONS, converted to a tuple
     supported_resolutions: tuple[str, ...] = field(default_factory=lambda: tuple(SUPPORTED_RESOLUTIONS))
-    # Use the global APEXPRO_RESOLUTION_MAP
-    resolution_map: dict[str, str] = field(default_factory=lambda: APEXPRO_RESOLUTION_MAP)
+    # Use the global BYBIT_RESOLUTION_MAP
+    resolution_map: dict[str, str] = field(default_factory=lambda: BYBIT_RESOLUTION_MAP)
 
-creds = ApexProCredentials.from_file(Path("c:/git/VidWebServer/authcreds.json"))
+creds = BybitCredentials.from_file(Path("c:/git/VidWebServer/authcreds.json"))
 timeframe_config = TimeframeConfig()
 data_dir = Path("data")
 data_dir.mkdir(exist_ok=True)
@@ -665,12 +644,12 @@ for symbol_val_init in SUPPORTED_SYMBOLS: # Renamed to avoid conflict
     symbol_dir = data_dir / symbol_val_init
     symbol_dir.mkdir(exist_ok=True)
 
-session = HttpPublic( # Using HttpPublic for public endpoints
+session = HTTP(
     api_key=creds.api_key,
     api_secret=creds.api_secret,
-    api_passphrase=creds.api_passphrase,
-    testnet=False, # Assuming testnet parameter exists and is consistent
-    # Apex Pro SDK might have different parameters, adjust as needed
+    testnet=False,
+    recv_window=20000,
+    max_retries=1 # Set max_retries to 0 to disable retries
 )
 
 # Configure Gemini API key globally
@@ -813,7 +792,7 @@ def format_kline_data(bar: list[Any]) -> KlineData:
         "vol": float(bar[5])
     }
 
-def fetch_klines_from_apexpro(symbol: str, resolution: str, start_ts: int, end_ts: int) -> list[KlineData]:
+def fetch_klines_from_bybit(symbol: str, resolution: str, start_ts: int, end_ts: int) -> list[KlineData]:
     #logger.info(f"Fetching klines for {symbol} {resolution} from {datetime.fromtimestamp(start_ts, timezone.utc)} to {datetime.fromtimestamp(end_ts, timezone.utc)}")
     all_klines: list[KlineData] = []
     current_start = start_ts
@@ -823,25 +802,22 @@ def fetch_klines_from_apexpro(symbol: str, resolution: str, start_ts: int, end_t
         batch_end = min(current_start + (1000 * timeframe_seconds) -1 , end_ts) 
         #logger.debug(f"Fetching batch: {datetime.fromtimestamp(current_start, timezone.utc)} to {datetime.fromtimestamp(batch_end, timezone.utc)}")
         try:
-            # Apex Pro klines_v3 expects timestamps in seconds
-            response = session.klines_v3(
-                symbol=symbol,
-                interval=timeframe_config.resolution_map[resolution], # Use Apex Pro resolution map
-                start=current_start, # Apex Pro expects seconds
-                end=batch_end,       # Apex Pro expects seconds
-                limit=1000 # Assuming limit is 1000, verify with docs
+            response = session.get_kline(
+                category="linear", symbol=symbol,
+                interval=timeframe_config.resolution_map[resolution],
+                start=current_start * 1000, end=batch_end * 1000, limit=1000
             )
         except Exception as e:
-            logger.error(f"Apex Pro API request failed: {e}")
+            logger.error(f"Bybit API request failed: {e}")
             break 
         
         if response.get("retCode") != 0:
-            logger.error(f"Error fetching data from Apex Pro: {response.get('retMsg', 'Unknown error')}")
+            logger.error(f"Error fetching data from Bybit: {response.get('retMsg', 'Unknown error')}")
             break
         
-        bars = response.get("data", {}).get("list", []) # Apex Pro might return data in "data" field
+        bars = response.get("result", {}).get("list", [])
         if not bars:
-            logger.info("No more data available from Apex Pro for this range.")
+            logger.info("No more data available from Bybit for this range.")
             break
         
         batch_klines = [format_kline_data(bar) for bar in reversed(bars)]
@@ -852,12 +828,12 @@ def fetch_klines_from_apexpro(symbol: str, resolution: str, start_ts: int, end_t
             break
 
         last_fetched_ts = batch_klines[-1]["time"]
-        if len(bars) < 1000 or last_fetched_ts >= batch_end: # Assuming limit is 1000
+        if len(bars) < 1000 or last_fetched_ts >= batch_end:
             break 
         current_start = last_fetched_ts + timeframe_seconds 
     
     all_klines.sort(key=lambda x: x["time"])
-    #logger.info(f"Total klines fetched from Apex Pro: {len(all_klines)}")
+    #logger.info(f"Total klines fetched from Bybit: {len(all_klines)}")
     return all_klines
 
 def get_stream_key(symbol: str, resolution: str) -> str:
@@ -1032,15 +1008,15 @@ async def history(symbol: str, resolution: str, from_ts: int, to_ts: int):
         if should_fetch_from_bybit:
             logger.info(f"KLINES: Attempting to fetch from Bybit for PAXGUSDT with from_ts: {from_ts} and to_ts: {to_ts}")
             logger.info(f"Attempting to fetch from Bybit for {symbol} {resolution} range {from_ts} to {to_ts}")
-            apexpro_klines = fetch_klines_from_apexpro(symbol, resolution, from_ts, to_ts)
-            if apexpro_klines:
-                logger.info(f"Fetched {len(apexpro_klines)} klines from Apex Pro. Caching them.")
-                await cache_klines(symbol, resolution, apexpro_klines)
+            bybit_klines = fetch_klines_from_bybit(symbol, resolution, from_ts, to_ts)
+            if bybit_klines:
+                logger.info(f"Fetched {len(bybit_klines)} klines from Bybit. Caching them.")
+                await cache_klines(symbol, resolution, bybit_klines)
                 # Re-query cache to get a consolidated, sorted list from the precise range
                 klines = await get_cached_klines(symbol, resolution, from_ts, to_ts)
             elif not klines: 
-                logger.info(f"APEX PRO: No data available from Apex Pro and cache is empty for this range.")
-                logger.info("No data available from Apex Pro and cache is empty for this range.")
+                logger.info(f"BYBIT: No data available from Bybit and cache is empty for this range.")
+                logger.info("No data available from Bybit and cache is empty for this range.")
 
 
                 return JSONResponse({"s": "no_data", "t": [], "o": [], "h": [], "l": [], "c": [], "v": []})
@@ -1076,7 +1052,7 @@ async def history(symbol: str, resolution: str, from_ts: int, to_ts: int):
         log_msg_parts.append(f"Requested range: from_ts={from_ts} ({datetime.fromtimestamp(from_ts, timezone.utc)} UTC) to to_ts={to_ts} ({datetime.fromtimestamp(to_ts, timezone.utc)} UTC).")
         if klines:
             actual_min_ts = min(response_data["t"])
-            logger.info(f"APEX PRO: Fetch Completed with data returned from ({actual_min_ts}) and higher")
+            logger.info(f"BYBIT: Fetch Completed with data returned from ({actual_min_ts}) and higher")
             actual_max_ts = max(response_data["t"])
             log_msg_parts.append(f"Actual data range: min_ts={actual_min_ts} ({datetime.fromtimestamp(actual_min_ts, timezone.utc)} UTC) to max_ts={actual_max_ts} ({datetime.fromtimestamp(actual_max_ts, timezone.utc)} UTC).")
         else:
@@ -1412,7 +1388,7 @@ async def symbols_endpoint(symbol: str):
         return JSONResponse({"s": "error", "errmsg": "Symbol not supported"}, status_code=404)
     return JSONResponse({
         "name": symbol, "ticker": symbol, "description": f"{symbol} Perpetual",
-        "type": "crypto", "exchange": "Apex Pro", "session": "24x7", "timezone": "UTC",
+        "type": "crypto", "exchange": "Bybit", "session": "24x7", "timezone": "UTC",
         "minmovement": 1, "pricescale": 100, "has_intraday": True,
         "supported_resolutions": list(timeframe_config.supported_resolutions),
         "volume_precision": 2
@@ -1842,18 +1818,18 @@ async def _calculate_and_return_indicators(symbol: str, resolution: str, from_ts
     # Fetch klines and Open Interest (base data for indicators) using the final clamped fetch window
     klines = await get_cached_klines(symbol, resolution, final_fetch_from_ts, final_fetch_to_ts)
     if not klines or klines[0]['time'] > final_fetch_from_ts or klines[-1]['time'] < final_fetch_to_ts :
-        apexpro_klines = fetch_klines_from_apexpro(symbol, resolution, final_fetch_from_ts, final_fetch_to_ts)
-        if apexpro_klines:
-            await cache_klines(symbol, resolution, apexpro_klines)
+        bybit_klines = fetch_klines_from_bybit(symbol, resolution, final_fetch_from_ts, final_fetch_to_ts)
+        if bybit_klines:
+            await cache_klines(symbol, resolution, bybit_klines)
             klines = await get_cached_klines(symbol, resolution, final_fetch_from_ts, final_fetch_to_ts)
     
     # Filter klines to the exact final fetch window (should be redundant if cache/bybit fetch is precise)
     
     oi_data = await get_cached_open_interest(symbol, resolution, final_fetch_from_ts, final_fetch_to_ts)
     if not oi_data or oi_data[0]['time'] > final_fetch_from_ts or oi_data[-1]['time'] < final_fetch_to_ts:
-        apexpro_oi_data = fetch_open_interest_from_apexpro(symbol, resolution, final_fetch_from_ts, final_fetch_to_ts)
-        if apexpro_oi_data:
-            await cache_open_interest(symbol, resolution, apexpro_oi_data)
+        bybit_oi_data = fetch_open_interest_from_bybit(symbol, resolution, final_fetch_from_ts, final_fetch_to_ts)
+        if bybit_oi_data:
+            await cache_open_interest(symbol, resolution, bybit_oi_data)
             oi_data = await get_cached_open_interest(symbol, resolution, final_fetch_from_ts, final_fetch_to_ts)
 
     # Filter klines to the exact final fetch window (should be redundant if cache/bybit fetch is precise)
@@ -2286,17 +2262,17 @@ async def get_ai_suggestion(request_data: AIRequest):
     # 2. Fetch klines and Open Interest for calculation
     klines_for_calc = await get_cached_klines(request_data.symbol, request_data.resolution, final_fetch_from_ts, final_fetch_to_ts)
     if not klines_for_calc or klines_for_calc[0]['time'] > final_fetch_from_ts or klines_for_calc[-1]['time'] < final_fetch_to_ts:
-        apexpro_klines = fetch_klines_from_apexpro(request_data.symbol, request_data.resolution, final_fetch_from_ts, final_fetch_to_ts)
-        if apexpro_klines:
-            await cache_klines(request_data.symbol, request_data.resolution, apexpro_klines)
+        bybit_klines = fetch_klines_from_bybit(request_data.symbol, request_data.resolution, final_fetch_from_ts, final_fetch_to_ts)
+        if bybit_klines:
+            await cache_klines(request_data.symbol, request_data.resolution, bybit_klines)
             klines_for_calc = await get_cached_klines(request_data.symbol, request_data.resolution, final_fetch_from_ts, final_fetch_to_ts)
     
         oi_data_for_calc = await get_cached_open_interest(request_data.symbol, request_data.resolution, final_fetch_from_ts, final_fetch_to_ts)
 
     if not oi_data_for_calc or oi_data_for_calc[0]['time'] > final_fetch_from_ts or oi_data_for_calc[-1]['time'] < final_fetch_to_ts:
-        apexpro_oi_data = fetch_open_interest_from_apexpro(request_data.symbol, request_data.resolution, final_fetch_from_ts, final_fetch_to_ts)
-        if apexpro_oi_data:
-            await cache_open_interest(request_data.symbol, request_data.resolution, apexpro_oi_data)
+        bybit_oi_data = fetch_open_interest_from_bybit(request_data.symbol, request_data.resolution, final_fetch_from_ts, final_fetch_to_ts)
+        if bybit_oi_data:
+            await cache_open_interest(request_data.symbol, request_data.resolution, bybit_oi_data)
             oi_data_for_calc = await get_cached_open_interest(request_data.symbol, request_data.resolution, final_fetch_from_ts, final_fetch_to_ts)
 
     # Filter klines and OI to the exact final fetch window
@@ -2639,7 +2615,7 @@ async def fetch_and_publish_klines():
                             start_ts = int(last_fetch.timestamp()) 
                         
                         if start_ts < end_ts:
-                            klines = fetch_klines_from_apexpro(symbol_val, resolution, start_ts, end_ts)
+                            klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
                             if klines:
                                 await cache_klines(symbol_val, resolution, klines)
                                 latest_kline = klines[-1]
@@ -2655,31 +2631,21 @@ async def fetch_and_publish_klines():
                 # Fetch OI for the last 24 hours to ensure recent data is available
                 start_ts = end_ts - (24 * 3600) # Fetch last 24 hours of OI
                 for symbol_val in SUPPORTED_SYMBOLS:
-                    oi_data = fetch_open_interest_from_apexpro(symbol_val, resolution, start_ts, end_ts)
+                    oi_data = fetch_open_interest_from_bybit(symbol_val, resolution, start_ts, end_ts)
                     if oi_data:
                         await cache_open_interest(symbol_val, resolution, oi_data)            
         except Exception as e:
             logger.error(f"Error in fetch_and_publish_klines task: {e}", exc_info=True)
             await asyncio.sleep(10) 
 
-async def apexpro_realtime_feed_listener():
-    logger.info("Starting Apex Pro real-time feed listener task (conceptual - for shared WS to Redis)")
-    # The /stream/live/{symbol} endpoint now creates a direct Apex Pro WS per client.
-    # If you intend for apexpro_realtime_feed_listener to be a shared connection
-    # that feeds into Redis (as it was before the direct WS endpoint change),
-    # then you would uncomment its invocation here.
-    # asyncio.create_task(apexpro_realtime_feed_listener())
-    logger.debug("apexpro_realtime_feed_listener (shared conceptual) placeholder is alive")
-    # This function is a placeholder for a shared WebSocket connection
-    # that would push data to Redis. The current implementation uses
-    # per-client WebSockets for live data.
-    #
-    # Example of how you might use apexomni for a shared WS:
-    # from apexomni.websocket_api import WebSocket
-    # ws = WebSocket(endpoint=APEX_OMNI_WS_MAIN) # Use appropriate endpoint
-    # ws.ticker_stream(symbol="BTCUSDT", callback=lambda msg: print(msg))
-    # while True:
-    #     await asyncio.sleep(1) # Keep the task alive
+async def bybit_realtime_feed_listener():
+    logger.info("Starting Bybit real-time feed listener task (conceptual - for shared WS to Redis)")
+    # This is a placeholder for a shared WebSocket connection that publishes to Redis.
+    # The /stream/live/{symbol} endpoint now creates a direct Bybit WS per client.
+    # If you want this listener to feed Redis for the old SSE endpoint, implement it here.
+    while True:
+        await asyncio.sleep(300) 
+        logger.debug("bybit_realtime_feed_listener (shared conceptual) placeholder is alive")
 
 @app.get("/stream/{symbol}/{resolution}")
 async def stream_resolution_api_endpoint(symbol: str, resolution: str, request: Request): 
@@ -2728,19 +2694,77 @@ async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str)
         return
 
 
-    apexpro_ws_client = ApexProWS(
-        endpoint="wss://ws.apex.exchange/ws", # Use Apex Pro WebSocket endpoint, verify with docs
-        api_key_credentials={
-            "key": creds.api_key,
-            "secret": creds.api_secret,
-            "passphrase": creds.api_passphrase
-        },
-        # Apex Pro WebSocket might have different parameters, adjust as needed
+    bybit_ws_client = BybitWS(
+        testnet=False, 
+        channel_type="linear" 
     )
-    logger.info(f"Subscribing Apex Pro WebSocket to:  ")
-    # Apex Pro WebSocket subscription might be different, verify with docs
-    # apexpro_ws_client.subscribe(topic=topics, callback=apexpro_message_handler,symbol=symbols)
-    websocket_client_ref = apexpro_ws_client
+
+    async def send_to_client(data_to_send: Dict[str, Any]):
+        try:
+            if websocket.client_state == WebSocketState.CONNECTED:
+                await websocket.send_json(data_to_send)
+        except WebSocketDisconnect:
+            logger.info(f"Client (live stream {symbol}) disconnected while trying to send data.")
+        except Exception as e:
+            if "Cannot call \"send\" once a close message has been sent" in str(e):
+                 pass
+            elif "Cannot call \"send\" after WebSocket has been closed" in str(e):
+                pass
+            elif "closed connection before send could complete." in str(e):
+                pass
+            else:
+                logger.error(f"Unexpected RuntimeError sending data to client (live stream {symbol}): {e}")            
+
+
+    def bybit_message_handler(message: Dict[str, Any]):
+        # This callback will run in a thread managed by pybit's WebSocket client.
+        # To send data over FastAPI's WebSocket (which is async),
+        # we need to schedule it on the event loop.
+        logger.debug(f"Bybit Handler for {symbol}: Using stream_delta_seconds = {client_stream_state['stream_delta_seconds']}") # Log current delta
+        if "topic" in message and "data" in message:
+            topic_str = message["topic"] # topic is already a string
+            # No need to split topic_str if we are only checking the full topic string
+            # Check if the topic is for tickers and matches the requested symbol
+            if topic_str == f"tickers.{symbol}": # Direct comparison
+                ticker_data = message["data"]
+                # The ticker data structure might vary slightly based on Bybit's API version for V5 tickers.
+                # Common fields include lastPrice, bid1Price, ask1Price.
+                # We'll primarily use lastPrice.
+                if "lastPrice" in ticker_data:
+                    try:
+                        # Timestamp 'ts' is at the same level as 'topic', 'type', 'data'
+                        message_timestamp_ms = message.get("ts") 
+                        if message_timestamp_ms is None:
+                            logger.warning(f"Timestamp 'ts' not found in Bybit ticker message for {symbol}. Using current server time. Message: {message}")
+                            message_timestamp_ms = time.time() * 1000 # Fallback to current time in ms
+
+                        current_server_timestamp_sec = time.time()
+                        should_send = False
+                        if client_stream_state["stream_delta_seconds"] == 0:
+                            should_send = True
+                        elif (current_server_timestamp_sec - client_stream_state["last_sent_timestamp"]) >= client_stream_state["stream_delta_seconds"]:
+                            should_send = True
+
+                        if should_send:
+                            live_data = {
+                                "symbol": ticker_data.get("symbol", symbol),
+                                "time": int(message_timestamp_ms) // 1000,
+                                "price": float(ticker_data["lastPrice"]),
+                                "vol": float(ticker_data.get("volume24h", 0)),
+                            }
+                            loop.call_soon_threadsafe(asyncio.create_task, send_to_client(live_data))
+                            client_stream_state["last_sent_timestamp"] = current_server_timestamp_sec
+                    except Exception as e: 
+                        logger.error(f"Error processing or scheduling send for Bybit ticker data for {symbol}: {e} - Data: {ticker_data}")
+    
+    # Pass the handler to the subscribe method
+    topics = 'tickers.{symbol}'
+    symbols = [f'{symbol}']
+    logger.info(f"Subscribing Bybit WebSocket to:  ")
+    bybit_ws_client.subscribe(topic=topics, callback=bybit_message_handler,symbol=symbols)
+    
+    # Store reference to client for proper cleanup
+    websocket_client_ref = bybit_ws_client
     
     # Start the settings update listener task (ensure 'settings_update_listener' is defined before this line)
     redis_for_pubsub = await get_redis_connection() # Get a connection for PubSub
@@ -2786,13 +2810,15 @@ async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str)
         
         # Attempt to gracefully close the Bybit WebSocket connection
         # The pybit WebSocket client runs in its own thread. exit() signals it to stop.
-        if 'apexpro_ws_client' in locals() and hasattr(apexpro_ws_client, 'exit') and callable(apexpro_ws_client.exit):
-        logger.info(f"Attempting to call apexpro_ws_client.exit() for {symbol}")
-        apexpro_ws_client.exit() # This is a synchronous call
-        logger.info(f"Called apexpro_ws_client.exit() for {symbol}")
-    except Exception as e_apexpro_exit:
-        logger.error(f"Error calling apexpro_ws_client.exit() for {symbol}: {e_apexpro_exit}")
-    logger.warning(f"apexpro_ws_client for {symbol} not defined or does not have a callable 'exit' method at cleanup.")
+        if 'bybit_ws_client' in locals() and hasattr(bybit_ws_client, 'exit') and callable(bybit_ws_client.exit):
+            try:
+                logger.info(f"Attempting to call bybit_ws_client.exit() for {symbol}")
+                bybit_ws_client.exit() # This is a synchronous call
+                logger.info(f"Called bybit_ws_client.exit() for {symbol}")
+            except Exception as e_bybit_exit:
+                logger.error(f"Error calling bybit_ws_client.exit() for {symbol}: {e_bybit_exit}")
+        else:
+            logger.warning(f"bybit_ws_client for {symbol} not defined or does not have a callable 'exit' method at cleanup.")
 
         # Attempt to close the FastAPI WebSocket connection
         if websocket.client_state != WebSocketState.DISCONNECTED:
@@ -2811,7 +2837,7 @@ async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str)
         else:
             logger.info(f"FastAPI WebSocket for {symbol} client_state was already DISCONNECTED in finally block.")
         
-        logger.info(f"Cleanup finished for WebSocket and Apex Pro connection for live data: {symbol}")
+        logger.info(f"Cleanup finished for WebSocket and Bybit connection for live data: {symbol}")
 
 
 @app.get("/get_agent_trades")
@@ -3234,7 +3260,7 @@ async def get_buy_signals_endpoint(symbol: str, resolution: str, from_ts: int, t
         # Check if cache is missing data at the start
         if not klines_for_calc or klines_for_calc[0]['time'] > fetch_start_ts:
             logger.info(f"Cache miss or insufficient lookback for {symbol}. Fetching from Bybit.")
-            apexpro_klines = fetch_klines_from_apexpro(symbol, resolution, fetch_start_ts, to_ts)
+            bybit_klines = fetch_klines_from_bybit(symbol, resolution, fetch_start_ts, to_ts)
             if bybit_klines:
                 await cache_klines(symbol, resolution, bybit_klines)
                 # Re-query from cache to get a consolidated list
