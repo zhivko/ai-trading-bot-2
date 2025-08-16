@@ -1,6 +1,7 @@
 google-generativeai
 fastapi
 uvicorn
+websockets
 jinja2
 httpx
 redis
@@ -13,7 +14,7 @@ langchain-ollama
 langchain-core
 pydantic
 scipy
-numpy
+numpy==1.26.4
 torch # Note: For CUDA support, you might need a specific version like torch==2.2.2+cu121
 gymnasium
 stable-baselines3

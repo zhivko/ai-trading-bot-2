@@ -15,6 +15,7 @@ from AppTradingView import get_redis_connection, SUPPORTED_SYMBOLS, _calculate_a
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
+import base64
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +74,14 @@ class EmailAlertService:
 
         cross_time = triggered_alerts[0]['cross_time']
         timeframe_seconds = get_timeframe_seconds(resolution)
-        start_time = cross_time - (timeframe_seconds * 200) # Get 200 candles of context
-        klines = await get_cached_klines(symbol, resolution, start_time, cross_time + timeframe_seconds) # Fetch slightly past cross time
+
+        # Determine the full range needed for the chart
+        all_trendline_start_times = [alert['drawing']['start_time'] for alert in triggered_alerts]
+        chart_start_time = min(all_trendline_start_times) - (timeframe_seconds * 20) # 20 candles before the earliest trendline
+        chart_end_time = cross_time + (timeframe_seconds * 20) # 20 candles after the cross
+
+        # Fetch klines for the entire chart range
+        klines = await get_cached_klines(symbol, resolution, chart_start_time, chart_end_time)
         if not klines:
             logger.error(f"Could not fetch klines for {symbol} to generate chart.")
             return None
@@ -91,7 +98,7 @@ class EmailAlertService:
         indicator_colors = {'macd': '#00E5FF', 'signal': '#FF007F', 'histogram': '#BEBEBE', 'rsi': '#FFD700', 'stoch_k': '#00E5FF', 'stoch_d': '#FF007F'}
         logger.info(f"Active indicators for chart generation: {active_indicators}")
         for i, indicator_name in enumerate(active_indicators, start=2):
-            indicator_data_response = await _calculate_and_return_indicators(symbol, resolution, start_time, cross_time + timeframe_seconds, [indicator_name])
+            indicator_data_response = await _calculate_and_return_indicators(symbol, resolution, chart_start_time, chart_end_time, [indicator_name])
             
             logger.debug(f"Indicator response for {indicator_name}: {indicator_data_response}")
 
@@ -318,6 +325,8 @@ class EmailAlertService:
         alerts_by_user = {}
 
         for idx, drawing in enumerate(drawings):
+            if drawing.get('alert_sent'):
+                continue
             try:
                 symbol = drawing.get('symbol')
                 user_email = drawing.get('user_email')
@@ -377,6 +386,9 @@ class EmailAlertService:
 
                     await self.send_alert_email(user_email, f"Price Alerts for {symbol}", message_body, images)
                     logger.info(f"Sent cumulative alert email to {user_email} for {len(alerts)} events on {symbol}.")
+                    
+                    # Mark drawings as sent to avoid re-triggering
+                    await self.mark_drawings_as_sent(redis, alerts)
                 except Exception as e:
                     logger.error(f"Failed to send alert email to {user_email} for {symbol}: {e}", exc_info=True)
 
@@ -416,6 +428,54 @@ class EmailAlertService:
     async def send_alert_email(self, to_email: str, subject: str, body: str, images: List[tuple[str, bytes]] = None):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._send_email_sync, to_email, subject, body, images)
+
+    async def mark_drawings_as_sent(self, redis: Redis, alerts: List[Dict]):
+        """Marks drawings that triggered an alert as 'sent' in Redis to prevent duplicates."""
+        if not alerts:
+            return
+
+        drawings_to_update = {}
+        for alert in alerts:
+            drawing = alert.get('drawing', {})
+            user_email = drawing.get('user_email')
+            symbol = drawing.get('symbol')
+            drawing_id = drawing.get('id')
+            if not all([user_email, symbol, drawing_id]):
+                logger.warning(f"Skipping marking drawing as sent due to missing info: {drawing}")
+                continue
+            
+            key = (user_email, symbol)
+            if key not in drawings_to_update:
+                drawings_to_update[key] = set()
+            drawings_to_update[key].add(drawing_id)
+
+        for (user_email, symbol), drawing_ids in drawings_to_update.items():
+            redis_key = f"drawings:{user_email}:{symbol}"
+            try:
+                async with redis.pipeline(transaction=True) as pipe:
+                    await pipe.watch(redis_key)
+                    drawing_data = await pipe.get(redis_key)
+                    if not drawing_data:
+                        pipe.unwatch()
+                        continue
+
+                    user_drawings = json.loads(drawing_data)
+                    
+                    updated = False
+                    for i, drawing in enumerate(user_drawings):
+                        if drawing.get('id') in drawing_ids:
+                            user_drawings[i]['alert_sent'] = True
+                            user_drawings[i]['alert_sent_time'] = int(datetime.now(timezone.utc).timestamp())
+                            updated = True
+                    
+                    if updated:
+                        pipe.multi()
+                        pipe.set(redis_key, json.dumps(user_drawings))
+                        await pipe.execute()
+                        logger.info(f"Marked {len(drawing_ids)} drawings as sent for {user_email} on {symbol}")
+
+            except Exception as e:
+                logger.error(f"Error marking drawings as sent for {user_email} on {symbol}: {e}", exc_info=True)
 
     async def remove_alert_after_delay(self, symbol: str, line_id: str, delay: int = 86400):
         await asyncio.sleep(delay)
