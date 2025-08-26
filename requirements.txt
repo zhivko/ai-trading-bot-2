@@ -39,3 +39,7 @@ ccxt
 
 ntplib
 django
+importlib-metadata==4.11.4
+
+transformers
+accelerate

@@ -8,12 +8,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Crypto Chart</title>
     <style>
+        * {
+            box-sizing: border-box;
+        }
+        html, body {
+            height: 100%;
+            margin: 0;
+            overflow: hidden; /* Prevent scrolling on the body */
+        }
         body {
             font-family: Arial, sans-serif;
             display: flex; 
             flex-direction: column;
-            height: 100vh;
-            margin: 0;
         }
         #controls {
             display: flex;
@@ -24,35 +30,32 @@
         #main {
             display: flex;
             flex: 1;
-            /* padding: 10px; */
+            min-height: 0; /* Important for flex-shrink to work correctly in some browsers */
         }
         #chart {
-            flex-grow: 1; /* Allow chart to grow and take remaining space */
-            flex-basis: 0; /* Optional: ensures flex-grow works as expected from a zero base */
-            height: 100%;
-            padding: 10px; /* Added padding directly to chart if spacing for its content is desired */
+            flex-grow: 1;
+            flex-basis: 0;
         }
         #right-panel {
-            width: 320px; /* Reduced width for the right panel */
+            width: 320px;
             padding: 10px;
             background-color: #e0e0e0;
-            overflow-y: auto; 
-            font-size: 13px; /* Reduced base font size for the right panel */
+            overflow-y: auto; /* This is where the scrollbar will appear */
+            font-size: 13px;
         }
         #right-panel p {
             margin: 0.5em 0; 
         }
-        #event-output { /* Changed from #event-output p to style the textarea itself */
-            width: 98%; /* Take most of the panel width */
-            height: 100px; /* Further reduced fixed height for event log */
-            overflow-y: auto; /* Make it scrollable (default for textarea, but good to be explicit) */
+        #event-output {
+            width: 98%;
+            height: 100px;
+            overflow-y: auto;
             font-size: 0.9em;
             word-break: break-all;
             border: 1px solid #ccc;
             padding: 5px;
-            box-sizing: border-box; /* Include padding and border in the element's total width and height */
-            white-space: pre-wrap; /* Allow line breaks and wrap text */
-            resize: none; /* Prevent manual resizing by user */
+            white-space: pre-wrap;
+            resize: none;
         }
         #indicator-checkbox-list div {
             margin-bottom: 5px;

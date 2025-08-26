@@ -12,23 +12,23 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
     let lineIndex = shapes.findIndex(shape => shape.name === REALTIME_PRICE_LINE_NAME); // Assumes REALTIME_PRICE_LINE_NAME is global
     try {
         const lineDefinition = {
-            type: 'line',
-            name: REALTIME_PRICE_LINE_NAME,
-            isSystemShape: true, // Mark as a system shape
-            yref: 'y',
-            x0ref: 'x',
-            x1ref: 'paper',
-            x0: new Date(candleEndTimeMs),
-            y0: price,
-            x1: 1,
-            y1: price,
-            line: {
-                color: 'rgba(0, 0, 0, 0.9)',
-                width: 1.5,
-                dash: 'solid'
-            },
-            layer: 'above',
-            editable: false // Explicitly make this system shape not editable by Plotly
+                type: 'line',
+                name: REALTIME_PRICE_LINE_NAME,
+                isSystemShape: true, // Mark as a system shape
+                yref: 'y',
+                x0ref: 'x',
+                x1ref: 'paper',
+                x0: new Date(candleEndTimeMs),
+                y0: price,
+                x1: 1,
+                y1: price,
+                line: {
+                    color: 'rgba(0, 0, 0, 0.9)',
+                    width: 1.5,
+                    dash: 'solid'
+                },
+                layer: 'above',
+                editable: false // Explicitly make this system shape not editable by Plotly
         };
 
         if (typeof price !== 'number' || isNaN(price)) {

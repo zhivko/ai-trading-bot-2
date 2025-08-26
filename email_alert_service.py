@@ -325,7 +325,8 @@ class EmailAlertService:
         alerts_by_user = {}
 
         for idx, drawing in enumerate(drawings):
-            if drawing.get('alert_sent'):
+            # Filter drawings that have alert_sent property equals to false
+            if drawing.get('alert_sent') is not False:
                 continue
             try:
                 symbol = drawing.get('symbol')
@@ -346,6 +347,10 @@ class EmailAlertService:
 
                 latest_kline = json.loads(latest_kline_list[0])
                 prev_kline = json.loads(latest_kline_list[1])
+                
+                # Filter drawings with timestamp greater or equal to bar timestamp
+                if drawing.get('start_time', 0) < latest_kline['time']:
+                    continue
 
                 cross_info = await self.detect_cross(redis, drawing, latest_kline, prev_kline)
                 

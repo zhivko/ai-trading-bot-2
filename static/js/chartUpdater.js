@@ -179,14 +179,17 @@ async function updateChart() {
             
             // Setup layout.grid
             const numTotalPlots = 1 + numValidIndicators;
-            const mainChartRelativeHeight = numValidIndicators === 1 ? 0.6 : (numValidIndicators >= 3 ? 0.4 : 0.5); // Dynamic height for main chart
-            const totalIndicatorRelativeHeight = 1.0 - mainChartRelativeHeight;
-            
+            const mainChartWeight = 3; // Give main chart more weight
+            const indicatorWeight = 1;
+            const totalWeight = mainChartWeight + (numValidIndicators * indicatorWeight);
+
+            const mainChartRelativeHeight = mainChartWeight / totalWeight;
+            const heightPerIndicator = indicatorWeight / totalWeight;
+
             let rowHeights = [mainChartRelativeHeight];
             if (numValidIndicators > 0) {
-                const heightPerIndicator = totalIndicatorRelativeHeight / numValidIndicators;
                 for (let i = 0; i < numValidIndicators; i++) {
-                    rowHeights.push(Math.max(heightPerIndicator, 0.05)); // Ensure a minimum height
+                    rowHeights.push(heightPerIndicator);
                 }
             }
 
@@ -196,7 +199,7 @@ async function updateChart() {
                 pattern: 'independent',
                 roworder: 'top to bottom',
                 rowheights: rowHeights,
-                ygap: 0.015
+                ygap: 0.025
             };
             
             // Clean up any numbered yaxisN/xaxisN that are not part of the grid
@@ -501,12 +504,12 @@ async function updateChart() {
                 hovertemplate: `<b>%{fullData.name}</b><br>` +
                             `createdTime: %{x|%Y-%m-%d %H:%M:%S}<br>` +
                             `Price: %{y:.2f}<br>` +                            
-                            `Side: %{customdata.side}<br>` +
-                            `Size: %{customdata.size}<br>` +
-                            `Leverage: %{customdata.leverage}<br>` +
-                            `Position Value: %{customdata.positionValue}<br>` +
-                            `Unrealized PnL: %{customdata.unrealisedPnl}<br>` +
-                            `TP: %{customdata.takeProfit}<br>` +
+                            `Side: %{customdata.side}<br>` + 
+                            `Size: %{customdata.size}<br>` + 
+                            `Leverage: %{customdata.leverage}<br>` + 
+                            `Position Value: %{customdata.positionValue}<br>` + 
+                            `Unrealized PnL: %{customdata.unrealisedPnl}<br>` + 
+                            `TP: %{customdata.takeProfit}<br>` + 
                             `SL: %{customdata.stopLoss}<extra></extra>` // <-- Hover template defined here
             });
         }
@@ -519,13 +522,13 @@ async function updateChart() {
                 customdata: sellEventCustomData, // <-- Attached here
                 hovertemplate: `<b>%{fullData.name}</b><br>` +
                             `Time: %{x|%Y-%m-%d %H:%M:%S}<br>` +
-                            `Price: %{y:.2f}<br>` +
-                            `Side: %{customdata.side}<br>` +
-                            `Size: %{customdata.size}<br>` +
-                            `Leverage: %{customdata.leverage}<br>` +
-                            `Position Value: %{customdata.positionValue}<br>` +
-                            `Unrealized PnL: %{customdata.unrealisedPnl}<br>` +
-                            `TP: %{customdata.takeProfit}<br>` +
+                            `Price: %{y:.2f}<br>` + 
+                            `Side: %{customdata.side}<br>` + 
+                            `Size: %{customdata.size}<br>` + 
+                            `Leverage: %{customdata.leverage}<br>` + 
+                            `Position Value: %{customdata.positionValue}<br>` + 
+                            `Unrealized PnL: %{customdata.unrealisedPnl}<br>` + 
+                            `TP: %{customdata.takeProfit}<br>` + 
                             `SL: %{customdata.stopLoss}<extra></extra>` // <-- Hover template defined here               
             });
         }
@@ -661,46 +664,6 @@ async function updateChart() {
         console.error('Error fetching or processing buy signals:', error);
     }
 
-    // Fetch and add sell signals
-    try {
-        const sellSignalsResponse = await fetch(`/get_sell_signals/${symbol}?resolution=${resolution}&from_ts=${fromTs}&to_ts=${toTs}`);
-        if (sellSignalsResponse.ok) {
-            const sellSignalsData = await sellSignalsResponse.json();
-            if (sellSignalsData && sellSignalsData.status === 'success' && Array.isArray(sellSignalsData.signals) && sellSignalsData.signals.length > 0) {
-                const sellSignalX = [];
-                const sellSignalY = [];
-                const sellSignalCustomData = [];
-
-                sellSignalsData.signals.forEach(signal => {
-                    sellSignalX.push(new Date(signal.timestamp * 1000));
-                    sellSignalY.push(signal.price);
-                    sellSignalCustomData.push({
-                        rsi: (signal.rsi !== null && signal.rsi !== undefined) ? signal.rsi.toFixed(2) : 'N/A',
-                        stoch_k: (signal.stoch_rsi_k !== null && signal.stoch_rsi_k !== undefined) ? signal.stoch_rsi_k.toFixed(2) : 'N/A'
-                    });
-                });
-
-                allTraces.push({
-                    x: sellSignalX,
-                    y: sellSignalY,
-                    type: 'scatter',
-                    mode: 'markers',
-                    name: 'Sell Signal',
-                    showlegend: false,
-                    marker: { symbol: 'arrow-down', color: 'red', size: 16, line: { color: 'darkred', width: 2 } },
-                    xaxis: 'x', yaxis: 'y', isSystemShape: true,
-                    customdata: sellSignalCustomData,
-                    hovertemplate: `<b>Sell Signal</b><br>Time: %{x|%Y-%m-%d %H:%M:%S}<br>Price: %{y:.2f}<br>RSI: %{customdata.rsi}<br>StochK: %{customdata.stoch_k}<extra></extra>`
-                });
-                console.log(`Added ${sellSignalsData.signals.length} sell signal markers to the chart.`);
-            }
-        } else {
-            console.warn("Failed to fetch sell signals:", await sellSignalsResponse.text());
-        }
-    } catch (error) {
-        console.error('Error fetching or processing sell signals:', error);
-    }
-
     // Fetch and add trend drawings
     /*
     try {
@@ -743,6 +706,11 @@ async function updateChart() {
         } else { console.warn("Failed to fetch trend drawings:", await trendDrawingsResponse.text()); }
     } catch (error) { console.error('Error fetching or processing trend drawings:', error); }
     */
+
+    const chartDiv = document.getElementById('chart');
+    if (chartDiv) {
+        currentLayout.height = chartDiv.clientHeight;
+    }
 
     Plotly.react('chart', allTraces, currentLayout, config); // Assumes config is global
 

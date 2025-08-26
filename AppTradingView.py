@@ -536,7 +536,7 @@ async def get_redis_connection() -> AsyncRedis:
             redis_client = await init_redis()
         except Exception: 
             logger.critical("CRITICAL: Redis connection could not be established in get_redis_connection.")
-            logger.critical("Run this to start it on wsl2: cmd /c wsl --exec sudo service redis-server start && Exit /B 5")
+            logger.critical("Run this to start it on wsl2: cmd /c wsl --exec d && Exit /B 5")
             
             raise 
     if redis_client is None: 
@@ -3188,77 +3188,6 @@ def find_buy_signals(df: pd.DataFrame) -> list:
     logger.info(f"Total buy signals detected: {len(signals)}")
     return signals
 
-def find_sell_signals(df: pd.DataFrame) -> list:
-    """
-    Finds sell signals based on "sell the rally in an uptrend" logic, with relaxed conditions
-    allowing key events to occur within a 10-bar window. This is the inverse of find_buy_signals.
-    
-    Key events (conditions that may not happen on the same bar):
-    - RSI_SMA_3 crosses below RSI_SMA_5
-    - RSI_SMA_3 crosses below RSI_SMA_10
-    - RSI_SMA_3 crosses below RSI_SMA_20
-    - StochRSI K crosses below D
-    """
-    logger.info("Starting find_sell_signals with enhanced logging for diagnosis")
-    signals = []
-    
-    # Reset index for easy access
-    df = df.reset_index()
-    
-    # Define key event flags (crossovers)
-    df['cross_3_5'] = ((df['RSI_SMA_3'] < df['RSI_SMA_5']) & (df['RSI_SMA_3'].shift(1) >= df['RSI_SMA_5'].shift(1))).fillna(False)
-    
-    df['cross_3_10'] = ((df['RSI_SMA_3'] < df['RSI_SMA_10']) & (df['RSI_SMA_3'].shift(1) >= df['RSI_SMA_10'].shift(1))).fillna(False)
-
-    df['cross_3_20'] = ((df['RSI_SMA_3'] < df['RSI_SMA_20']) & (df['RSI_SMA_3'].shift(1) >= df['RSI_SMA_20'].shift(1))).fillna(False)
-
-    df['stoch_cross'] = ((df['STOCHRSIk_60_60_10_10'] < df['STOCHRSId_60_60_10_10']) & (df['STOCHRSIk_60_60_10_10'].shift(1) >= df['STOCHRSId_60_60_10_10'].shift(1))).fillna(False)
-    
-    # Define state flags (inverse of buy signals)
-    df['uptrend'] = ((df['EMA_21'] > df['EMA_50']) & 
-                     (df['EMA_50'] > df['EMA_200']) & 
-                     (df['close'] > df['EMA_200'])).fillna(False)
-    df['overbought'] = ((df['RSI_14'] > 70) & 
-                        (df['STOCHRSIk_60_60_10_10'] > 80)).fillna(False)
-    
-    # Required events for the relaxed condition
-    required_events = ['cross_3_5', 'cross_3_10', 'cross_3_20', 'stoch_cross']
-    
-    for i in range(0, len(df)):
-        # Current window: max 10 bars ending at i
-        win_start = max(0, i - 9)
-        window = df.iloc[win_start : i + 1]
-        
-        # Check if all required events have occurred at least once in the window
-        has_all_events = all(window[event].any() for event in required_events)
-        
-        # Check states in the window
-        has_uptrend = window['uptrend'].any()
-        has_overbought = window['overbought'].any()
-        
-        if has_all_events and has_uptrend and has_overbought:
-            # Check previous window (up to i-1, max 10 bars)
-            prev_start = max(0, i - 10)
-            prev_window = df.iloc[prev_start : i]
-            
-            # If no previous bars, consider it as not having all
-            if len(prev_window) == 0:
-                had_all_prev = False
-            else:
-                had_all_prev = all(prev_window[event].any() for event in required_events)
-            
-            # Signal if this is the first bar where all events are covered in the window
-            if not had_all_prev:
-                timestamp = int(df['time'].iloc[i].timestamp())
-                signals.append({
-                    'timestamp': timestamp,
-                    'price': df['close'].iloc[i],
-                    'type': 'sell'
-                })
-    
-    logger.info(f"Total sell signals detected: {len(signals)}")
-    return signals
-
 @app.get("/get_buy_signals/{symbol}")
 async def get_buy_signals_endpoint(symbol: str, resolution: str, from_ts: int, to_ts: int):
     """
@@ -3309,6 +3238,7 @@ async def get_buy_signals_endpoint(symbol: str, resolution: str, from_ts: int, t
         df.ta.ema(length=200, append=True)
         df.ta.rsi(length=14, append=True)
         df.ta.stochrsi(rsi_length=60, length=60, k=10, d=10, append=True)
+        df.ta.macd(fast=12, slow=26, signal=9, append=True)  # Add MACD calculation
 
         # Calculate SMAs for RSI
         df[f'RSI_SMA_5'] = df['RSI_14'].rolling(window=5).mean()
@@ -3332,76 +3262,6 @@ async def get_buy_signals_endpoint(symbol: str, resolution: str, from_ts: int, t
         
     except Exception as e:
         logger.error(f"Error in /get_buy_signals endpoint for {symbol}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="An unexpected error occurred during signal analysis.")
-
-@app.get("/get_sell_signals/{symbol}")
-async def get_sell_signals_endpoint(symbol: str, resolution: str, from_ts: int, to_ts: int):
-    """
-    Analyzes historical data for a symbol to find moments that match the
-    "sell the rally in an uptrend" criteria (inverse of buy signals).
-    """
-    # Convert timestamps to human-readable format for logging
-    from_dt_str = datetime.fromtimestamp(from_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-    to_dt_str = datetime.fromtimestamp(to_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-    logger.info(f"GET /get_sell_signals/{symbol} request: res={resolution}, from={from_dt_str}, to={to_dt_str}")
-    # Validation
-    if symbol not in SUPPORTED_SYMBOLS or resolution not in timeframe_config.supported_resolutions:
-        raise HTTPException(status_code=400, detail="Unsupported symbol or resolution")
-
-    # Calculate lookback needed for indicators (EMA 200 is the longest)
-    lookback_periods = 200 + 50  # 200 for EMA, 50 as a buffer
-    timeframe_secs = get_timeframe_seconds(resolution)
-    fetch_start_ts = from_ts - (lookback_periods * timeframe_secs)
-
-    try:
-        # Fetch klines with lookback
-        klines_for_calc = await get_cached_klines(symbol, resolution, fetch_start_ts, to_ts)
-        # Check if cache is missing data at the start
-        if not klines_for_calc or klines_for_calc[0]['time'] > fetch_start_ts:
-            logger.info(f"Cache miss or insufficient lookback for {symbol}. Fetching from Bybit.")
-            bybit_klines = fetch_klines_from_bybit(symbol, resolution, fetch_start_ts, to_ts)
-            if bybit_klines:
-                await cache_klines(symbol, resolution, bybit_klines)
-                # Re-query from cache to get a consolidated list
-                klines_for_calc = await get_cached_klines(symbol, resolution, fetch_start_ts, to_ts)
-
-        if not klines_for_calc:
-            return JSONResponse({"status": "error", "message": "Not enough historical data to perform analysis."}, status_code=404)
-
-        # Prepare DataFrame
-        df = pd.DataFrame(klines_for_calc)
-        df['time'] = pd.to_datetime(df['time'], unit='s')
-        df.set_index('time', inplace=True)
-        df.rename(columns={'vol': 'volume'}, inplace=True)
-        # pandas_ta needs lowercase ohlcv
-        df.columns = [col.lower() for col in df.columns]
-
-        # Add all necessary indicators for the signal logic
-        df.ta.ema(length=21, append=True)
-        df.ta.ema(length=50, append=True)
-        df.ta.ema(length=200, append=True)
-        df.ta.rsi(length=14, append=True)
-        df.ta.stochrsi(rsi_length=60, length=60, k=10, d=10, append=True)
-
-        # Calculate SMAs for RSI
-        df[f'RSI_SMA_5'] = df['RSI_14'].rolling(window=5).mean()
-        df[f'RSI_SMA_10'] = df['RSI_14'].rolling(window=10).mean()
-        df[f'RSI_SMA_3'] = df['RSI_14'].rolling(window=3).mean()
-        df[f'RSI_SMA_20'] = df['RSI_14'].rolling(window=20).mean()
-
-        # Drop rows with NaNs that result from indicator calculations
-        df.dropna(subset=[f'EMA_200', 'RSI_14', 'STOCHRSIk_60_60_10_10', 'STOCHRSId_60_60_10_10'], inplace=True)
-        
-        if df.empty:
-            logger.warning(f"DataFrame for {symbol} became empty after indicator calculation and dropna.")
-            return JSONResponse({"status": "error", "message": "Not enough data to calculate all indicators for the requested range."}, status_code=500)
-            
-        # Find all signals in the calculated (extended) range
-        signals = find_sell_signals(df)
-        return JSONResponse({"status": "success", "signals": signals})
-        
-    except Exception as e:
-        logger.error(f"Error in /get_sell_signals endpoint for {symbol}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An unexpected error occurred during signal analysis.")
 
 
