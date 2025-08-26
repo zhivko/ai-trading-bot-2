@@ -25614,3 +25614,8 @@ KeyError: ['EMA_200']
 2025-08-26 16:54:27,909 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
 2025-08-26 16:55:08,795 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
 2025-08-26 16:55:21,506 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 16:55:24,446 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-26 16:55:25,606 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-26 16:55:25,606 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-26 16:56:21,629 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 16:56:31,666 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
