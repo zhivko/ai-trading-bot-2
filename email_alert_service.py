@@ -348,8 +348,12 @@ class EmailAlertService:
                 latest_kline = json.loads(latest_kline_list[0])
                 prev_kline = json.loads(latest_kline_list[1])
                 
-                # Filter drawings with timestamp greater or equal to bar timestamp
-                if drawing.get('start_time', 0) < latest_kline['time']:
+                bar_time = latest_kline['time']
+                start_time = drawing.get('start_time')
+                end_time = drawing.get('end_time')
+
+                # Filter drawings where the current bar time is not between the start and end time of the drawing
+                if not (start_time and end_time and start_time < bar_time < end_time):
                     continue
 
                 cross_info = await self.detect_cross(redis, drawing, latest_kline, prev_kline)

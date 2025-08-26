@@ -13,7 +13,6 @@ function updateSelectedShapeInfoPanel(activeShape) {
 
 async function updateShapeVisuals() {
     if (!window.gd || !window.gd.layout) return;
-
     const currentShapes = window.gd.layout.shapes || [];
     const newShapes = currentShapes.map(s => {
         const newShape = { ...s };

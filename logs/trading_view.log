@@ -25619,3 +25619,94 @@ KeyError: ['EMA_200']
 2025-08-26 16:55:25,606 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
 2025-08-26 16:56:21,629 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
 2025-08-26 16:56:31,666 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 16:57:31,688 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 16:57:44,361 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 16:58:44,475 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 16:58:53,087 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 16:59:53,189 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:00:04,585 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:01:04,748 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:01:14,510 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:02:14,516 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:02:23,955 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:03:24,075 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:03:35,852 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:04:36,006 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:04:46,617 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:05:46,620 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:05:54,171 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-26 17:05:55,811 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-26 17:05:55,811 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-26 17:05:59,581 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:06:59,733 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:07:07,284 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:08:07,621 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:08:17,980 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:09:17,994 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:09:29,607 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:10:29,605 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:10:39,580 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:11:39,612 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:11:51,195 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:12:51,292 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:13:01,016 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:14:01,013 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:14:12,328 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:15:12,685 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:15:22,983 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:16:23,004 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:16:33,734 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:17:33,850 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:17:45,895 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:18:45,981 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:18:54,661 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:19:54,786 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:20:08,461 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:20:20,459 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:20:47,545 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-26 17:20:48,515 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-26 17:20:48,515 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-26 17:21:20,665 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:21:24,312 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-26 17:21:25,443 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-26 17:21:25,443 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-26 17:21:31,458 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:22:31,565 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:22:33,436 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-26 17:22:34,630 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-26 17:22:34,630 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-26 17:22:41,427 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:23:41,649 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:23:53,011 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:24:20,490 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-26 17:24:21,573 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-26 17:24:21,573 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-26 17:24:53,140 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:25:01,700 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:26:01,781 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:26:14,668 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:27:01,370 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-26 17:27:02,403 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-26 17:27:02,403 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-26 17:27:14,797 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:27:23,669 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:28:23,830 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:28:29,604 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-26 17:28:30,779 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-26 17:28:30,779 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-26 17:28:35,679 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:29:35,841 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:29:45,994 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:30:46,110 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:30:56,889 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:31:57,053 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:32:11,594 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:33:11,643 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:33:22,357 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:34:22,430 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:34:34,020 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:35:34,037 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:35:45,160 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:36:45,314 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:37:00,408 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
+2025-08-26 17:38:00,536 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.

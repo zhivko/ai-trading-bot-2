@@ -166,7 +166,6 @@ function colorTheLine()
                 if (distSq < HOVER_THRESHOLD_PIXELS_SQ && distSq < minDistanceSq) {
                     minDistanceSq = distSq;
                     newHoveredShapeId = shape.backendId;
-                    if(window.gd) activateShape(window.gd, `shapes[${i}]`);
                 }
                 //console.groupEnd(); // End group for this shape
             }
@@ -176,10 +175,12 @@ function colorTheLine()
             hoveredShapeBackendId = newHoveredShapeId;
             if(hoveredShapeBackendId) findAndupdateSelectedShapeInfoPanel(hoveredShapeBackendId)
             debouncedUpdateShapeVisuals();
+            colorTheLine();
         }
         if (!hoveredSubplotRefs && hoveredShapeBackendId !== null) {
             hoveredShapeBackendId = null;
             debouncedUpdateShapeVisuals();
+            colorTheLine();
         }
 
         // Crosshair logic
@@ -340,7 +341,7 @@ function removeCrosshairVLine(gd, doRelayout = true) {
 }
 
 function initializeChartInteractions() {
-    
+
     window.chartDiv.addEventListener('mousemove', function(event) {
         colorTheLine();
     });
