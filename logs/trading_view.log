@@ -25710,3 +25710,4 @@ KeyError: ['EMA_200']
 2025-08-26 17:36:45,314 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
 2025-08-26 17:37:00,408 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
 2025-08-26 17:38:00,536 - email_alert_service - INFO - email_alert_service.py:316 - Starting check_price_alerts cycle.
+2025-08-26 17:38:12,237 - email_alert_service - INFO - email_alert_service.py:320 - Found 10 drawings to check.
