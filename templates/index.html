@@ -185,17 +185,25 @@
     </div>
     <div id="shape-properties-dialog" style="display:none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 20px; border: 1px solid black; z-index: 1000;">
         <h3>Shape Properties</h3>
+        <p><strong>ID:</strong> <span id="shape-id-display"></span></p>
         <label for="buy-on-cross">Buy on Cross:</label>
         <input type="checkbox" id="buy-on-cross"><br><br>
 
         <label for="sell-on-cross">Sell on Cross:</label>
         <input type="checkbox" id="sell-on-cross"><br><br>
 
+        <label for="amount">Amount:</label>
+        <input type="number" id="amount"><br><br>
+
         <label for="send-email-on-cross">Send an email on cross:</label>
         <input type="checkbox" id="send-email-on-cross"><br><br>
 
-        <label for="amount">Amount:</label>
-        <input type="number" id="amount"><br><br>
+
+        <label for="email-sent">Email Sent:</label>
+        <input type="checkbox" id="email-sent"><br><br>
+
+        <label for="email-date">Email Date:</label>
+        <span id="email-date-display">Not sent yet</span><br><br>
 
         <button onclick="saveShapeProperties()">Save</button>
         <button onclick="closeShapePropertiesDialog()">Cancel</button>

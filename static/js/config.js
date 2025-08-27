@@ -2,6 +2,7 @@ const REALTIME_PRICE_LINE_NAME = 'realtimePriceLine';
 const CROSSHAIR_VLINE_NAME = 'crosshair-vline';
 const DEFAULT_DRAWING_COLOR = 'blue';
 const HOVER_DRAWING_COLOR = 'red';
+const SELECTED_DRAWING_COLOR = 'green';
 const MAX_LIVE_CANDLES = 1000; // Maximum number of candles to keep in memory for live chart
 const VISUAL_UPDATE_DEBOUNCE_DELAY = 30;
 const FETCH_DEBOUNCE_DELAY = 2500;
@@ -15,6 +16,9 @@ const REALTIME_PRICE_TEXT_ANNOTATION_NAME = 'realtimePriceTextAnnotation';
 
 const layout = {
     hovermode: 'x unified', // Optional: enhances hover behavior for traces
+    title: {
+        text: ''
+    },
    xaxis: {
         title: {
             text: ""
@@ -65,10 +69,15 @@ const config = {
         },
         'zoomIn2d', 'zoomOut2d', 'drawline', 'select2d', 'lasso2d' // Keep other buttons from your original config
     ],
-    editable: true,
+    editable: false,
     autosize: true, // Recommended for handling dynamic content
     edits: {
-        shapePosition: true
+        shapePosition: true,
+        annotationPosition: false,
+        annotationText: false,
+        axisTitleText: false,
+        legendText: false,
+        titleText: false
     }
 };
 
@@ -76,6 +85,7 @@ const config = {
 window.REALTIME_PRICE_LINE_NAME = REALTIME_PRICE_LINE_NAME;
 window.DEFAULT_DRAWING_COLOR = DEFAULT_DRAWING_COLOR;
 window.HOVER_DRAWING_COLOR = HOVER_DRAWING_COLOR;
+window.SELECTED_DRAWING_COLOR = SELECTED_DRAWING_COLOR;
 window.REALTIME_PRICE_TEXT_ANNOTATION_NAME = REALTIME_PRICE_TEXT_ANNOTATION_NAME;
 window.BUY_EVENT_MARKER_COLOR = BUY_EVENT_MARKER_COLOR;
 window.SELL_EVENT_MARKER_COLOR = SELL_EVENT_MARKER_COLOR;

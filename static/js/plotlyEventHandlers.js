@@ -115,8 +115,8 @@ function initializePlotlyEventHandlers(gd) {
             if (backendId) {
                 newlyAddedShapeInLayout.backendId = backendId;
                 // editable is already true
-                activeShapeForPotentialDeletion = { id: backendId, index: currentLayoutShapes.indexOf(newlyAddedShapeInLayout), shape: newlyAddedShapeInLayout };
-                updateSelectedShapeInfoPanel(activeShapeForPotentialDeletion);
+                window.activeShapeForPotentialDeletion = { id: backendId, index: currentLayoutShapes.indexOf(newlyAddedShapeInLayout), shape: newlyAddedShapeInLayout };
+                updateSelectedShapeInfoPanel(window.activeShapeForPotentialDeletion);
                 await updateShapeVisuals();
                 console.log(`[plotly_shapedrawn] Shape processed and updated in layout with backendId: ${backendId}`);
             } else {
@@ -201,14 +201,14 @@ function initializePlotlyEventHandlers(gd) {
                     }
                 }, DEBOUNCE_DELAY);
 
-                const selectionChanged = !activeShapeForPotentialDeletion || activeShapeForPotentialDeletion.id !== interactedShape.backendId;
+                const selectionChanged = !window.activeShapeForPotentialDeletion || window.activeShapeForPotentialDeletion.id !== interactedShape.backendId;
                 if (selectionChanged) {
-                    activeShapeForPotentialDeletion = { id: interactedShape.backendId, index: interactedShapeIndex, shape: interactedShape };
+                    window.activeShapeForPotentialDeletion = { id: interactedShape.backendId, index: interactedShapeIndex, shape: interactedShape };
                     await updateShapeVisuals();
                 } else {
-                    activeShapeForPotentialDeletion.shape = interactedShape;
+                    window.activeShapeForPotentialDeletion.shape = interactedShape;
                 }
-                updateSelectedShapeInfoPanel(activeShapeForPotentialDeletion);
+                updateSelectedShapeInfoPanel(window.activeShapeForPotentialDeletion);
             }
         }
 
@@ -252,8 +252,8 @@ function initializePlotlyEventHandlers(gd) {
                     if (window.gd.layout.shapes[i] === shapeInLayout && !window.gd.layout.shapes[i].backendId) {
                         window.gd.layout.shapes[i].backendId = backendId;
                         // editable and layer already set
-                        activeShapeForPotentialDeletion = { id: backendId, index: i, shape: window.gd.layout.shapes[i] };
-                        updateSelectedShapeInfoPanel(activeShapeForPotentialDeletion);
+                        window.activeShapeForPotentialDeletion = { id: backendId, index: i, shape: window.gd.layout.shapes[i] };
+                        updateSelectedShapeInfoPanel(window.activeShapeForPotentialDeletion);
                         console.log(`[plotly_relayout] Fallback: New shape (index ${i}) saved with backendId: ${backendId}`);
                         newShapesProcessedInRelayout = true;
                     } else {
@@ -346,12 +346,12 @@ function initializePlotlyEventHandlers(gd) {
                     return;
                 }
                 // Update active shape state if this is the one being edited
-                if (!activeShapeForPotentialDeletion || activeShapeForPotentialDeletion.id !== updatedShape.backendId) {
-                    activeShapeForPotentialDeletion = { id: updatedShape.backendId, index: shapeIndex, shape: updatedShape };
+                if (!window.activeShapeForPotentialDeletion || window.activeShapeForPotentialDeletion.id !== updatedShape.backendId) {
+                    window.activeShapeForPotentialDeletion = { id: updatedShape.backendId, index: shapeIndex, shape: updatedShape };
                 } else { // It is the active shape, ensure its 'shape' property is updated
-                    activeShapeForPotentialDeletion.shape = updatedShape;
+                    window.activeShapeForPotentialDeletion.shape = updatedShape;
                 }
-                updateSelectedShapeInfoPanel(activeShapeForPotentialDeletion);
+                updateSelectedShapeInfoPanel(window.activeShapeForPotentialDeletion);
                 await updateShapeVisuals();
             }
         }
@@ -371,8 +371,8 @@ function initializePlotlyEventHandlers(gd) {
                 const response = await fetch(`/delete_drawing/${symbol}/${removedShape.backendId}`, { method: 'DELETE' });
                 if (!response.ok) throw new Error(`Backend delete failed: ${response.status} ${await response.text()}`);
                 console.log(`Drawing ${removedShape.backendId} deleted from backend via plotly_remove_shape.`);
-                if (activeShapeForPotentialDeletion && activeShapeForPotentialDeletion.id === removedShape.backendId) {
-                    activeShapeForPotentialDeletion = null;
+                if (window.activeShapeForPotentialDeletion && window.activeShapeForPotentialDeletion.id === removedShape.backendId) {
+                    window.activeShapeForPotentialDeletion = null;
                     updateSelectedShapeInfoPanel(null);
                 }
                 await updateShapeVisuals(); // Refresh visuals

@@ -313,11 +313,11 @@ class EmailAlertService:
         return [None] * len(timestamps)
 
     async def check_price_alerts(self):
-        logger.info("Starting check_price_alerts cycle.")
+        #logger.info("Starting check_price_alerts cycle.")
         try:
             redis = await get_redis_connection()
             drawings = await self.get_all_drawings(redis)
-            logger.info(f"Found {len(drawings)} drawings to check.")
+            #logger.info(f"Found {len(drawings)} drawings to check.")
         except Exception as e:
             logger.error(f"Error connecting to Redis or getting drawings: {e}", exc_info=True)
             return
@@ -353,7 +353,7 @@ class EmailAlertService:
                 end_time = drawing.get('end_time')
 
                 # Filter drawings where the current bar time is not between the start and end time of the drawing
-                if not (start_time and end_time and start_time < bar_time < end_time):
+                if not (start_time and end_time and start_time <= bar_time <= end_time):
                     continue
 
                 cross_info = await self.detect_cross(redis, drawing, latest_kline, prev_kline)

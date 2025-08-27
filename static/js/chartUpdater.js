@@ -41,7 +41,7 @@ async function updateChart() {
         jsonData = await response.json();
     } catch (error) {
         console.error('[updateChart] Error fetching or parsing historical data:', error);
-        Plotly.react('chart', [], { ...layout, title: `${symbol} - Data Error` }, config); // Assumes layout & config are global
+        Plotly.react('chart', [], { ...layout, title: { text: '' } }, config); // Assumes layout & config are global
         const nowMs = Date.now();
         window.currentDataStart = new Date(nowMs - 86400000);
         window.currentDataEnd = new Date(nowMs);
@@ -50,7 +50,7 @@ async function updateChart() {
 
     if (!jsonData || jsonData.s === 'no_data' || !jsonData.t || jsonData.t.length === 0) {
         console.warn('[updateChart] No data received or empty data for selected range/symbol.');
-        Plotly.react('chart', [], { ...layout, title: `${symbol} - No Data Available` }, config);
+        Plotly.react('chart', [], { ...layout, title: { text: '' } }, config);
         const nowMs = Date.now();
         window.currentDataStart = new Date(nowMs - 86400000);
         window.currentDataEnd = new Date(nowMs);

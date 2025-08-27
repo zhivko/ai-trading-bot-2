@@ -6,13 +6,21 @@ import redis
 import json
 from datetime import datetime, timedelta
 
-# Setup logging
+# Setup logging - write to both file and console
 logger = logging.getLogger('FractalTrader')
-logger.setLevel(logging.INFO)
-handler = RotatingFileHandler('fractal_trader.log', maxBytes=10000000, backupCount=5)
+logger.setLevel(logging.DEBUG) # Changed to DEBUG to see more logs
+
+# File handler
+file_handler = RotatingFileHandler('fractal_trader.log', maxBytes=10000000, backupCount=5)
+# Console handler
+console_handler = logging.StreamHandler()
+
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
 
 class FractalTradingStrategy:
     def __init__(self, redis_host='localhost', redis_port=6379):
@@ -50,22 +58,47 @@ class FractalTradingStrategy:
             return False
             
     def fetch_klines(self, symbol='BTCUSDT', interval='5m', limit=1000):
-        """Fetch klines from Redis"""
+        """Fetch klines from Redis using sorted sets (like AppTradingView.py)"""
+        logger.info(f"Fetching klines for {symbol} with interval {interval}, limit {limit}.")
         try:
-            klines_data = self.redis_client.lrange(f'klines:{symbol}:{interval}', 0, limit-1)
+            # Use sorted set key format like AppTradingView.py
+            sorted_set_key = f"zset:kline:{symbol}:{interval}"
+            
+            # Get the most recent klines from the sorted set
+            klines_data = self.redis_client.zrange(sorted_set_key, -limit, -1, withscores=False)
+            
+            if not klines_data:
+                logger.warning(f"No klines found in Redis for key {sorted_set_key}")
+                return False
+                
             klines = [json.loads(kline) for kline in klines_data]
-            self.klines = pd.DataFrame(klines, columns=[
-                'timestamp', 'open', 'high', 'low', 'close', 'volume',
-                'close_time', 'quote_asset_volume', 'number_of_trades',
-                'taker_buy_base_volume', 'taker_buy_quote_volume', 'ignore'
-            ])
-            # Convert to numeric
-            for col in ['open', 'high', 'low', 'close', 'volume']:
-                self.klines[col] = pd.to_numeric(self.klines[col])
-            # Convert timestamp to datetime
-            self.klines['timestamp'] = pd.to_datetime(self.klines['timestamp'], unit='ms')
+            
+            # Convert to DataFrame with the expected structure
+            self.klines = pd.DataFrame(klines)
+            
+            # Debug: print the columns to see what's actually in the data
+            logger.info(f"Kline columns found: {list(self.klines.columns)}")
+            
+            # Check if we have the required columns - note: Redis data uses 'vol' not 'volume'
+            if 'time' not in self.klines.columns:
+                logger.error("Kline data missing 'time' column")
+                return False
+                
+            # Convert to numeric for OHLCV columns - note: volume is 'vol' in Redis data
+            for col in ['open', 'high', 'low', 'close', 'vol']:
+                if col in self.klines.columns:
+                    self.klines[col] = pd.to_numeric(self.klines[col], errors='coerce')
+            
+            # Convert timestamp to datetime (assuming it's already in seconds)
+            self.klines['timestamp'] = pd.to_datetime(self.klines['time'], unit='s')
+            
+            # Sort by timestamp to ensure chronological order
+            self.klines = self.klines.sort_values('timestamp').reset_index(drop=True)
+            
             logger.info(f"Successfully fetched {len(self.klines)} klines from Redis.")
+            logger.info(f"Sample data: {self.klines[['timestamp', 'open', 'high', 'low', 'close', 'vol']].iloc[-1].to_dict()}")
             return True
+            
         except Exception as e:
             logger.error(f"Error fetching klines: {e}")
             return False
@@ -98,7 +131,9 @@ class FractalTradingStrategy:
         
     def update_fractal_levels(self):
         """Update all fractal levels based on current price data"""
+        logger.debug("Updating fractal levels...")
         if self.klines is None or len(self.klines) < 20:  # Need enough data
+            logger.debug("Not enough data to update fractals.")
             return
             
         # Reset fractals
@@ -109,6 +144,7 @@ class FractalTradingStrategy:
         low_series = self.klines['low']
         
         self.high_fractals['L0'], self.low_fractals['L0'] = self.detect_fractals(high_series, low_series)
+        logger.debug(f"Level 0 fractals: {len(self.high_fractals['L0'])} highs, {len(self.low_fractals['L0'])} lows")
         
         # Calculate higher-level fractals by filtering lower-level ones
         for level in range(1, self.fractal_levels):
@@ -298,10 +334,14 @@ class FractalTradingStrategy:
         
     def run(self):
         """Main strategy loop"""
+        logger.info("Starting strategy run.")
+        
         if not self.connect_redis():
+            print("Failed to connect to Redis. Exiting...")
             return
             
         if not self.fetch_klines():
+            print("Could not fetch klines. Exiting...")
             return
             
         # Calculate EMA
@@ -309,20 +349,25 @@ class FractalTradingStrategy:
         
         # Process each bar
         for i in range(20, len(self.klines)):  # Start from index 20 to have enough data
+            logger.debug(f"Processing index {i}, position: {self.position}")
             # Update fractals
             self.update_fractal_levels()
             
             # Check for exit conditions first
             if self.position == 'long' and self.should_exit_long(i):
+                print(f"Exiting long at index {i}")
                 self.exit_position(i, "Exit conditions met")
             elif self.position == 'short' and self.should_exit_short(i):
+                print(f"Exiting short at index {i}")
                 self.exit_position(i, "Exit conditions met")
                 
             # Check for entry conditions
             if self.position == 'flat':
                 if self.should_enter_long(i):
+                    print(f"Entering long at index {i}")
                     self.enter_long(i)
                 elif self.should_enter_short(i):
+                    print(f"Entering short at index {i}")
                     self.enter_short(i)
                     
             # Log current state
@@ -333,6 +378,7 @@ class FractalTradingStrategy:
                 for level in range(self.fractal_levels):
                     logger.info(f"L{level} Highs: {self.high_fractals.get(f'L{level}', [])[-5:]}")
                     logger.info(f"L{level} Lows: {self.low_fractals.get(f'L{level}', [])[-5:]}")
+        logger.info("Strategy run finished.")
 
 # Add this method to the class
 def load_sample_data(self):
@@ -363,6 +409,4 @@ def run(self, use_sample_data=False):
         if not self.fetch_klines():
             return
 
-if __name__ == "__main__":
-    strategy = FractalTradingStrategy()
-    strategy.run()
+if

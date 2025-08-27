@@ -1,4 +1,6 @@
-let newHoveredShapeId = null;
+window.newHoveredShapeId = null;
+window.lastClickTime = 0;
+window.lastClickedShapeId = null;
 
 function updateOrAddCrosshairVLine(gd, xDataValue, doRelayout = true) {
     if (!gd || !gd.layout || !gd.layout.xaxis || !xDataValue) {
@@ -38,12 +40,12 @@ function updateOrAddCrosshairVLine(gd, xDataValue, doRelayout = true) {
 
 function colorTheLine()
 {
-        //console.groupCollapsed('[NativeMousemove] Event Processing');
+        // console.groupCollapsed('[NativeMousemove] Event Processing');
         console.log('[colorTheLine] Current dragmode:', window.gd ? window.gd.layout.dragmode : 'N/A');
         if (!window.gd || !window.gd.layout || window.gd.layout.dragmode !== 'pan') {
             //console.log('[NativeMousemove] Exiting early: Chart not ready or dragmode not pan.');
-            if (hoveredShapeBackendId !== null) { // Assumes hoveredShapeBackendId is global from state.js
-                hoveredShapeBackendId = null;
+            if (window.hoveredShapeBackendId !== null) { // Assumes hoveredShapeBackendId is global from state.js
+                window.hoveredShapeBackendId = null;
                 debouncedUpdateShapeVisuals(); // Assumes debouncedUpdateShapeVisuals is global
             }
             //console.groupEnd();
@@ -80,8 +82,8 @@ function colorTheLine()
         //New check - is the cursor in plot area?
          if (mouseX_paper < 0 || mouseX_paper > window.gd._fullLayout.width || mouseY_paper < 0 || mouseY_paper > window.gd._fullLayout.height) {
             console.log("[NativeMousemove] Mouse is outside the chart's plotting area. Ignoring.");
-            if (hoveredShapeBackendId !== null) {
-                hoveredShapeBackendId = null;
+            if (window.hoveredShapeBackendId !== null) {
+                window.hoveredShapeBackendId = null;
                 debouncedUpdateShapeVisuals();
             }
             //console.groupEnd();
@@ -101,8 +103,8 @@ function colorTheLine()
             //console.log(`[NativeMousemove] Hover detected in subplot: xref=${hoveredSubplotRefs.xref}, yref=${hoveredSubplotRefs.yref}`);
         } else {
             //console.log(`[NativeMousemove] Hover detected outside any known subplot area.`);
-            if (hoveredShapeBackendId !== null) {
-                hoveredShapeBackendId = null;
+            if (window.hoveredShapeBackendId !== null) {
+                window.hoveredShapeBackendId = null;
                 debouncedUpdateShapeVisuals();
             }
         }
@@ -165,23 +167,23 @@ function colorTheLine()
                 //console.log(`Calculated DistSq: ${distSq.toFixed(2)}. Threshold: ${HOVER_THRESHOLD_PIXELS_SQ}`);
                 if (distSq < HOVER_THRESHOLD_PIXELS_SQ && distSq < minDistanceSq) {
                     minDistanceSq = distSq;
-                    newHoveredShapeId = shape.backendId;
+                    window.newHoveredShapeId = shape.backendId;
                 }
                 //console.groupEnd(); // End group for this shape
             }
         }
 
-        if (hoveredShapeBackendId !== newHoveredShapeId) {
-            hoveredShapeBackendId = newHoveredShapeId;
-            if(hoveredShapeBackendId) findAndupdateSelectedShapeInfoPanel(hoveredShapeBackendId)
+        if (window.hoveredShapeBackendId !== window.newHoveredShapeId) {
+            window.hoveredShapeBackendId = window.newHoveredShapeId;
+            if(window.hoveredShapeBackendId) findAndupdateSelectedShapeInfoPanel(window.hoveredShapeBackendId)
             debouncedUpdateShapeVisuals();
-            colorTheLine();
         }
-        if (!hoveredSubplotRefs && hoveredShapeBackendId !== null) {
-            hoveredShapeBackendId = null;
+        /*
+        if (!hoveredSubplotRefs && window.hoveredShapeBackendId !== null) {
+            window.hoveredShapeBackendId = null;
             debouncedUpdateShapeVisuals();
-            colorTheLine();
         }
+        */
 
         // Crosshair logic
         const mainXAxis = window.gd._fullLayout.xaxis;
@@ -341,14 +343,16 @@ function removeCrosshairVLine(gd, doRelayout = true) {
 }
 
 function initializeChartInteractions() {
-
+    // Add double-click handler first
+    addDoubleClickHandler();
+    
     window.chartDiv.addEventListener('mousemove', function(event) {
         colorTheLine();
     });
 
     window.chartDiv.addEventListener('mouseleave', function() {
-        if (hoveredShapeBackendId !== null) { // From state.js
-            hoveredShapeBackendId = null;
+        if (window.hoveredShapeBackendId !== null) { // From state.js
+            window.hoveredShapeBackendId = null;
             debouncedUpdateShapeVisuals(); // From main.js
         }
         /*
@@ -370,11 +374,11 @@ function initializeChartInteractions() {
                 }
             }
 
-            if (activeShapeForPotentialDeletion && activeShapeForPotentialDeletion.id) { // From state.js
-                console.log('Delete/Backspace key pressed. Attempting to delete active shape:', activeShapeForPotentialDeletion);
+            if (window.activeShapeForPotentialDeletion && window.activeShapeForPotentialDeletion.id) { // From state.js
+                console.log('Delete/Backspace key pressed. Attempting to delete active shape:', window.activeShapeForPotentialDeletion);
                 event.preventDefault();
 
-                const { id: drawingId } = activeShapeForPotentialDeletion;
+                const { id: drawingId } = window.activeShapeForPotentialDeletion;
                 const symbol = window.symbolSelect.value; // From main.js
 
                 if (!symbol) {
@@ -398,13 +402,13 @@ function initializeChartInteractions() {
                     } else {
                         loadDrawingsAndRedraw(symbol);
                     }
-                    activeShapeForPotentialDeletion = null;
+                    window.activeShapeForPotentialDeletion = null;
                     updateSelectedShapeInfoPanel(null); // From uiUpdaters.js
                     await updateShapeVisuals(); // From uiUpdaters.js
                 } catch (error) {
                     console.error(`Error deleting drawing ${drawingId} via key press:`, error);
                     alert(`Failed to delete drawing: ${error.message}`);
-                    activeShapeForPotentialDeletion = null;
+                    window.activeShapeForPotentialDeletion = null;
                     updateSelectedShapeInfoPanel(null);
                     await updateShapeVisuals();
                 }
@@ -444,4 +448,57 @@ function findAndupdateSelectedShapeInfoPanel(id) {
         } else {
             updateSelectedShapeInfoPanel(null)
         }
+}
+
+// Handle double-click on shapes
+function handleShapeDoubleClick(shapeId) {
+    console.log(`[DEBUG] handleShapeDoubleClick called with shapeId: ${shapeId}`);
+    const currentTime = Date.now();
+    const doubleClickThreshold = 500; // ms between clicks to count as double-click
+    
+    console.log(`[DEBUG] Last click time: ${window.lastClickTime}, Last clicked shape: ${window.lastClickedShapeId}`);
+    console.log(`[DEBUG] Current time: ${currentTime}, Time difference: ${currentTime - window.lastClickTime}ms`);
+    
+    if (window.lastClickedShapeId === shapeId && (currentTime - window.lastClickTime) < doubleClickThreshold) {
+        // Double-click detected - open shape properties
+        console.log(`[DEBUG] Double-click detected on shape: ${shapeId}`);
+        if (typeof window.openShapePropertiesDialog === 'function') {
+            console.log(`[DEBUG] Calling openShapePropertiesDialog for shape: ${shapeId}`);
+            window.openShapePropertiesDialog(shapeId);
+        } else {
+            console.warn('openShapePropertiesDialog function not found');
+        }
+        // Reset after handling double-click
+        window.lastClickTime = 0;
+        window.lastClickedShapeId = null;
+    } else {
+        // Single click or different shape - update tracking
+        console.log(`[DEBUG] Single click detected on shape: ${shapeId}`);
+        window.lastClickTime = currentTime;
+        window.lastClickedShapeId = shapeId;
+    }
+}
+
+// Add double-click handler to chart div
+function addDoubleClickHandler() {
+    if (window.chartDiv) {
+        console.log('[DEBUG] Adding double-click event listener to chart div (capturing phase)');
+        // Use capturing phase to catch the event before Plotly does
+        window.chartDiv.addEventListener('dblclick', function(event) {
+            console.log('[DEBUG] Double-click event detected on chart');
+            // Check if we're hovering over a shape when double-click occurs
+            console.log(`[DEBUG] Current hovered shape ID: ${window.hoveredShapeBackendId}`);
+            if (window.hoveredShapeBackendId) {
+                console.log(`[DEBUG] Handling double-click on shape: ${window.hoveredShapeBackendId}`);
+                // Prevent the event from propagating to Plotly
+                event.stopPropagation();
+                event.preventDefault();
+                handleShapeDoubleClick(window.hoveredShapeBackendId);
+            } else {
+                console.log('[DEBUG] No shape hovered during double-click');
+            }
+        }, true); // Use capturing phase (true)
+    } else {
+        console.warn('[DEBUG] chartDiv not found when adding double-click handler');
+    }
 }

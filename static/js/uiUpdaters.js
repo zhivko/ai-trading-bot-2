@@ -5,7 +5,7 @@ function updateSelectedShapeInfoPanel(activeShape) {
         window.selectedShapeInfoDiv.innerHTML = `
             <p><strong>ID:</strong> ${activeShape.id}<button onclick="openShapePropertiesDialog('${activeShape.id}')">Edit Properties</button></p>
         `;
-        activeShapeForPotentialDeletion = activeShape;
+        window.activeShapeForPotentialDeletion = activeShape;
     } else {
         window.selectedShapeInfoDiv.innerHTML = '<p>No shape selected.</p>';
     }
@@ -23,12 +23,19 @@ async function updateShapeVisuals() {
         }
 
         if (s.backendId) {
-            const isSelected = activeShapeForPotentialDeletion && s.backendId === activeShapeForPotentialDeletion.id;
-            const isHovered = s.backendId === hoveredShapeBackendId;
+            const isSelected = window.activeShapeForPotentialDeletion && s.backendId === window.activeShapeForPotentialDeletion.id;
+            const isHovered = s.backendId === window.hoveredShapeBackendId;
 
             newShape.editable = isSelected;
             if (newShape.line) {
-                newShape.line.color = isHovered ? HOVER_DRAWING_COLOR : DEFAULT_DRAWING_COLOR;
+                // Priority: Selected > Hovered > Default
+                if (isSelected) {
+                    newShape.line.color = SELECTED_DRAWING_COLOR;
+                } else if (isHovered) {
+                    newShape.line.color = HOVER_DRAWING_COLOR;
+                } else {
+                    newShape.line.color = DEFAULT_DRAWING_COLOR;
+                }
                 //if (isHovered) {
                     newShape.onmousedown = () => openShapePropertiesDialog(s.backendId);
                 //}
@@ -71,59 +78,80 @@ function logEventToPanel(message, type = 'INFO') {
 let currentShapeId = null; // To store the ID of the shape currently being edited
 
 async function openShapePropertiesDialog(shapeId) {
+    console.log(`[DEBUG] openShapePropertiesDialog called with shapeId: ${shapeId}`);
     currentShapeId = shapeId;
     console.log("Opening dialog for shape ID:", shapeId);
     const dialog = document.getElementById('shape-properties-dialog');
     
-    if (dialog) {
-        dialog.style.display = 'block';
-        // Initialize dialog with shape properties from Redis
-        try {
-            const symbolSelect = document.getElementById('symbol-select');
-            const symbol = symbolSelect ? symbolSelect.value : 'default_symbol';
-            const response = await fetch(`/get_shape_properties/${symbol}/${currentShapeId}`);
-            if (!response.ok) throw new Error("Failed to fetch shape properties");
+    if (!dialog) {
+        console.error("Shape properties dialog element not found");
+        return;
+    }
+
+    console.log(`[DEBUG] Found dialog, setting shape ID display to: ${shapeId}`);
+    document.getElementById('shape-id-display').textContent = shapeId;
+    dialog.style.display = 'block';
+    console.log('[DEBUG] Dialog displayed');
+    
+    // Helper function to populate form fields
+    const populateFormFields = (props) => {
+        console.log('[DEBUG] Populating form fields with:', props);
+        document.getElementById('buy-on-cross').checked = props.buyOnCross || false;
+        document.getElementById('sell-on-cross').checked = props.sellOnCross || false;
+        document.getElementById('send-email-on-cross').checked = props.sendEmailOnCross || false;
+        document.getElementById('amount').value = props.amount || '';
+        document.getElementById('email-sent').checked = props.email_sent || false;
+        
+        // Handle email_date - display formatted date or "Not sent yet"
+        if (props.email_date) {
+            const emailDate = new Date(props.email_date);
+            document.getElementById('email-date-display').textContent = emailDate.toLocaleString();
+            console.log(`[DEBUG] Set email date to: ${emailDate.toLocaleString()}`);
+        } else {
+            document.getElementById('email-date-display').textContent = 'Not sent yet';
+            console.log('[DEBUG] Email date not set');
+        }
+    };
+
+    // Try to fetch shape properties from Redis first
+    try {
+        const symbolSelect = document.getElementById('symbol-select');
+        const symbol = symbolSelect ? symbolSelect.value : 'default_symbol';
+        console.log(`[DEBUG] Fetching shape properties for symbol: ${symbol}, shapeId: ${currentShapeId}`);
+        const response = await fetch(`/get_shape_properties/${symbol}/${currentShapeId}`);
+        
+        if (response.ok) {
+            console.log('[DEBUG] Successfully fetched shape properties from Redis');
             const respJson = await response.json();
             const props = respJson.properties;
-
-            
-            document.getElementById('buy-on-cross').checked = props.buyOnCross || false;
-            document.getElementById('sell-on-cross').checked = props.sellOnCross || false;
-            document.getElementById('send-email-on-cross').checked = props.sendEmailOnCross || false;
-            document.getElementById('amount').value = props.amount || '';
-
-            
-        } catch (error) {
-            console.error("Error fetching shape properties:", error);
-            alert("Failed to load shape properties. Please ensure a symbol is selected and try again.");
-            
-            // Fallback to local state if available
-            if (window.activeShapeForPotentialDeletion && window.activeShapeForPotentialDeletion.id === shapeId) {
-                const props = window.activeShapeForPotentialDeletion.properties || {};
-                document.getElementById('buy-on-cross').checked = props.buyOnCross || false;
-                document.getElementById('sell-on-cross').checked = props.sellOnCross || false;
-                document.getElementById('send-email-on-cross').checked = props.sendEmailOnCross || false;
-                document.getElementById('amount').value = props.amount || '';
-            }
+            populateFormFields(props);
+            return;
+        } else {
+            console.warn(`[DEBUG] Failed to fetch shape properties: ${response.status}`);
         }
-        // Fallback to local state if available
-        if (window.activeShapeForPotentialDeletion && window.activeShapeForPotentialDeletion.id === shapeId) {
-            const props = window.activeShapeForPotentialDeletion.properties || {};
-            document.getElementById('buy-on-cross').checked = props.buyOnCross || false;
-            document.getElementById('sell-on-cross').checked = props.sellOnCross || false;
-            document.getElementById('send-email-on-cross').checked = props.sendEmailOnCross || false;
-            document.getElementById('amount').value = props.amount || '';
-        }
+        // If fetch fails, fall through to local state
+    } catch (error) {
+        console.error("Error fetching shape properties:", error);
     }
-        // Fallback to local state if available
-        if (window.activeShapeForPotentialDeletion && window.activeShapeForPotentialDeletion.id === shapeId) {
-            const props = window.activeShapeForPotentialDeletion.properties || {};
-            document.getElementById('buy-on-cross').checked = props.buyOnCross || false;
-            document.getElementById('sell-on-cross').checked = props.sellOnCross || false;
-            document.getElementById('send-email-on-cross').checked = props.sendEmailOnCross || false;
-            document.getElementById('amount').value = props.amount || '';
-        }
+
+    // Fallback to local state if available
+    if (window.activeShapeForPotentialDeletion && window.activeShapeForPotentialDeletion.id === shapeId) {
+        console.log('[DEBUG] Using local state for shape properties');
+        const props = window.activeShapeForPotentialDeletion.properties || {};
+        populateFormFields(props);
+    } else {
+        // Initialize with default values if no properties found
+        console.log('[DEBUG] Using default values for shape properties');
+        populateFormFields({
+            buyOnCross: false,
+            sellOnCross: false,
+            sendEmailOnCross: false,
+            amount: '',
+            email_sent: false,
+            email_date: null
+        });
     }
+}
 
 
 function closeShapePropertiesDialog() {
@@ -150,7 +178,8 @@ async function saveShapeProperties() {
         buyOnCross: document.getElementById('buy-on-cross').checked,
         sellOnCross: document.getElementById('sell-on-cross').checked,
         sendEmailOnCross: document.getElementById('send-email-on-cross').checked,
-        amount: parseFloat(document.getElementById('amount').value) || 0
+        amount: parseFloat(document.getElementById('amount').value) || 0,
+        email_sent: document.getElementById('email-sent').checked
     };
 
     try {
