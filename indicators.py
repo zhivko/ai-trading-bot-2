@@ -384,10 +384,11 @@ def format_indicator_data_for_llm_as_dict(indicator_id: str, indicator_config_de
 def fetch_open_interest_from_bybit(symbol: str, interval: str, start_ts: int, end_ts: int) -> list[Dict[str, Any]]:
     """Fetches Open Interest data from Bybit."""
 
-
-    #logger.info(f"Fetching Open Interest for {symbol} {interval} from {datetime.fromtimestamp(start_ts, timezone.utc)} to {datetime.fromtimestamp(end_ts, timezone.utc)}")
+    logger.info(f"Fetching Open Interest for {symbol} {interval} from {datetime.fromtimestamp(start_ts, timezone.utc)} to {datetime.fromtimestamp(end_ts, timezone.utc)}")
     all_oi_data: list[Dict[str, Any]] = []
     current_start = start_ts
+    batch_count = 0
+    total_entries_received = 0
 
     # Bybit's get_open_interest intervalTime parameter has specific values.
     # We assume TRADING_TIMEFRAME (e.g., "5m") maps to a valid intervalTime like "5min".
@@ -403,9 +404,11 @@ def fetch_open_interest_from_bybit(symbol: str, interval: str, start_ts: int, en
         return []
 
     while current_start < end_ts:
+        batch_count += 1
         # Bybit get_open_interest limit is 200 per request
         batch_end = min(current_start + (200 * interval_seconds) - 1, end_ts)
-        logger.debug(f"  Fetching OI batch: {datetime.fromtimestamp(current_start, timezone.utc)} to {datetime.fromtimestamp(batch_end, timezone.utc)}")
+        logger.debug(f"Fetching OI batch #{batch_count} for {symbol} {interval}: {datetime.fromtimestamp(current_start, timezone.utc)} to {datetime.fromtimestamp(batch_end, timezone.utc)}")
+
         try:
             response = session.get_open_interest(
                 category="linear", # Assuming linear perpetuals
@@ -416,17 +419,20 @@ def fetch_open_interest_from_bybit(symbol: str, interval: str, start_ts: int, en
                 limit=200
             )
         except Exception as e:
-            logger.error(f"Bybit API request for Open Interest failed: {e}")
+            logger.error(f"Bybit API request for Open Interest failed for {symbol} {interval} batch #{batch_count}: {e}")
             break
 
         if response.get("retCode") != 0:
-            logger.error(f"Bybit API error for Open Interest: {response.get('retMsg', 'Unknown error')}")
+            logger.error(f"Bybit API error for Open Interest {symbol} {interval} batch #{batch_count}: {response.get('retMsg', 'Unknown error')} (retCode: {response.get('retCode')})")
             break
 
         list_data = response.get("result", {}).get("list", [])
         if not list_data:
-            logger.debug("  No more Open Interest data available from Bybit for this range.")
+            logger.info(f"No more Open Interest data available from Bybit for {symbol} {interval} at batch #{batch_count}")
             break
+
+        logger.debug(f"Received {len(list_data)} Open Interest entries from Bybit for {symbol} {interval} batch #{batch_count}")
+        total_entries_received += len(list_data)
 
         # Data is usually newest first, reverse to get chronological order
         batch_oi = []
@@ -437,7 +443,10 @@ def fetch_open_interest_from_bybit(symbol: str, interval: str, start_ts: int, en
             })
         all_oi_data.extend(batch_oi)
 
+        logger.debug(f"Processed batch #{batch_count} for {symbol} {interval}: {len(batch_oi)} Open Interest entries, last timestamp: {datetime.fromtimestamp(batch_oi[-1]['time'], timezone.utc) if batch_oi else 'N/A'}")
+
         if not batch_oi or len(list_data) < 200: # No more data or last page
+            logger.debug(f"Stopping Open Interest batch fetch for {symbol} {interval}: received {len(list_data)} entries (less than 200) or no data processed")
             break
 
         # Next query starts after the last fetched item's timestamp
@@ -445,5 +454,5 @@ def fetch_open_interest_from_bybit(symbol: str, interval: str, start_ts: int, en
         current_start = last_fetched_ts_in_batch + interval_seconds
 
     all_oi_data.sort(key=lambda x: x["time"]) # Ensure chronological order
-    #logger.info(f"Total Open Interest data fetched from Bybit: {len(all_oi_data)}")
+    logger.info(f"Completed Bybit Open Interest fetch for {symbol} {interval}: {batch_count} batches, {total_entries_received} total entries received, {len(all_oi_data)} entries processed")
     return all_oi_data

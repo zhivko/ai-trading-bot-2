@@ -245,15 +245,18 @@ async def publish_live_data_tick(symbol: str, live_data: dict) -> None:
 def fetch_klines_from_bybit(symbol: str, resolution: str, start_ts: int, end_ts: int) -> list[Dict[str, Any]]:
     """Fetches klines from Bybit API."""
 
-
-    #logger.info(f"Fetching klines for {symbol} {resolution} from {datetime.fromtimestamp(start_ts, timezone.utc)} to {datetime.fromtimestamp(end_ts, timezone.utc)}")
+    logger.info(f"Fetching klines for {symbol} {resolution} from {datetime.fromtimestamp(start_ts, timezone.utc)} to {datetime.fromtimestamp(end_ts, timezone.utc)}")
     all_klines: list[KlineData] = []
     current_start = start_ts
     timeframe_seconds = get_timeframe_seconds(resolution)
+    batch_count = 0
+    total_bars_received = 0
 
     while current_start < end_ts:
+        batch_count += 1
         batch_end = min(current_start + (1000 * timeframe_seconds) -1 , end_ts)
-        #logger.debug(f"Fetching batch: {datetime.fromtimestamp(current_start, timezone.utc)} to {datetime.fromtimestamp(batch_end, timezone.utc)}")
+        logger.debug(f"Fetching batch #{batch_count} for {symbol} {resolution}: {datetime.fromtimestamp(current_start, timezone.utc)} to {datetime.fromtimestamp(batch_end, timezone.utc)}")
+
         try:
             response = session.get_kline(
                 category="linear", symbol=symbol,
@@ -261,32 +264,38 @@ def fetch_klines_from_bybit(symbol: str, resolution: str, start_ts: int, end_ts:
                 start=current_start * 1000, end=batch_end * 1000, limit=1000
             )
         except Exception as e:
-            logger.error(f"Bybit API request failed: {e}")
+            logger.error(f"Bybit API request failed for {symbol} {resolution} batch #{batch_count}: {e}")
             break
 
         if response.get("retCode") != 0:
-            logger.error(f"Error fetching data from Bybit: {response.get('retMsg', 'Unknown error')}")
+            logger.error(f"Bybit API error for {symbol} {resolution} batch #{batch_count}: {response.get('retMsg', 'Unknown error')} (retCode: {response.get('retCode')})")
             break
 
         bars = response.get("result", {}).get("list", [])
         if not bars:
-            logger.info("No more data available from Bybit for this range.")
+            logger.info(f"No more data available from Bybit for {symbol} {resolution} at batch #{batch_count}")
             break
+
+        logger.debug(f"Received {len(bars)} bars from Bybit for {symbol} {resolution} batch #{batch_count}")
+        total_bars_received += len(bars)
 
         batch_klines = [format_kline_data(bar) for bar in reversed(bars)]
         all_klines.extend(batch_klines)
 
         if not batch_klines:
-            logger.warning("Batch klines became empty after formatting, stopping fetch.")
+            logger.warning(f"Batch klines became empty after formatting for {symbol} {resolution} batch #{batch_count}, stopping fetch")
             break
 
         last_fetched_ts = batch_klines[-1]["time"]
+        logger.debug(f"Processed batch #{batch_count} for {symbol} {resolution}: {len(batch_klines)} klines, last timestamp: {datetime.fromtimestamp(last_fetched_ts, timezone.utc)}")
+
         if len(bars) < 1000 or last_fetched_ts >= batch_end:
+            logger.debug(f"Stopping batch fetch for {symbol} {resolution}: received {len(bars)} bars (less than 1000) or reached batch end")
             break
         current_start = last_fetched_ts + timeframe_seconds
 
     all_klines.sort(key=lambda x: x["time"])
-    #logger.info(f"Total klines fetched from Bybit: {len(all_klines)}")
+    logger.info(f"Completed Bybit fetch for {symbol} {resolution}: {batch_count} batches, {total_bars_received} total bars received, {len(all_klines)} klines processed")
     return all_klines
 
 def format_kline_data(bar: list[Any]) -> Dict[str, Any]:

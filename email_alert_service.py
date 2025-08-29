@@ -11,7 +11,10 @@ from dataclasses import dataclass
 import logging
 from redis.asyncio import Redis
 from pathlib import Path
-from AppTradingView import get_redis_connection, SUPPORTED_SYMBOLS, _calculate_and_return_indicators, get_timeframe_seconds, BybitCredentials
+from redis_utils import get_redis_connection
+from config import SUPPORTED_SYMBOLS, get_timeframe_seconds
+from endpoints.indicator_endpoints import _calculate_and_return_indicators
+from auth import BybitCredentials
 from redis_utils import fetch_klines_from_bybit, cache_klines, get_cached_klines
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -314,11 +317,11 @@ class EmailAlertService:
         return [None] * len(timestamps)
 
     async def check_price_alerts(self):
-        #logger.info("Starting check_price_alerts cycle.")
+        logger.info("Starting check_price_alerts cycle.")
         try:
             redis = await get_redis_connection()
             drawings = await self.get_all_drawings(redis)
-            #logger.info(f"Found {len(drawings)} drawings to check.")
+            logger.info(f"Found {len(drawings)} drawings to check.")
         except Exception as e:
             logger.error(f"Error connecting to Redis or getting drawings: {e}", exc_info=True)
             return

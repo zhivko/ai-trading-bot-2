@@ -23,6 +23,9 @@ from redis_utils import init_redis
 from background_tasks import fetch_and_publish_klines
 from time_sync import sync_time_with_ntp
 
+# Import email alert service
+from email_alert_service import alert_service
+
 # Import endpoint modules
 from endpoints.chart_endpoints import (
     history_endpoint, initial_chart_config, symbols_endpoint,
@@ -60,9 +63,14 @@ async def lifespan(app_instance: FastAPI):
         # Store the task in the application state so it can be accessed during shutdown
         app_instance.state.fetch_klines_task = asyncio.create_task(fetch_and_publish_klines())
         logger.info("Background task (fetch_and_publish_klines) started.")
+
+        # Start email alert monitoring service
+        app_instance.state.email_alert_task = asyncio.create_task(alert_service.monitor_alerts())
+        logger.info("Email alert monitoring service started.")
     except Exception as e:
         logger.error(f"Failed to initialize Redis or start background tasks: {e}", exc_info=True)
         app_instance.state.fetch_klines_task = None
+        app_instance.state.email_alert_task = None
     yield
     logger.info("Application shutdown...")
     fetch_klines_task = getattr(app_instance.state, 'fetch_klines_task', None)
@@ -76,6 +84,18 @@ async def lifespan(app_instance: FastAPI):
             logger.info("fetch_and_publish_klines task successfully cancelled.")
         except Exception as e:
             logger.error(f"Error during fetch_and_publish_klines task shutdown: {e}", exc_info=True)
+
+    email_alert_task = getattr(app_instance.state, 'email_alert_task', None)
+    if email_alert_task:
+        logger.info("Cancelling email alert monitoring task...")
+        email_alert_task.cancel()
+        try:
+            await email_alert_task
+            logger.info(f"email_alert_task status: Done={email_alert_task.done()}, Cancelled={email_alert_task.cancelled()}, Exception={email_alert_task.exception()}")
+        except asyncio.CancelledError:
+            logger.info("Email alert monitoring task successfully cancelled.")
+        except Exception as e:
+            logger.error(f"Error during email alert monitoring task shutdown: {e}", exc_info=True)
 
 # Initialize FastAPI app
 app = FastAPI(lifespan=lifespan)
