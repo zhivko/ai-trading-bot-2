@@ -29688,3 +29688,81 @@ KeyError: 'RSI_14'
 2025-08-29 14:01:20,564 - logging_config - INFO - drawing_endpoints.py:116 - Shape eb75073c-99f9-4da9-a8cf-ffe167602de9 properties updated successfully.
 2025-08-29 14:01:24,861 - logging_config - INFO - drawing_endpoints.py:120 - GET /get_shape_properties/PAXGUSDT/2ab28433-66cb-4525-a237-a7df7beed8c3 request received
 2025-08-29 14:01:32,508 - logging_config - INFO - utility_endpoints.py:187 - Log stream generator cancelled.
+2025-08-29 14:01:33,303 - logging_config - INFO - utility_endpoints.py:149 - GET /get_last_symbol request received.
+2025-08-29 14:01:33,304 - logging_config - INFO - utility_endpoints.py:157 - Got last selected symbol for user klemenzivkovic@gmail.com: PAXGUSDT
+2025-08-29 14:01:33,696 - logging_config - INFO - utility_endpoints.py:48 - GET /settings for PAXGUSDT: Retrieved from Redis: {'resolution': '1d', 'range': '30d', 'xAxisMin': 1734824785873, 'xAxisMax': 1760674266794, 'yAxisMin': 2230.02412717944, 'yAxisMax': 3679.811443716574, 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'streamDeltaTime': 0, 'useLocalOllama': False, 'localOllamaModelName': '', 'showAgentTrades': False, 'symbol': 'PAXGUSDT', 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1'}
+2025-08-29 14:01:34,084 - logging_config - INFO - chart_endpoints.py:13 - /history request: symbol=PAXGUSDT, resolution=1d, from_ts=1734824785, to_ts=1760674266
+2025-08-29 14:01:34,084 - logging_config - INFO - chart_endpoints.py:31 - Time range: from_ts=1734824785 (2024-12-21 23:46:25 UTC), to_ts=1756468894 (2025-08-29 12:01:34 UTC)
+2025-08-29 14:01:34,085 - logging_config - INFO - chart_endpoints.py:33 - Fetching cached klines for PAXGUSDT with from_ts: 1734824785 and to_ts: 1756468894
+2025-08-29 14:01:34,085 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:PAXGUSDT:1d' for range [1734824785, 1756468894]
+2025-08-29 14:01:34,087 - logging_config - INFO - redis_utils.py:136 - Found 251 cached klines for PAXGUSDT 1d between 1734824785 and 1756468894
+2025-08-29 14:01:34,087 - logging_config - INFO - chart_endpoints.py:46 - Cache does not fully cover requested range. Requested: 1734824785-1756468894, Cached: 1734825600-1756425600. Will fetch from Bybit to fill gaps.
+2025-08-29 14:01:34,087 - logging_config - INFO - chart_endpoints.py:51 - Before Bybit Fetch - From_TS: 1734824785 (2024-12-21 23:46:25 UTC), To_TS: 1756468894 (2025-08-29 12:01:34 UTC)
+2025-08-29 14:01:34,087 - logging_config - INFO - chart_endpoints.py:52 - Before Bybit Fetch - Clamped from_ts: 1734824785 (2024-12-21 23:46:25 UTC), to_ts: 1756468894 (2025-08-29 12:01:34 UTC)
+2025-08-29 14:01:34,088 - logging_config - INFO - chart_endpoints.py:53 - After Lookback Calc - Effective kline fetch range for Bybit: 1734824785 to 1756468894
+2025-08-29 14:01:34,088 - logging_config - INFO - chart_endpoints.py:56 - KLINES: Attempting to fetch from Bybit for PAXGUSDT with from_ts: 1734824785 and to_ts: 1756468894
+2025-08-29 14:01:34,088 - logging_config - INFO - chart_endpoints.py:57 - Attempting to fetch from Bybit for PAXGUSDT 1d range 1734824785 to 1756468894
+2025-08-29 14:01:34,294 - logging_config - INFO - chart_endpoints.py:60 - Fetched 251 klines from Bybit. Caching them.
+2025-08-29 14:01:34,297 - logging_config - INFO - utility_endpoints.py:75 - POST /settings: RAW data received from client for symbol 'PAXGUSDT': {'symbol': 'PAXGUSDT', 'resolution': '1d', 'range': '30d', 'xAxisMin': 1734824785873, 'xAxisMax': 1760674266794, 'yAxisMin': 2230.02412717944, 'yAxisMax': 3679.811443716574, 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1', 'useLocalOllama': False, 'localOllamaModelName': '', 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'showAgentTrades': False, 'streamDeltaTime': 0}
+2025-08-29 14:01:34,497 - logging_config - INFO - utility_endpoints.py:106 - POST /settings for PAXGUSDT and email klemenzivkovic@gmail.com: current_symbol_settings compiled for Redis save: {'resolution': '1d', 'range': '30d', 'xAxisMin': 1734824785873, 'xAxisMax': 1760674266794, 'yAxisMin': 2230.02412717944, 'yAxisMax': 3679.811443716574, 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'streamDeltaTime': 0, 'useLocalOllama': False, 'localOllamaModelName': '', 'showAgentTrades': False, 'symbol': 'PAXGUSDT', 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1'}
+2025-08-29 14:01:34,497 - logging_config - INFO - utility_endpoints.py:108 - POST /settings for PAXGUSDT: Client sent streamDeltaTime: 0. Value to be saved in Redis for streamDeltaTime: 0
+2025-08-29 14:01:34,503 - logging_config - INFO - utility_endpoints.py:111 - POST /settings for PAXGUSDT and email klemenzivkovic@gmail.com: Settings updated in Redis for PAXGUSDT: {'resolution': '1d', 'range': '30d', 'xAxisMin': 1734824785873, 'xAxisMax': 1760674266794, 'yAxisMin': 2230.02412717944, 'yAxisMax': 3679.811443716574, 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'streamDeltaTime': 0, 'useLocalOllama': False, 'localOllamaModelName': '', 'showAgentTrades': False, 'symbol': 'PAXGUSDT', 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1'}
+2025-08-29 14:01:34,503 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:PAXGUSDT:1d' for range [1734824785, 1756468894]
+2025-08-29 14:01:34,709 - logging_config - INFO - redis_utils.py:136 - Found 251 cached klines for PAXGUSDT 1d between 1734824785 and 1756468894
+2025-08-29 14:01:34,709 - logging_config - INFO - chart_endpoints.py:101 - BYBIT: Fetch Completed with data returned from (1734825600) and higher
+2025-08-29 14:01:34,709 - logging_config - INFO - chart_endpoints.py:106 - Returning 251 klines for /history request. Requested range: from_ts=1734824785 (2024-12-21 23:46:25+00:00 UTC) to to_ts=1756468894 (2025-08-29 12:01:34+00:00 UTC). Actual data range: min_ts=1734825600 (2024-12-22 00:00:00+00:00 UTC) to max_ts=1756425600 (2025-08-29 00:00:00+00:00 UTC).
+2025-08-29 14:01:34,901 - logging_config - INFO - indicator_endpoints.py:42 - /indicatorHistory request: symbol=PAXGUSDT, resolution=1d, from_ts=1734824785, to_ts=1760674266, requested_ids=['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], simulation=False
+2025-08-29 14:01:34,901 - logging_config - INFO - indicator_endpoints.py:47 - Time range: from_ts=1734824785 (2024-12-21 23:46:25 UTC), to_ts=1760674266 (2025-10-17 04:11:06 UTC)
+2025-08-29 14:01:34,902 - logging_config - INFO - indicator_endpoints.py:97 - Mode (sim=False): Original request from_ts=1734824785, to_ts=1760674266. Max lookback: 130, Candles needed: 131. Effective kline fetch range for calculation: 1723506385 to 1760674266
+2025-08-29 14:01:34,902 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:PAXGUSDT:1d' for range [1723506385, 1756468894]
+2025-08-29 14:01:34,903 - logging_config - INFO - redis_utils.py:136 - Found 382 cached klines for PAXGUSDT 1d between 1723506385 and 1756468894
+2025-08-29 14:01:35,896 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:PAXGUSDT:1d' for range [1723506385, 1756468894]
+2025-08-29 14:01:35,899 - logging_config - INFO - redis_utils.py:136 - Found 382 cached klines for PAXGUSDT 1d between 1723506385 and 1756468894
+2025-08-29 14:01:35,900 - logging_config - INFO - redis_utils.py:201 - Found 267 cached Open Interest entries for PAXGUSDT 1d between 1723506385 and 1756468894
+2025-08-29 14:01:36,285 - logging_config - INFO - redis_utils.py:201 - Found 267 cached Open Interest entries for PAXGUSDT 1d between 1723506385 and 1756468894
+2025-08-29 14:01:36,288 - logging_config - INFO - indicator_endpoints.py:152 - Prepared DataFrame for PAXGUSDT 1d with 382 rows for calculation range 1723506385 to 1756468894.
+2025-08-29 14:01:36,884 - logging_config - INFO - auth.py:117 - Client authenticated and authorized via mTLS. Subject: <Name(C=SI,ST=Slovenija,OU=individuals,2.5.4.42=Klemen+2.5.4.4=Živkovič+2.5.4.5=2461096912042+CN=Klemen Živkovič)>
+2025-08-29 14:01:37,087 - logging_config - INFO - trading_endpoints.py:84 - GET /get_order_history/PAXGUSDT request received.
+2025-08-29 14:01:37,640 - logging_config - INFO - trading_endpoints.py:179 - Returning 1 order history records from Redis for klemenzivkovic@gmail.com and symbol PAXGUSDT
+2025-08-29 14:01:37,640 - logging_config - INFO - trading_endpoints.py:180 - [{'symbol': 'PAXGUSDT', 'orderType': 'Market', 'orderLinkId': '', 'slLimitPrice': '0', 'orderId': '42fff869-6532-4336-9634-8bca7401350e', 'cancelType': 'UNKNOWN', 'avgPrice': '', 'stopOrderType': 'StopLoss', 'lastPriceOnCreated': '3428', 'orderStatus': 'Untriggered', 'createType': 'CreateByStopLoss', 'takeProfit': '', 'cumExecValue': '0', 'tpslMode': 'Full', 'smpType': 'None', 'triggerDirection': 2, 'blockTradeId': '', 'isLeverage': '', 'rejectReason': 'EC_NoError', 'price': '0', 'orderIv': '', 'createdTime': '1753223956182', 'tpTriggerBy': '', 'positionIdx': 0, 'timeInForce': 'IOC', 'leavesValue': '0', 'updatedTime': '1753223956182', 'side': 'Sell', 'smpGroup': 0, 'triggerPrice': '3272', 'tpLimitPrice': '0', 'cumExecFee': '0', 'leavesQty': '0.639', 'slTriggerBy': '', 'closeOnTrigger': True, 'placeType': '', 'cumExecQty': '0', 'reduceOnly': True, 'qty': '0.639', 'stopLoss': '', 'marketUnit': '', 'smpOrderId': '', 'triggerBy': 'LastPrice'}]
+2025-08-29 14:01:38,139 - logging_config - INFO - trading_endpoints.py:210 - GET /get_buy_signals/PAXGUSDT request: res=1d, from=2024-12-21 23:46:25 UTC, to=2025-10-17 04:11:06 UTC
+2025-08-29 14:01:38,140 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:PAXGUSDT:1d' for range [1713224785, 1760674266]
+2025-08-29 14:01:38,143 - logging_config - INFO - redis_utils.py:136 - Found 501 cached klines for PAXGUSDT 1d between 1713224785 and 1760674266
+2025-08-29 14:01:38,143 - logging_config - INFO - trading_endpoints.py:228 - Cache miss or insufficient lookback for PAXGUSDT. Fetching from Bybit.
+2025-08-29 14:01:38,913 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:PAXGUSDT:1d' for range [1713224785, 1760674266]
+2025-08-29 14:01:39,091 - logging_config - INFO - redis_utils.py:136 - Found 501 cached klines for PAXGUSDT 1d between 1713224785 and 1760674266
+2025-08-29 14:01:39,098 - logging_config - INFO - indicators.py:227 - Starting find_buy_signals with enhanced logging for diagnosis
+2025-08-29 14:01:39,099 - logging_config - INFO - indicators.py:236 - Enhanced logging for date range: 2025-08-12 00:00:00+00:00 to 2025-08-14 00:00:00+00:00
+2025-08-29 14:01:39,100 - logging_config - INFO - indicators.py:259 - Total bars in DataFrame: 302
+2025-08-29 14:01:39,100 - logging_config - INFO - indicators.py:260 - cross_3_5 occurrences: 33
+2025-08-29 14:01:39,100 - logging_config - INFO - indicators.py:261 - cross_3_10 occurrences: 21
+2025-08-29 14:01:39,100 - logging_config - INFO - indicators.py:262 - cross_3_20 occurrences: 17
+2025-08-29 14:01:39,100 - logging_config - INFO - indicators.py:263 - stoch_cross occurrences: 11
+2025-08-29 14:01:39,100 - logging_config - INFO - indicators.py:264 - downtrend occurrences: 0
+2025-08-29 14:01:39,101 - logging_config - INFO - indicators.py:265 - oversold occurrences: 3
+2025-08-29 14:01:39,104 - logging_config - INFO - indicators.py:270 - Saved DataFrame with indicators and conditions to: buy_signals_debug_df_20241101_to_20250829.csv
+2025-08-29 14:01:39,119 - logging_config - INFO - indicators.py:291 - Bar 284 at 2025-08-12 00:00:00+00:00:
+2025-08-29 14:01:39,119 - logging_config - INFO - indicators.py:292 -   RSI_SMA_3=49.29, RSI_SMA_5=52.15, RSI_SMA_10=53.92, RSI_SMA_20=50.40
+2025-08-29 14:01:39,119 - logging_config - INFO - indicators.py:294 -   STOCHRSIk=32.19, STOCHRSId=25.48
+2025-08-29 14:01:39,119 - logging_config - INFO - indicators.py:296 -   EMA_21=3362.27, EMA_50=3353.87, EMA_200=3183.57, close=3342.40
+2025-08-29 14:01:39,119 - logging_config - INFO - indicators.py:298 -   Conditions: cross_3_5=False, cross_3_10=False, cross_3_20=False, stoch_cross=False
+2025-08-29 14:01:39,120 - logging_config - INFO - indicators.py:302 -   States: downtrend=False, oversold=False
+2025-08-29 14:01:39,120 - logging_config - INFO - indicators.py:303 -   Window (10 bars): has_all_events=False, has_downtrend=False, has_oversold=False
+2025-08-29 14:01:39,120 - logging_config - INFO - indicators.py:305 -   Window event counts: cross_3_5=1, cross_3_10=0, cross_3_20=1, stoch_cross=1
+2025-08-29 14:01:39,120 - logging_config - INFO - indicators.py:291 - Bar 285 at 2025-08-13 00:00:00+00:00:
+2025-08-29 14:01:39,120 - logging_config - INFO - indicators.py:292 -   RSI_SMA_3=46.90, RSI_SMA_5=50.59, RSI_SMA_10=53.47, RSI_SMA_20=50.19
+2025-08-29 14:01:39,120 - logging_config - INFO - indicators.py:294 -   STOCHRSIk=31.42, STOCHRSId=27.13
+2025-08-29 14:01:39,120 - logging_config - INFO - indicators.py:296 -   EMA_21=3361.69, EMA_50=3353.95, EMA_200=3185.28, close=3355.83
+2025-08-29 14:01:39,120 - logging_config - INFO - indicators.py:298 -   Conditions: cross_3_5=False, cross_3_10=False, cross_3_20=False, stoch_cross=False
+2025-08-29 14:01:39,120 - logging_config - INFO - indicators.py:302 -   States: downtrend=False, oversold=False
+2025-08-29 14:01:39,120 - logging_config - INFO - indicators.py:303 -   Window (10 bars): has_all_events=False, has_downtrend=False, has_oversold=False
+2025-08-29 14:01:39,120 - logging_config - INFO - indicators.py:305 -   Window event counts: cross_3_5=1, cross_3_10=0, cross_3_20=0, stoch_cross=1
+2025-08-29 14:01:39,121 - logging_config - INFO - indicators.py:291 - Bar 286 at 2025-08-14 00:00:00+00:00:
+2025-08-29 14:01:39,121 - logging_config - INFO - indicators.py:292 -   RSI_SMA_3=45.81, RSI_SMA_5=48.00, RSI_SMA_10=52.20, RSI_SMA_20=49.97
+2025-08-29 14:01:39,121 - logging_config - INFO - indicators.py:294 -   STOCHRSIk=28.93, STOCHRSId=28.34
+2025-08-29 14:01:39,121 - logging_config - INFO - indicators.py:296 -   EMA_21=3358.89, EMA_50=3353.05, EMA_200=3186.73, close=3330.93
+2025-08-29 14:01:39,121 - logging_config - INFO - indicators.py:298 -   Conditions: cross_3_5=False, cross_3_10=False, cross_3_20=False, stoch_cross=False
+2025-08-29 14:01:39,121 - logging_config - INFO - indicators.py:302 -   States: downtrend=False, oversold=False
+2025-08-29 14:01:39,121 - logging_config - INFO - indicators.py:303 -   Window (10 bars): has_all_events=False, has_downtrend=False, has_oversold=False
+2025-08-29 14:01:39,121 - logging_config - INFO - indicators.py:305 -   Window event counts: cross_3_5=1, cross_3_10=0, cross_3_20=0, stoch_cross=1
+2025-08-29 14:01:39,122 - logging_config - INFO - indicators.py:333 - Total buy signals detected: 0
