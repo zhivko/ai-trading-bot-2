@@ -264,10 +264,10 @@ def find_buy_signals(df: pd.DataFrame) -> list:
     logger.debug(f"downtrend occurrences: {df['downtrend'].sum()}")
     logger.debug(f"oversold occurrences: {df['oversold'].sum()}")
 
-    # Save DataFrame with all indicators and conditions to CSV for inspection
-    debug_csv_filename = f"buy_signals_debug_df_{df['time'].iloc[0].strftime('%Y%m%d')}_to_{df['time'].iloc[-1].strftime('%Y%m%d')}.csv"
-    df.to_csv(debug_csv_filename, index=False)
-    logger.debug(f"Saved DataFrame with indicators and conditions to: {debug_csv_filename}")
+    # Save DataFrame with all indicators and conditions to CSV for inspection - DISABLED
+    # debug_csv_filename = f"buy_signals_debug_df_{df['time'].iloc[0].strftime('%Y%m%d')}_to_{df['time'].iloc[-1].strftime('%Y%m%d')}.csv"
+    # df.to_csv(debug_csv_filename, index=False)
+    # logger.debug(f"Saved DataFrame with indicators and conditions to: {debug_csv_filename}")
 
     for i in range(0, len(df)):
         # Ensure current_time is timezone-aware (UTC) for comparison
