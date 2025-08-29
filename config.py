@@ -1,0 +1,142 @@
+# Configuration constants and settings for the trading application
+
+import os
+from pathlib import Path
+from dataclasses import dataclass, field
+from typing import List, Dict, Any, TypedDict
+from pybit.unified_trading import HTTP
+
+# Kline data type definition
+class KlineData(TypedDict):
+    time: int
+    open: float
+    high: float
+    low: float
+    close: float
+    vol: float
+
+# Security
+SECRET_KEY = "super-secret"  # Replace with a strong, randomly generated key
+
+# Redis connection settings
+REDIS_HOST = "localhost"
+REDIS_PORT = 6379
+REDIS_DB = 0
+REDIS_PASSWORD = None
+REDIS_TIMEOUT = 10  # Increased socket timeout
+REDIS_RETRY_COUNT = 3
+REDIS_RETRY_DELAY = 1
+
+# Trading configuration
+TRADING_SYMBOL = "BTCUSDT"  # Symbol to trade for background tasks and AI defaults
+TRADING_TIMEFRAME = "5m"  # Timeframe for background tasks and AI defaults
+
+# Supported symbols and resolutions
+SUPPORTED_SYMBOLS = ["BTCUSDT", "XMRUSDT", "ETHUSDT", "SOLUSDT", "SUIUSDT", "PAXGUSDT", "BNBUSDT", "ADAUSDT"]
+SUPPORTED_RESOLUTIONS = ["1m", "5m", "1h", "1d", "1w"]
+
+SUPPORTED_RANGES = [
+    {"value": "1h", "label": "1h"},
+    {"value": "8h", "label": "8h"},
+    {"value": "24h", "label": "24h"},
+    {"value": "3d", "label": "3d"},
+    {"value": "7d", "label": "7d"},
+    {"value": "30d", "label": "30d"},
+    {"value": "3m", "label": "3M"},  # Approximately 3 * 30 days
+    {"value": "6m", "label": "6M"},  # Approximately 6 * 30 days
+    {"value": "1y", "label": "1Y"},  # Approximately 365 days
+    {"value": "3y", "label": "3Y"},  # Approximately 3 * 365 days
+]
+
+# Bybit resolution mapping
+BYBIT_RESOLUTION_MAP = {
+    "1m": "1", "5m": "5", "1h": "60", "1d": "D", "1w": "W"
+}
+
+# Redis keys
+REDIS_LAST_SELECTED_SYMBOL_KEY = "global_settings:last_selected_symbol"
+REDIS_OPEN_INTEREST_KEY_PREFIX = f"zset:open_interest:{TRADING_SYMBOL}:{TRADING_TIMEFRAME}"
+
+# Default symbol settings
+DEFAULT_SYMBOL_SETTINGS = {
+    'resolution': '1d',
+    'range': '30d',
+    'xAxisMin': None,
+    'xAxisMax': None,
+    'yAxisMin': None,
+    'yAxisMax': None,
+    'activeIndicators': [],
+    'liveDataEnabled': True,
+    'streamDeltaTime': 1,  # New default for live stream update interval (seconds)
+    'useLocalOllama': False,
+    'localOllamaModelName': None,  # New default
+    'showAgentTrades': False  # New default for showing agent trades
+}
+
+# AI Configuration
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_API_MODEL_NAME = "deepseek-reasoner"
+
+LOCAL_OLLAMA_BASE_URL = "http://localhost:11434/v1"
+LOCAL_OLLAMA_MODEL_NAME = "llama3"
+
+MAX_DATA_POINTS_FOR_LLM = 100
+
+# Paths
+PROJECT_ROOT = Path(__file__).parent
+DATA_DIR = PROJECT_ROOT / "data"
+LOGS_DIR = PROJECT_ROOT / "logs"
+STATIC_DIR = PROJECT_ROOT / "static"
+TEMPLATES_DIR = PROJECT_ROOT / "templates"
+AUTH_CREDS_FILE = Path("c:/git/VidWebServer/authcreds.json")
+
+# Ensure directories exist
+DATA_DIR.mkdir(exist_ok=True)
+LOGS_DIR.mkdir(exist_ok=True)
+STATIC_DIR.mkdir(exist_ok=True)
+TEMPLATES_DIR.mkdir(exist_ok=True)
+
+# Create symbol directories
+for symbol in SUPPORTED_SYMBOLS:
+    (DATA_DIR / symbol).mkdir(exist_ok=True)
+
+# Available indicators configuration
+AVAILABLE_INDICATORS = [
+    {"id": "macd", "name": "MACD", "params": {"short_period": 12, "long_period": 26, "signal_period": 9}},
+    {"id": "rsi", "name": "RSI", "params": {"period": 14}},
+    {"id": "stochrsi_9_3", "name": "Stochastic RSI (9,3)", "params": {"rsi_period": 9, "stoch_period": 9, "k_period": 3, "d_period": 3}},
+    {"id": "stochrsi_14_3", "name": "Stochastic RSI (14,3)", "params": {"rsi_period": 14, "stoch_period": 14, "k_period": 3, "d_period": 3}},
+    {"id": "stochrsi_40_4", "name": "Stochastic RSI (40,4)", "params": {"rsi_period": 40, "stoch_period": 40, "k_period": 4, "d_period": 4}},
+    {"id": "stochrsi_60_10", "name": "Stochastic RSI (60,10)", "params": {"rsi_period": 60, "stoch_period": 60, "k_period": 10, "d_period": 10}},
+    {"id": "stochrsi_14_3", "name": "Stochastic RSI (14,3)", "params": {"rsi_period": 14, "stoch_period": 14, "k_period": 3, "d_period": 3}},  # Default for TradingAgent2
+    {"id": "open_interest", "name": "Open Interest", "params": {}},
+    {"id": "jma", "name": "Jurik MA", "params": {"length": 7, "phase": 50, "power": 2}},
+]
+
+@dataclass(frozen=True)
+class TimeframeConfig:
+    supported_resolutions: tuple[str, ...] = field(default_factory=lambda: tuple(SUPPORTED_RESOLUTIONS))
+    resolution_map: dict[str, str] = field(default_factory=lambda: BYBIT_RESOLUTION_MAP)
+
+# Global instances
+timeframe_config = TimeframeConfig()
+
+# Utility functions
+def get_timeframe_seconds(timeframe: str) -> int:
+    """Convert timeframe string to seconds."""
+    multipliers = {"1m": 60, "5m": 300, "1h": 3600, "1d": 86400, "1w": 604800}
+    return multipliers.get(timeframe, 3600)
+
+# Bybit API session - lazy initialization
+def get_session():
+    """Get or create Bybit API session."""
+    from auth import creds
+    return HTTP(
+        api_key=creds.api_key,
+        api_secret=creds.api_secret,
+        testnet=False
+    )
+
+# For backward compatibility
+session = get_session()

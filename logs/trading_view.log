@@ -26500,3 +26500,772 @@ redis.exceptions.TimeoutError: Timeout connecting to server
 2025-08-29 12:08:00,390 - AppTradingView - INFO - AppTradingView.py:1291 - POST /save_shape_properties/SOLUSDT/270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 request received with properties: {'buyOnCross': False, 'sellOnCross': False, 'sendEmailOnCross': True, 'amount': 0, 'email_sent': False}
 2025-08-29 12:08:00,391 - AppTradingView - INFO - AppTradingView.py:1281 - Drawing 270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 updated.
 2025-08-29 12:08:00,391 - AppTradingView - INFO - AppTradingView.py:1340 - Shape 270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 properties updated successfully.
+2025-08-29 12:31:17,953 - AppTradingView - INFO - AppTradingView.py:2733 - Client (live stream SOLUSDT) disconnected while trying to send data.
+2025-08-29 12:40:51,188 - logging_config - INFO - AppTradingView_refactored.py:183 - Local address: 192.168.1.52
+2025-08-29 12:40:54,540 - logging_config - INFO - AppTradingView_refactored.py:57 - Application startup...
+2025-08-29 12:40:54,545 - logging_config - INFO - redis_utils.py:29 - Successfully connected to Redis
+2025-08-29 12:40:54,545 - logging_config - INFO - AppTradingView_refactored.py:62 - Background task (fetch_and_publish_klines) started.
+2025-08-29 12:40:54,546 - logging_config - INFO - background_tasks.py:14 - Starting fetch_and_publish_klines background task
+2025-08-29 12:40:54,794 - logging_config - ERROR - background_tasks.py:65 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 47, in fetch_and_publish_klines
+    await cache_klines(symbol_val, resolution, klines)
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 140, in cache_klines
+    from config import KlineData
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 12:40:58,307 - logging_config - INFO - AppTradingView_refactored.py:67 - Application shutdown...
+2025-08-29 12:40:58,308 - logging_config - INFO - AppTradingView_refactored.py:70 - Cancelling fetch_and_publish_klines task...
+2025-08-29 12:40:58,308 - logging_config - INFO - AppTradingView_refactored.py:76 - fetch_and_publish_klines task successfully cancelled.
+2025-08-29 12:41:01,812 - logging_config - INFO - AppTradingView_refactored.py:57 - Application startup...
+2025-08-29 12:41:01,816 - logging_config - INFO - redis_utils.py:29 - Successfully connected to Redis
+2025-08-29 12:41:01,817 - logging_config - INFO - AppTradingView_refactored.py:62 - Background task (fetch_and_publish_klines) started.
+2025-08-29 12:41:01,817 - logging_config - INFO - background_tasks.py:14 - Starting fetch_and_publish_klines background task
+2025-08-29 12:41:02,014 - logging_config - ERROR - background_tasks.py:65 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 47, in fetch_and_publish_klines
+    await cache_klines(symbol_val, resolution, klines)
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 140, in cache_klines
+    from config import KlineData
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 12:41:05,738 - logging_config - INFO - AppTradingView_refactored.py:67 - Application shutdown...
+2025-08-29 12:41:05,738 - logging_config - INFO - AppTradingView_refactored.py:70 - Cancelling fetch_and_publish_klines task...
+2025-08-29 12:41:05,738 - logging_config - INFO - AppTradingView_refactored.py:76 - fetch_and_publish_klines task successfully cancelled.
+2025-08-29 13:01:17,354 - logging_config - INFO - AppTradingView_refactored.py:186 - Local address: 192.168.1.52
+2025-08-29 13:01:20,448 - logging_config - INFO - AppTradingView_refactored.py:57 - Application startup...
+2025-08-29 13:01:20,453 - logging_config - INFO - redis_utils.py:29 - Successfully connected to Redis
+2025-08-29 13:01:20,453 - logging_config - INFO - AppTradingView_refactored.py:62 - Background task (fetch_and_publish_klines) started.
+2025-08-29 13:01:20,453 - logging_config - INFO - background_tasks.py:15 - Starting fetch_and_publish_klines background task
+2025-08-29 13:01:20,454 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:01:22,022 - logging_config - INFO - websocket_handlers.py:16 - WebSocket connection accepted for live data: SOLUSDT
+2025-08-29 13:01:22,022 - logging_config - INFO - websocket_handlers.py:29 - Live stream for SOLUSDT: Attempting to GET settings from Redis key: 'settings:SOLUSDT'
+2025-08-29 13:01:22,023 - logging_config - INFO - websocket_handlers.py:32 - Live stream for SOLUSDT: Found settings_json in Redis: {"resolution": "1h", "range": "7d", "xAxisMin": 1752703582177, "xAxisMax": 1753308382177, "yAxisMin": 159.96332440149882, "yAxisMax": 206.52632440149884, "activeIndicators": ["macd", "rsi", "stochrsi_9_3", "stochrsi_14_3", "stochrsi_40_4", "stochrsi_60_10"], "liveDataEnabled": true, "streamDeltaTime": 1, "useLocalOllama": false, "localOllamaModelName": "", "symbol": "SOLUSDT", "replayFrom": "", "replayTo": "", "replaySpeed": "1", "showAgentTrades": false}
+2025-08-29 13:01:22,023 - logging_config - INFO - websocket_handlers.py:35 - Live stream for SOLUSDT: Retrieved 'streamDeltaTime' from symbol_settings: 1 (type: <class 'int'>)
+2025-08-29 13:01:22,023 - logging_config - INFO - websocket_handlers.py:37 - Live stream for SOLUSDT: Using stream_delta_seconds = 1
+2025-08-29 13:01:22,023 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 13:01:22,897 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 13:01:22,897 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 13:01:22,898 - logging_config - INFO - websocket_handlers.py:120 - Subscribing Bybit WebSocket to:  
+2025-08-29 13:01:30,452 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:01:40,456 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:01:50,462 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:02:00,471 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:02:09,157 - logging_config - INFO - websocket_handlers.py:65 - Client (live stream SOLUSDT) disconnected while trying to send data.
+2025-08-29 13:02:09,521 - logging_config - INFO - websocket_handlers.py:155 - Live stream task for SOLUSDT was cancelled.
+2025-08-29 13:02:09,521 - logging_config - INFO - websocket_handlers.py:162 - Initiating cleanup for WebSocket and Bybit connection for live data: SOLUSDT
+2025-08-29 13:02:09,521 - logging_config - INFO - websocket_handlers.py:168 - Attempting to call bybit_ws_client.exit() for SOLUSDT
+2025-08-29 13:02:09,693 - logging_config - INFO - websocket_handlers.py:170 - Called bybit_ws_client.exit() for SOLUSDT
+2025-08-29 13:02:09,693 - logging_config - INFO - websocket_handlers.py:178 - FastAPI WebSocket for SOLUSDT client_state is WebSocketState.CONNECTED, attempting close.
+2025-08-29 13:02:09,693 - logging_config - WARNING - websocket_handlers.py:185 - FastAPI WebSocket for SOLUSDT was already closing/closed when finally tried to close: Cannot call "send" once a close message has been sent.
+2025-08-29 13:02:09,694 - logging_config - INFO - websocket_handlers.py:193 - Cleanup finished for WebSocket and Bybit connection for live data: SOLUSDT
+2025-08-29 13:03:04,098 - logging_config - INFO - AppTradingView_refactored.py:186 - Local address: 192.168.1.52
+2025-08-29 13:03:07,220 - logging_config - INFO - AppTradingView_refactored.py:57 - Application startup...
+2025-08-29 13:03:07,225 - logging_config - INFO - redis_utils.py:29 - Successfully connected to Redis
+2025-08-29 13:03:07,225 - logging_config - INFO - AppTradingView_refactored.py:62 - Background task (fetch_and_publish_klines) started.
+2025-08-29 13:03:07,225 - logging_config - INFO - background_tasks.py:15 - Starting fetch_and_publish_klines background task
+2025-08-29 13:03:07,225 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:03:17,239 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:03:22,340 - logging_config - INFO - websocket_handlers.py:16 - WebSocket connection accepted for live data: SOLUSDT
+2025-08-29 13:03:22,340 - logging_config - INFO - websocket_handlers.py:29 - Live stream for SOLUSDT: Attempting to GET settings from Redis key: 'settings:SOLUSDT'
+2025-08-29 13:03:22,341 - logging_config - INFO - websocket_handlers.py:32 - Live stream for SOLUSDT: Found settings_json in Redis: {"resolution": "1h", "range": "7d", "xAxisMin": 1752703582177, "xAxisMax": 1753308382177, "yAxisMin": 159.96332440149882, "yAxisMax": 206.52632440149884, "activeIndicators": ["macd", "rsi", "stochrsi_9_3", "stochrsi_14_3", "stochrsi_40_4", "stochrsi_60_10"], "liveDataEnabled": true, "streamDeltaTime": 1, "useLocalOllama": false, "localOllamaModelName": "", "symbol": "SOLUSDT", "replayFrom": "", "replayTo": "", "replaySpeed": "1", "showAgentTrades": false}
+2025-08-29 13:03:22,341 - logging_config - INFO - websocket_handlers.py:35 - Live stream for SOLUSDT: Retrieved 'streamDeltaTime' from symbol_settings: 1 (type: <class 'int'>)
+2025-08-29 13:03:22,341 - logging_config - INFO - websocket_handlers.py:37 - Live stream for SOLUSDT: Using stream_delta_seconds = 1
+2025-08-29 13:03:22,341 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 13:03:23,266 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 13:03:23,266 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 13:03:23,267 - logging_config - INFO - websocket_handlers.py:120 - Subscribing Bybit WebSocket to:  
+2025-08-29 13:03:27,248 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:03:37,249 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:03:47,243 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:03:57,259 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:04:07,253 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:04:17,268 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:04:27,258 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:04:37,278 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:04:47,295 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:04:57,305 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:05:07,301 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:05:17,311 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:05:20,559 - logging_config - INFO - websocket_handlers.py:65 - Client (live stream SOLUSDT) disconnected while trying to send data.
+2025-08-29 13:05:27,310 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:05:37,315 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:05:47,303 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:05:57,322 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:06:07,327 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:06:17,332 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:06:27,346 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:06:37,341 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:06:47,359 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:06:57,365 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:07:07,376 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:07:17,384 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:07:27,384 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:07:37,387 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:07:47,387 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:07:57,402 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:08:07,405 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:08:17,413 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:08:27,436 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:08:37,412 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:08:46,061 - logging_config - INFO - websocket_handlers.py:155 - Live stream task for SOLUSDT was cancelled.
+2025-08-29 13:08:46,061 - logging_config - INFO - websocket_handlers.py:162 - Initiating cleanup for WebSocket and Bybit connection for live data: SOLUSDT
+2025-08-29 13:08:46,061 - logging_config - INFO - websocket_handlers.py:168 - Attempting to call bybit_ws_client.exit() for SOLUSDT
+2025-08-29 13:08:46,162 - logging_config - INFO - websocket_handlers.py:170 - Called bybit_ws_client.exit() for SOLUSDT
+2025-08-29 13:08:46,162 - logging_config - INFO - websocket_handlers.py:178 - FastAPI WebSocket for SOLUSDT client_state is WebSocketState.CONNECTED, attempting close.
+2025-08-29 13:08:46,163 - logging_config - WARNING - websocket_handlers.py:185 - FastAPI WebSocket for SOLUSDT was already closing/closed when finally tried to close: Cannot call "send" once a close message has been sent.
+2025-08-29 13:08:46,163 - logging_config - INFO - websocket_handlers.py:193 - Cleanup finished for WebSocket and Bybit connection for live data: SOLUSDT
+2025-08-29 13:08:57,680 - logging_config - INFO - AppTradingView_refactored.py:186 - Local address: 192.168.1.52
+2025-08-29 13:09:00,846 - logging_config - INFO - AppTradingView_refactored.py:57 - Application startup...
+2025-08-29 13:09:00,851 - logging_config - INFO - redis_utils.py:29 - Successfully connected to Redis
+2025-08-29 13:09:00,851 - logging_config - INFO - AppTradingView_refactored.py:62 - Background task (fetch_and_publish_klines) started.
+2025-08-29 13:09:00,851 - logging_config - INFO - background_tasks.py:15 - Starting fetch_and_publish_klines background task
+2025-08-29 13:09:00,851 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:09:01,535 - logging_config - INFO - websocket_handlers.py:16 - WebSocket connection accepted for live data: SOLUSDT
+2025-08-29 13:09:01,536 - logging_config - INFO - websocket_handlers.py:29 - Live stream for SOLUSDT: Attempting to GET settings from Redis key: 'settings:SOLUSDT'
+2025-08-29 13:09:01,536 - logging_config - INFO - websocket_handlers.py:32 - Live stream for SOLUSDT: Found settings_json in Redis: {"resolution": "1h", "range": "7d", "xAxisMin": 1752703582177, "xAxisMax": 1753308382177, "yAxisMin": 159.96332440149882, "yAxisMax": 206.52632440149884, "activeIndicators": ["macd", "rsi", "stochrsi_9_3", "stochrsi_14_3", "stochrsi_40_4", "stochrsi_60_10"], "liveDataEnabled": true, "streamDeltaTime": 1, "useLocalOllama": false, "localOllamaModelName": "", "symbol": "SOLUSDT", "replayFrom": "", "replayTo": "", "replaySpeed": "1", "showAgentTrades": false}
+2025-08-29 13:09:01,536 - logging_config - INFO - websocket_handlers.py:35 - Live stream for SOLUSDT: Retrieved 'streamDeltaTime' from symbol_settings: 1 (type: <class 'int'>)
+2025-08-29 13:09:01,536 - logging_config - INFO - websocket_handlers.py:37 - Live stream for SOLUSDT: Using stream_delta_seconds = 1
+2025-08-29 13:09:01,537 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 13:09:02,567 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 13:09:02,567 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 13:09:02,568 - logging_config - INFO - websocket_handlers.py:120 - Subscribing Bybit WebSocket to:  
+2025-08-29 13:09:10,861 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:09:20,889 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 244, in fetch_klines_from_bybit
+    from config import KlineData, timeframe_config, session, logger
+ImportError: cannot import name 'KlineData' from 'config' (c:\git\ai-trading-bot-2\config.py)
+2025-08-29 13:09:21,549 - logging_config - INFO - websocket_handlers.py:155 - Live stream task for SOLUSDT was cancelled.
+2025-08-29 13:09:21,549 - logging_config - INFO - websocket_handlers.py:162 - Initiating cleanup for WebSocket and Bybit connection for live data: SOLUSDT
+2025-08-29 13:09:21,549 - logging_config - INFO - websocket_handlers.py:168 - Attempting to call bybit_ws_client.exit() for SOLUSDT
+2025-08-29 13:09:21,722 - logging_config - INFO - websocket_handlers.py:170 - Called bybit_ws_client.exit() for SOLUSDT
+2025-08-29 13:09:21,722 - logging_config - INFO - websocket_handlers.py:178 - FastAPI WebSocket for SOLUSDT client_state is WebSocketState.CONNECTED, attempting close.
+2025-08-29 13:09:21,722 - logging_config - INFO - websocket_handlers.py:181 - FastAPI WebSocket for SOLUSDT successfully closed in finally block.
+2025-08-29 13:09:21,722 - logging_config - INFO - websocket_handlers.py:193 - Cleanup finished for WebSocket and Bybit connection for live data: SOLUSDT
+2025-08-29 13:13:09,462 - logging_config - INFO - AppTradingView_refactored.py:186 - Local address: 192.168.1.52
+2025-08-29 13:13:12,613 - logging_config - INFO - AppTradingView_refactored.py:57 - Application startup...
+2025-08-29 13:13:12,617 - logging_config - INFO - redis_utils.py:32 - Successfully connected to Redis
+2025-08-29 13:13:12,618 - logging_config - INFO - AppTradingView_refactored.py:62 - Background task (fetch_and_publish_klines) started.
+2025-08-29 13:13:12,618 - logging_config - INFO - background_tasks.py:15 - Starting fetch_and_publish_klines background task
+2025-08-29 13:13:12,618 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: name 'get_timeframe_seconds' is not defined
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 252, in fetch_klines_from_bybit
+    timeframe_seconds = get_timeframe_seconds(resolution)
+                        ^^^^^^^^^^^^^^^^^^^^^
+NameError: name 'get_timeframe_seconds' is not defined
+2025-08-29 13:13:22,636 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: name 'get_timeframe_seconds' is not defined
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 252, in fetch_klines_from_bybit
+    timeframe_seconds = get_timeframe_seconds(resolution)
+                        ^^^^^^^^^^^^^^^^^^^^^
+NameError: name 'get_timeframe_seconds' is not defined
+2025-08-29 13:13:32,645 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: name 'get_timeframe_seconds' is not defined
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 252, in fetch_klines_from_bybit
+    timeframe_seconds = get_timeframe_seconds(resolution)
+                        ^^^^^^^^^^^^^^^^^^^^^
+NameError: name 'get_timeframe_seconds' is not defined
+2025-08-29 13:13:34,834 - logging_config - INFO - AppTradingView_refactored.py:67 - Application shutdown...
+2025-08-29 13:13:34,834 - logging_config - INFO - AppTradingView_refactored.py:70 - Cancelling fetch_and_publish_klines task...
+2025-08-29 13:13:34,834 - logging_config - INFO - AppTradingView_refactored.py:76 - fetch_and_publish_klines task successfully cancelled.
+2025-08-29 13:13:38,459 - logging_config - INFO - AppTradingView_refactored.py:57 - Application startup...
+2025-08-29 13:13:38,464 - logging_config - INFO - redis_utils.py:32 - Successfully connected to Redis
+2025-08-29 13:13:38,464 - logging_config - INFO - AppTradingView_refactored.py:62 - Background task (fetch_and_publish_klines) started.
+2025-08-29 13:13:38,464 - logging_config - INFO - background_tasks.py:15 - Starting fetch_and_publish_klines background task
+2025-08-29 13:13:38,464 - logging_config - ERROR - background_tasks.py:66 - Error in fetch_and_publish_klines task: name 'get_timeframe_seconds' is not defined
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\background_tasks.py", line 46, in fetch_and_publish_klines
+    klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\redis_utils.py", line 252, in fetch_klines_from_bybit
+    timeframe_seconds = get_timeframe_seconds(resolution)
+                        ^^^^^^^^^^^^^^^^^^^^^
+NameError: name 'get_timeframe_seconds' is not defined
+2025-08-29 13:13:42,192 - logging_config - INFO - AppTradingView_refactored.py:67 - Application shutdown...
+2025-08-29 13:13:42,192 - logging_config - INFO - AppTradingView_refactored.py:70 - Cancelling fetch_and_publish_klines task...
+2025-08-29 13:13:42,192 - logging_config - INFO - AppTradingView_refactored.py:76 - fetch_and_publish_klines task successfully cancelled.
+2025-08-29 13:13:45,816 - logging_config - INFO - AppTradingView_refactored.py:57 - Application startup...
+2025-08-29 13:13:45,823 - logging_config - INFO - redis_utils.py:32 - Successfully connected to Redis
+2025-08-29 13:13:45,823 - logging_config - INFO - AppTradingView_refactored.py:62 - Background task (fetch_and_publish_klines) started.
+2025-08-29 13:13:45,823 - logging_config - INFO - background_tasks.py:15 - Starting fetch_and_publish_klines background task
+2025-08-29 13:14:25,211 - logging_config - INFO - AppTradingView_refactored.py:186 - Local address: 192.168.1.52
+2025-08-29 13:14:28,397 - logging_config - INFO - AppTradingView_refactored.py:57 - Application startup...
+2025-08-29 13:14:28,403 - logging_config - INFO - redis_utils.py:32 - Successfully connected to Redis
+2025-08-29 13:14:28,403 - logging_config - INFO - AppTradingView_refactored.py:62 - Background task (fetch_and_publish_klines) started.
+2025-08-29 13:14:28,403 - logging_config - INFO - background_tasks.py:15 - Starting fetch_and_publish_klines background task
+2025-08-29 13:14:35,710 - logging_config - INFO - websocket_handlers.py:16 - WebSocket connection accepted for live data: SOLUSDT
+2025-08-29 13:14:35,710 - logging_config - INFO - websocket_handlers.py:29 - Live stream for SOLUSDT: Attempting to GET settings from Redis key: 'settings:SOLUSDT'
+2025-08-29 13:14:35,713 - logging_config - INFO - websocket_handlers.py:32 - Live stream for SOLUSDT: Found settings_json in Redis: {"resolution": "1h", "range": "7d", "xAxisMin": 1752703582177, "xAxisMax": 1753308382177, "yAxisMin": 159.96332440149882, "yAxisMax": 206.52632440149884, "activeIndicators": ["macd", "rsi", "stochrsi_9_3", "stochrsi_14_3", "stochrsi_40_4", "stochrsi_60_10"], "liveDataEnabled": true, "streamDeltaTime": 1, "useLocalOllama": false, "localOllamaModelName": "", "symbol": "SOLUSDT", "replayFrom": "", "replayTo": "", "replaySpeed": "1", "showAgentTrades": false}
+2025-08-29 13:14:35,713 - logging_config - INFO - websocket_handlers.py:35 - Live stream for SOLUSDT: Retrieved 'streamDeltaTime' from symbol_settings: 1 (type: <class 'int'>)
+2025-08-29 13:14:35,713 - logging_config - INFO - websocket_handlers.py:37 - Live stream for SOLUSDT: Using stream_delta_seconds = 1
+2025-08-29 13:14:35,714 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 13:14:36,702 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 13:14:36,702 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 13:14:36,702 - logging_config - INFO - websocket_handlers.py:120 - Subscribing Bybit WebSocket to:  
+2025-08-29 13:14:39,269 - logging_config - INFO - utility_endpoints.py:149 - GET /get_last_symbol request received.
+2025-08-29 13:14:39,270 - logging_config - INFO - utility_endpoints.py:157 - Got last selected symbol for user klemenzivkovic@gmail.com: SOLUSDT
+2025-08-29 13:14:39,277 - logging_config - INFO - utility_endpoints.py:48 - GET /settings for SOLUSDT: Retrieved from Redis: {'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'streamDeltaTime': 0, 'useLocalOllama': False, 'localOllamaModelName': '', 'showAgentTrades': False, 'symbol': 'SOLUSDT', 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1'}
+2025-08-29 13:14:39,290 - logging_config - INFO - utility_endpoints.py:75 - POST /settings: RAW data received from client for symbol 'SOLUSDT': {'symbol': 'SOLUSDT', 'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1', 'useLocalOllama': False, 'localOllamaModelName': '', 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'showAgentTrades': False, 'streamDeltaTime': 0}
+2025-08-29 13:14:39,291 - logging_config - INFO - chart_endpoints.py:13 - /history request: symbol=SOLUSDT, resolution=1d, from_ts=1732066272, to_ts=1758115441
+2025-08-29 13:14:39,291 - logging_config - INFO - chart_endpoints.py:31 - Time range: from_ts=1732066272 (2024-11-20 01:31:12 UTC), to_ts=1756466079 (2025-08-29 11:14:39 UTC)
+2025-08-29 13:14:39,291 - logging_config - INFO - chart_endpoints.py:33 - Fetching cached klines for PAXGUSDT with from_ts: 1732066272 and to_ts: 1756466079
+2025-08-29 13:14:39,291 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1732066272, 1756466079]
+2025-08-29 13:14:39,292 - logging_config - INFO - utility_endpoints.py:106 - POST /settings for SOLUSDT and email klemenzivkovic@gmail.com: current_symbol_settings compiled for Redis save: {'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'streamDeltaTime': 0, 'useLocalOllama': False, 'localOllamaModelName': '', 'showAgentTrades': False, 'symbol': 'SOLUSDT', 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1'}
+2025-08-29 13:14:39,292 - logging_config - INFO - utility_endpoints.py:108 - POST /settings for SOLUSDT: Client sent streamDeltaTime: 0. Value to be saved in Redis for streamDeltaTime: 0
+2025-08-29 13:14:39,293 - logging_config - INFO - redis_utils.py:136 - Found 282 cached klines for SOLUSDT 1d between 1732066272 and 1756466079
+2025-08-29 13:14:39,293 - logging_config - INFO - chart_endpoints.py:46 - Cache does not fully cover requested range. Requested: 1732066272-1756466079, Cached: 1732147200-1756425600. Will fetch from Bybit to fill gaps.
+2025-08-29 13:14:39,293 - logging_config - INFO - chart_endpoints.py:51 - Before Bybit Fetch - From_TS: 1732066272 (2024-11-20 01:31:12 UTC), To_TS: 1756466079 (2025-08-29 11:14:39 UTC)
+2025-08-29 13:14:39,293 - logging_config - INFO - chart_endpoints.py:52 - Before Bybit Fetch - Clamped from_ts: 1732066272 (2024-11-20 01:31:12 UTC), to_ts: 1756466079 (2025-08-29 11:14:39 UTC)
+2025-08-29 13:14:39,293 - logging_config - INFO - chart_endpoints.py:53 - After Lookback Calc - Effective kline fetch range for Bybit: 1732066272 to 1756466079
+2025-08-29 13:14:39,294 - logging_config - INFO - chart_endpoints.py:56 - KLINES: Attempting to fetch from Bybit for PAXGUSDT with from_ts: 1732066272 and to_ts: 1756466079
+2025-08-29 13:14:39,294 - logging_config - INFO - chart_endpoints.py:57 - Attempting to fetch from Bybit for SOLUSDT 1d range 1732066272 to 1756466079
+2025-08-29 13:14:39,469 - logging_config - INFO - chart_endpoints.py:60 - Fetched 282 klines from Bybit. Caching them.
+2025-08-29 13:14:39,473 - logging_config - INFO - utility_endpoints.py:111 - POST /settings for SOLUSDT and email klemenzivkovic@gmail.com: Settings updated in Redis for SOLUSDT: {'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'streamDeltaTime': 0, 'useLocalOllama': False, 'localOllamaModelName': '', 'showAgentTrades': False, 'symbol': 'SOLUSDT', 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1'}
+2025-08-29 13:14:39,479 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1732066272, 1756466079]
+2025-08-29 13:14:39,482 - logging_config - INFO - redis_utils.py:136 - Found 282 cached klines for SOLUSDT 1d between 1732066272 and 1756466079
+2025-08-29 13:14:39,483 - logging_config - INFO - chart_endpoints.py:101 - BYBIT: Fetch Completed with data returned from (1732147200) and higher
+2025-08-29 13:14:39,483 - logging_config - INFO - chart_endpoints.py:106 - Returning 282 klines for /history request. Requested range: from_ts=1732066272 (2024-11-20 01:31:12+00:00 UTC) to to_ts=1756466079 (2025-08-29 11:14:39+00:00 UTC). Actual data range: min_ts=1732147200 (2024-11-21 00:00:00+00:00 UTC) to max_ts=1756425600 (2025-08-29 00:00:00+00:00 UTC).
+2025-08-29 13:14:39,499 - logging_config - INFO - indicator_endpoints.py:42 - /indicatorHistory request: symbol=SOLUSDT, resolution=1d, from_ts=1732066272, to_ts=1758115441, requested_ids=['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], simulation=False
+2025-08-29 13:14:39,499 - logging_config - INFO - indicator_endpoints.py:47 - Time range: from_ts=1732066272 (2024-11-20 01:31:12 UTC), to_ts=1758115441 (2025-09-17 13:24:01 UTC)
+2025-08-29 13:14:39,499 - logging_config - INFO - indicator_endpoints.py:97 - Mode (sim=False): Original request from_ts=1732066272, to_ts=1758115441. Max lookback: 130, Candles needed: 131. Effective kline fetch range for calculation: 1720747872 to 1758115441
+2025-08-29 13:14:39,499 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1720747872, 1756466079]
+2025-08-29 13:14:39,502 - logging_config - INFO - redis_utils.py:136 - Found 413 cached klines for SOLUSDT 1d between 1720747872 and 1756466079
+2025-08-29 13:14:39,691 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1720747872, 1756466079]
+2025-08-29 13:14:39,693 - logging_config - INFO - redis_utils.py:136 - Found 413 cached klines for SOLUSDT 1d between 1720747872 and 1756466079
+2025-08-29 13:14:39,694 - logging_config - INFO - redis_utils.py:201 - Found 267 cached Open Interest entries for SOLUSDT 1d between 1720747872 and 1756466079
+2025-08-29 13:14:39,733 - logging_config - INFO - auth.py:117 - Client authenticated and authorized via mTLS. Subject: <Name(C=SI,ST=Slovenija,OU=individuals,2.5.4.42=Klemen+2.5.4.4=Živkovič+2.5.4.5=2461096912042+CN=Klemen Živkovič)>
+2025-08-29 13:14:39,733 - logging_config - INFO - trading_endpoints.py:83 - GET /get_order_history/SOLUSDT request received.
+2025-08-29 13:14:39,952 - logging_config - INFO - trading_endpoints.py:178 - Returning 0 order history records from Redis for klemenzivkovic@gmail.com and symbol SOLUSDT
+2025-08-29 13:14:39,953 - logging_config - INFO - trading_endpoints.py:179 - []
+2025-08-29 13:14:39,972 - logging_config - INFO - trading_endpoints.py:209 - GET /get_buy_signals/SOLUSDT request: res=1d, from=2024-11-20 01:31:12 UTC, to=2025-09-17 13:24:01 UTC
+2025-08-29 13:14:39,972 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1710466272, 1758115441]
+2025-08-29 13:14:39,975 - logging_config - INFO - redis_utils.py:136 - Found 532 cached klines for SOLUSDT 1d between 1710466272 and 1758115441
+2025-08-29 13:14:39,976 - logging_config - INFO - trading_endpoints.py:227 - Cache miss or insufficient lookback for SOLUSDT. Fetching from Bybit.
+2025-08-29 13:14:40,180 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1710466272, 1758115441]
+2025-08-29 13:14:40,183 - logging_config - INFO - redis_utils.py:136 - Found 532 cached klines for SOLUSDT 1d between 1710466272 and 1758115441
+2025-08-29 13:14:40,192 - logging_config - INFO - indicators.py:226 - Starting find_buy_signals with enhanced logging for diagnosis
+2025-08-29 13:14:40,194 - logging_config - INFO - indicators.py:235 - Enhanced logging for date range: 2025-08-12 00:00:00+00:00 to 2025-08-14 00:00:00+00:00
+2025-08-29 13:14:40,196 - logging_config - INFO - indicators.py:258 - Total bars in DataFrame: 333
+2025-08-29 13:14:40,196 - logging_config - INFO - indicators.py:259 - cross_3_5 occurrences: 43
+2025-08-29 13:14:40,196 - logging_config - INFO - indicators.py:260 - cross_3_10 occurrences: 19
+2025-08-29 13:14:40,197 - logging_config - INFO - indicators.py:261 - cross_3_20 occurrences: 14
+2025-08-29 13:14:40,197 - logging_config - INFO - indicators.py:262 - stoch_cross occurrences: 13
+2025-08-29 13:14:40,197 - logging_config - INFO - indicators.py:263 - downtrend occurrences: 89
+2025-08-29 13:14:40,197 - logging_config - INFO - indicators.py:264 - oversold occurrences: 4
+2025-08-29 13:14:40,203 - logging_config - INFO - indicators.py:269 - Saved DataFrame with indicators and conditions to: buy_signals_debug_df_20241001_to_20250829.csv
+2025-08-29 13:14:40,299 - logging_config - INFO - indicators.py:290 - Bar 315 at 2025-08-12 00:00:00+00:00:
+2025-08-29 13:14:40,299 - logging_config - INFO - indicators.py:291 -   RSI_SMA_3=56.99, RSI_SMA_5=56.23, RSI_SMA_10=51.77, RSI_SMA_20=52.73
+2025-08-29 13:14:40,299 - logging_config - INFO - indicators.py:293 -   STOCHRSIk=49.40, STOCHRSId=46.33
+2025-08-29 13:14:40,299 - logging_config - INFO - indicators.py:295 -   EMA_21=175.56, EMA_50=169.83, EMA_200=164.31, close=191.81
+2025-08-29 13:14:40,300 - logging_config - INFO - indicators.py:297 -   Conditions: cross_3_5=False, cross_3_10=False, cross_3_20=False, stoch_cross=True
+2025-08-29 13:14:40,300 - logging_config - INFO - indicators.py:301 -   States: downtrend=False, oversold=False
+2025-08-29 13:14:40,300 - logging_config - INFO - indicators.py:302 -   Window (10 bars): has_all_events=True, has_downtrend=False, has_oversold=False
+2025-08-29 13:14:40,300 - logging_config - INFO - indicators.py:304 -   Window event counts: cross_3_5=1, cross_3_10=1, cross_3_20=1, stoch_cross=1
+2025-08-29 13:14:40,300 - logging_config - INFO - indicators.py:290 - Bar 316 at 2025-08-13 00:00:00+00:00:
+2025-08-29 13:14:40,300 - logging_config - INFO - indicators.py:291 -   RSI_SMA_3=59.66, RSI_SMA_5=58.62, RSI_SMA_10=54.13, RSI_SMA_20=53.06
+2025-08-29 13:14:40,301 - logging_config - INFO - indicators.py:293 -   STOCHRSIk=54.10, STOCHRSId=46.41
+2025-08-29 13:14:40,301 - logging_config - INFO - indicators.py:295 -   EMA_21=177.93, EMA_50=171.07, EMA_200=164.68, close=201.56
+2025-08-29 13:14:40,301 - logging_config - INFO - indicators.py:297 -   Conditions: cross_3_5=False, cross_3_10=False, cross_3_20=False, stoch_cross=False
+2025-08-29 13:14:40,301 - logging_config - INFO - indicators.py:301 -   States: downtrend=False, oversold=False
+2025-08-29 13:14:40,301 - logging_config - INFO - indicators.py:302 -   Window (10 bars): has_all_events=True, has_downtrend=False, has_oversold=False
+2025-08-29 13:14:40,301 - logging_config - INFO - indicators.py:304 -   Window event counts: cross_3_5=1, cross_3_10=1, cross_3_20=1, stoch_cross=1
+2025-08-29 13:14:40,301 - logging_config - INFO - indicators.py:290 - Bar 317 at 2025-08-14 00:00:00+00:00:
+2025-08-29 13:14:40,302 - logging_config - INFO - indicators.py:291 -   RSI_SMA_3=62.26, RSI_SMA_5=59.23, RSI_SMA_10=55.20, RSI_SMA_20=52.96
+2025-08-29 13:14:40,302 - logging_config - INFO - indicators.py:293 -   STOCHRSIk=56.53, STOCHRSId=47.00
+2025-08-29 13:14:40,302 - logging_config - INFO - indicators.py:295 -   EMA_21=179.25, EMA_50=171.91, EMA_200=164.95, close=192.44
+2025-08-29 13:14:40,302 - logging_config - INFO - indicators.py:297 -   Conditions: cross_3_5=False, cross_3_10=False, cross_3_20=False, stoch_cross=False
+2025-08-29 13:14:40,302 - logging_config - INFO - indicators.py:301 -   States: downtrend=False, oversold=False
+2025-08-29 13:14:40,302 - logging_config - INFO - indicators.py:302 -   Window (10 bars): has_all_events=True, has_downtrend=False, has_oversold=False
+2025-08-29 13:14:40,302 - logging_config - INFO - indicators.py:304 -   Window event counts: cross_3_5=1, cross_3_10=1, cross_3_20=1, stoch_cross=1
+2025-08-29 13:14:40,303 - logging_config - INFO - indicators.py:332 - Total buy signals detected: 1
+2025-08-29 13:14:50,937 - logging_config - INFO - utility_endpoints.py:187 - Log stream generator cancelled.
+2025-08-29 13:14:51,409 - logging_config - INFO - utility_endpoints.py:149 - GET /get_last_symbol request received.
+2025-08-29 13:14:51,409 - logging_config - INFO - utility_endpoints.py:157 - Got last selected symbol for user klemenzivkovic@gmail.com: SOLUSDT
+2025-08-29 13:14:51,440 - logging_config - INFO - utility_endpoints.py:48 - GET /settings for SOLUSDT: Retrieved from Redis: {'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'streamDeltaTime': 0, 'useLocalOllama': False, 'localOllamaModelName': '', 'showAgentTrades': False, 'symbol': 'SOLUSDT', 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1'}
+2025-08-29 13:14:51,452 - logging_config - INFO - utility_endpoints.py:75 - POST /settings: RAW data received from client for symbol 'SOLUSDT': {'symbol': 'SOLUSDT', 'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1', 'useLocalOllama': False, 'localOllamaModelName': '', 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'showAgentTrades': False, 'streamDeltaTime': 0}
+2025-08-29 13:14:51,453 - logging_config - INFO - chart_endpoints.py:13 - /history request: symbol=SOLUSDT, resolution=1d, from_ts=1732066272, to_ts=1758115441
+2025-08-29 13:14:51,453 - logging_config - INFO - chart_endpoints.py:31 - Time range: from_ts=1732066272 (2024-11-20 01:31:12 UTC), to_ts=1756466091 (2025-08-29 11:14:51 UTC)
+2025-08-29 13:14:51,453 - logging_config - INFO - chart_endpoints.py:33 - Fetching cached klines for PAXGUSDT with from_ts: 1732066272 and to_ts: 1756466091
+2025-08-29 13:14:51,453 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1732066272, 1756466091]
+2025-08-29 13:14:51,453 - logging_config - INFO - utility_endpoints.py:106 - POST /settings for SOLUSDT and email klemenzivkovic@gmail.com: current_symbol_settings compiled for Redis save: {'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'streamDeltaTime': 0, 'useLocalOllama': False, 'localOllamaModelName': '', 'showAgentTrades': False, 'symbol': 'SOLUSDT', 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1'}
+2025-08-29 13:14:51,454 - logging_config - INFO - utility_endpoints.py:108 - POST /settings for SOLUSDT: Client sent streamDeltaTime: 0. Value to be saved in Redis for streamDeltaTime: 0
+2025-08-29 13:14:51,456 - logging_config - INFO - redis_utils.py:136 - Found 282 cached klines for SOLUSDT 1d between 1732066272 and 1756466091
+2025-08-29 13:14:51,456 - logging_config - INFO - chart_endpoints.py:46 - Cache does not fully cover requested range. Requested: 1732066272-1756466091, Cached: 1732147200-1756425600. Will fetch from Bybit to fill gaps.
+2025-08-29 13:14:51,456 - logging_config - INFO - chart_endpoints.py:51 - Before Bybit Fetch - From_TS: 1732066272 (2024-11-20 01:31:12 UTC), To_TS: 1756466091 (2025-08-29 11:14:51 UTC)
+2025-08-29 13:14:51,456 - logging_config - INFO - chart_endpoints.py:52 - Before Bybit Fetch - Clamped from_ts: 1732066272 (2024-11-20 01:31:12 UTC), to_ts: 1756466091 (2025-08-29 11:14:51 UTC)
+2025-08-29 13:14:51,456 - logging_config - INFO - chart_endpoints.py:53 - After Lookback Calc - Effective kline fetch range for Bybit: 1732066272 to 1756466091
+2025-08-29 13:14:51,456 - logging_config - INFO - chart_endpoints.py:56 - KLINES: Attempting to fetch from Bybit for PAXGUSDT with from_ts: 1732066272 and to_ts: 1756466091
+2025-08-29 13:14:51,456 - logging_config - INFO - chart_endpoints.py:57 - Attempting to fetch from Bybit for SOLUSDT 1d range 1732066272 to 1756466091
+2025-08-29 13:14:51,633 - logging_config - INFO - chart_endpoints.py:60 - Fetched 282 klines from Bybit. Caching them.
+2025-08-29 13:14:51,638 - logging_config - INFO - utility_endpoints.py:111 - POST /settings for SOLUSDT and email klemenzivkovic@gmail.com: Settings updated in Redis for SOLUSDT: {'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'streamDeltaTime': 0, 'useLocalOllama': False, 'localOllamaModelName': '', 'showAgentTrades': False, 'symbol': 'SOLUSDT', 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1'}
+2025-08-29 13:14:51,646 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1732066272, 1756466091]
+2025-08-29 13:14:51,648 - logging_config - INFO - redis_utils.py:136 - Found 282 cached klines for SOLUSDT 1d between 1732066272 and 1756466091
+2025-08-29 13:14:51,648 - logging_config - INFO - chart_endpoints.py:101 - BYBIT: Fetch Completed with data returned from (1732147200) and higher
+2025-08-29 13:14:51,648 - logging_config - INFO - chart_endpoints.py:106 - Returning 282 klines for /history request. Requested range: from_ts=1732066272 (2024-11-20 01:31:12+00:00 UTC) to to_ts=1756466091 (2025-08-29 11:14:51+00:00 UTC). Actual data range: min_ts=1732147200 (2024-11-21 00:00:00+00:00 UTC) to max_ts=1756425600 (2025-08-29 00:00:00+00:00 UTC).
+2025-08-29 13:14:51,660 - logging_config - INFO - indicator_endpoints.py:42 - /indicatorHistory request: symbol=SOLUSDT, resolution=1d, from_ts=1732066272, to_ts=1758115441, requested_ids=['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], simulation=False
+2025-08-29 13:14:51,660 - logging_config - INFO - indicator_endpoints.py:47 - Time range: from_ts=1732066272 (2024-11-20 01:31:12 UTC), to_ts=1758115441 (2025-09-17 13:24:01 UTC)
+2025-08-29 13:14:51,660 - logging_config - INFO - indicator_endpoints.py:97 - Mode (sim=False): Original request from_ts=1732066272, to_ts=1758115441. Max lookback: 130, Candles needed: 131. Effective kline fetch range for calculation: 1720747872 to 1758115441
+2025-08-29 13:14:51,661 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1720747872, 1756466091]
+2025-08-29 13:14:51,663 - logging_config - INFO - redis_utils.py:136 - Found 413 cached klines for SOLUSDT 1d between 1720747872 and 1756466091
+2025-08-29 13:14:51,861 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1720747872, 1756466091]
+2025-08-29 13:14:51,864 - logging_config - INFO - redis_utils.py:136 - Found 413 cached klines for SOLUSDT 1d between 1720747872 and 1756466091
+2025-08-29 13:14:51,866 - logging_config - INFO - redis_utils.py:201 - Found 267 cached Open Interest entries for SOLUSDT 1d between 1720747872 and 1756466091
+2025-08-29 13:14:51,887 - logging_config - INFO - auth.py:117 - Client authenticated and authorized via mTLS. Subject: <Name(C=SI,ST=Slovenija,OU=individuals,2.5.4.42=Klemen+2.5.4.4=Živkovič+2.5.4.5=2461096912042+CN=Klemen Živkovič)>
+2025-08-29 13:14:51,887 - logging_config - INFO - trading_endpoints.py:83 - GET /get_order_history/SOLUSDT request received.
+2025-08-29 13:14:52,160 - logging_config - INFO - trading_endpoints.py:178 - Returning 0 order history records from Redis for klemenzivkovic@gmail.com and symbol SOLUSDT
+2025-08-29 13:14:52,160 - logging_config - INFO - trading_endpoints.py:179 - []
+2025-08-29 13:14:52,170 - logging_config - INFO - trading_endpoints.py:209 - GET /get_buy_signals/SOLUSDT request: res=1d, from=2024-11-20 01:31:12 UTC, to=2025-09-17 13:24:01 UTC
+2025-08-29 13:14:52,170 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1710466272, 1758115441]
+2025-08-29 13:14:52,173 - logging_config - INFO - redis_utils.py:136 - Found 532 cached klines for SOLUSDT 1d between 1710466272 and 1758115441
+2025-08-29 13:14:52,173 - logging_config - INFO - trading_endpoints.py:227 - Cache miss or insufficient lookback for SOLUSDT. Fetching from Bybit.
+2025-08-29 13:14:52,538 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1710466272, 1758115441]
+2025-08-29 13:14:52,542 - logging_config - INFO - redis_utils.py:136 - Found 532 cached klines for SOLUSDT 1d between 1710466272 and 1758115441
+2025-08-29 13:14:52,552 - logging_config - INFO - indicators.py:226 - Starting find_buy_signals with enhanced logging for diagnosis
+2025-08-29 13:14:52,553 - logging_config - INFO - indicators.py:235 - Enhanced logging for date range: 2025-08-12 00:00:00+00:00 to 2025-08-14 00:00:00+00:00
+2025-08-29 13:14:52,555 - logging_config - INFO - indicators.py:258 - Total bars in DataFrame: 333
+2025-08-29 13:14:52,555 - logging_config - INFO - indicators.py:259 - cross_3_5 occurrences: 43
+2025-08-29 13:14:52,555 - logging_config - INFO - indicators.py:260 - cross_3_10 occurrences: 19
+2025-08-29 13:14:52,555 - logging_config - INFO - indicators.py:261 - cross_3_20 occurrences: 14
+2025-08-29 13:14:52,555 - logging_config - INFO - indicators.py:262 - stoch_cross occurrences: 13
+2025-08-29 13:14:52,556 - logging_config - INFO - indicators.py:263 - downtrend occurrences: 89
+2025-08-29 13:14:52,556 - logging_config - INFO - indicators.py:264 - oversold occurrences: 4
+2025-08-29 13:14:52,561 - logging_config - INFO - indicators.py:269 - Saved DataFrame with indicators and conditions to: buy_signals_debug_df_20241001_to_20250829.csv
+2025-08-29 13:14:52,589 - logging_config - INFO - indicators.py:290 - Bar 315 at 2025-08-12 00:00:00+00:00:
+2025-08-29 13:14:52,589 - logging_config - INFO - indicators.py:291 -   RSI_SMA_3=56.99, RSI_SMA_5=56.23, RSI_SMA_10=51.77, RSI_SMA_20=52.73
+2025-08-29 13:14:52,590 - logging_config - INFO - indicators.py:293 -   STOCHRSIk=49.40, STOCHRSId=46.33
+2025-08-29 13:14:52,590 - logging_config - INFO - indicators.py:295 -   EMA_21=175.56, EMA_50=169.83, EMA_200=164.31, close=191.81
+2025-08-29 13:14:52,590 - logging_config - INFO - indicators.py:297 -   Conditions: cross_3_5=False, cross_3_10=False, cross_3_20=False, stoch_cross=True
+2025-08-29 13:14:52,590 - logging_config - INFO - indicators.py:301 -   States: downtrend=False, oversold=False
+2025-08-29 13:14:52,590 - logging_config - INFO - indicators.py:302 -   Window (10 bars): has_all_events=True, has_downtrend=False, has_oversold=False
+2025-08-29 13:14:52,590 - logging_config - INFO - indicators.py:304 -   Window event counts: cross_3_5=1, cross_3_10=1, cross_3_20=1, stoch_cross=1
+2025-08-29 13:14:52,590 - logging_config - INFO - indicators.py:290 - Bar 316 at 2025-08-13 00:00:00+00:00:
+2025-08-29 13:14:52,591 - logging_config - INFO - indicators.py:291 -   RSI_SMA_3=59.66, RSI_SMA_5=58.62, RSI_SMA_10=54.13, RSI_SMA_20=53.06
+2025-08-29 13:14:52,591 - logging_config - INFO - indicators.py:293 -   STOCHRSIk=54.10, STOCHRSId=46.41
+2025-08-29 13:14:52,591 - logging_config - INFO - indicators.py:295 -   EMA_21=177.93, EMA_50=171.07, EMA_200=164.68, close=201.56
+2025-08-29 13:14:52,591 - logging_config - INFO - indicators.py:297 -   Conditions: cross_3_5=False, cross_3_10=False, cross_3_20=False, stoch_cross=False
+2025-08-29 13:14:52,591 - logging_config - INFO - indicators.py:301 -   States: downtrend=False, oversold=False
+2025-08-29 13:14:52,591 - logging_config - INFO - indicators.py:302 -   Window (10 bars): has_all_events=True, has_downtrend=False, has_oversold=False
+2025-08-29 13:14:52,591 - logging_config - INFO - indicators.py:304 -   Window event counts: cross_3_5=1, cross_3_10=1, cross_3_20=1, stoch_cross=1
+2025-08-29 13:14:52,591 - logging_config - INFO - indicators.py:290 - Bar 317 at 2025-08-14 00:00:00+00:00:
+2025-08-29 13:14:52,592 - logging_config - INFO - indicators.py:291 -   RSI_SMA_3=62.26, RSI_SMA_5=59.23, RSI_SMA_10=55.20, RSI_SMA_20=52.96
+2025-08-29 13:14:52,592 - logging_config - INFO - indicators.py:293 -   STOCHRSIk=56.53, STOCHRSId=47.00
+2025-08-29 13:14:52,592 - logging_config - INFO - indicators.py:295 -   EMA_21=179.25, EMA_50=171.91, EMA_200=164.95, close=192.44
+2025-08-29 13:14:52,592 - logging_config - INFO - indicators.py:297 -   Conditions: cross_3_5=False, cross_3_10=False, cross_3_20=False, stoch_cross=False
+2025-08-29 13:14:52,592 - logging_config - INFO - indicators.py:301 -   States: downtrend=False, oversold=False
+2025-08-29 13:14:52,592 - logging_config - INFO - indicators.py:302 -   Window (10 bars): has_all_events=True, has_downtrend=False, has_oversold=False
+2025-08-29 13:14:52,592 - logging_config - INFO - indicators.py:304 -   Window event counts: cross_3_5=1, cross_3_10=1, cross_3_20=1, stoch_cross=1
+2025-08-29 13:14:52,593 - logging_config - INFO - indicators.py:332 - Total buy signals detected: 1
+2025-08-29 13:16:03,058 - logging_config - INFO - websocket_handlers.py:65 - Client (live stream SOLUSDT) disconnected while trying to send data.
+2025-08-29 13:16:23,997 - logging_config - INFO - AppTradingView_refactored.py:186 - Local address: 192.168.1.52
+2025-08-29 13:16:27,178 - logging_config - INFO - AppTradingView_refactored.py:57 - Application startup...
+2025-08-29 13:16:27,183 - logging_config - INFO - redis_utils.py:32 - Successfully connected to Redis
+2025-08-29 13:16:27,183 - logging_config - INFO - AppTradingView_refactored.py:62 - Background task (fetch_and_publish_klines) started.
+2025-08-29 13:16:27,183 - logging_config - INFO - background_tasks.py:15 - Starting fetch_and_publish_klines background task
+2025-08-29 13:16:29,416 - logging_config - INFO - utility_endpoints.py:149 - GET /get_last_symbol request received.
+2025-08-29 13:16:29,422 - logging_config - INFO - utility_endpoints.py:157 - Got last selected symbol for user klemenzivkovic@gmail.com: SOLUSDT
+2025-08-29 13:16:29,601 - logging_config - INFO - utility_endpoints.py:48 - GET /settings for SOLUSDT: Retrieved from Redis: {'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'streamDeltaTime': 0, 'useLocalOllama': False, 'localOllamaModelName': '', 'showAgentTrades': False, 'symbol': 'SOLUSDT', 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1'}
+2025-08-29 13:16:29,788 - logging_config - INFO - chart_endpoints.py:13 - /history request: symbol=SOLUSDT, resolution=1d, from_ts=1732066272, to_ts=1758115441
+2025-08-29 13:16:29,788 - logging_config - INFO - chart_endpoints.py:31 - Time range: from_ts=1732066272 (2024-11-20 01:31:12 UTC), to_ts=1756466189 (2025-08-29 11:16:29 UTC)
+2025-08-29 13:16:29,788 - logging_config - INFO - chart_endpoints.py:33 - Fetching cached klines for PAXGUSDT with from_ts: 1732066272 and to_ts: 1756466189
+2025-08-29 13:16:29,788 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1732066272, 1756466189]
+2025-08-29 13:16:29,789 - logging_config - INFO - utility_endpoints.py:75 - POST /settings: RAW data received from client for symbol 'SOLUSDT': {'symbol': 'SOLUSDT', 'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1', 'useLocalOllama': False, 'localOllamaModelName': '', 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'showAgentTrades': False, 'streamDeltaTime': 0}
+2025-08-29 13:16:29,790 - logging_config - INFO - redis_utils.py:136 - Found 282 cached klines for SOLUSDT 1d between 1732066272 and 1756466189
+2025-08-29 13:16:29,790 - logging_config - INFO - chart_endpoints.py:46 - Cache does not fully cover requested range. Requested: 1732066272-1756466189, Cached: 1732147200-1756425600. Will fetch from Bybit to fill gaps.
+2025-08-29 13:16:29,790 - logging_config - INFO - chart_endpoints.py:51 - Before Bybit Fetch - From_TS: 1732066272 (2024-11-20 01:31:12 UTC), To_TS: 1756466189 (2025-08-29 11:16:29 UTC)
+2025-08-29 13:16:29,790 - logging_config - INFO - chart_endpoints.py:52 - Before Bybit Fetch - Clamped from_ts: 1732066272 (2024-11-20 01:31:12 UTC), to_ts: 1756466189 (2025-08-29 11:16:29 UTC)
+2025-08-29 13:16:29,790 - logging_config - INFO - chart_endpoints.py:53 - After Lookback Calc - Effective kline fetch range for Bybit: 1732066272 to 1756466189
+2025-08-29 13:16:29,790 - logging_config - INFO - chart_endpoints.py:56 - KLINES: Attempting to fetch from Bybit for PAXGUSDT with from_ts: 1732066272 and to_ts: 1756466189
+2025-08-29 13:16:29,790 - logging_config - INFO - chart_endpoints.py:57 - Attempting to fetch from Bybit for SOLUSDT 1d range 1732066272 to 1756466189
+2025-08-29 13:16:29,965 - logging_config - INFO - chart_endpoints.py:60 - Fetched 282 klines from Bybit. Caching them.
+2025-08-29 13:16:29,973 - logging_config - INFO - utility_endpoints.py:106 - POST /settings for SOLUSDT and email klemenzivkovic@gmail.com: current_symbol_settings compiled for Redis save: {'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'streamDeltaTime': 0, 'useLocalOllama': False, 'localOllamaModelName': '', 'showAgentTrades': False, 'symbol': 'SOLUSDT', 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1'}
+2025-08-29 13:16:29,973 - logging_config - INFO - utility_endpoints.py:108 - POST /settings for SOLUSDT: Client sent streamDeltaTime: 0. Value to be saved in Redis for streamDeltaTime: 0
+2025-08-29 13:16:29,979 - logging_config - INFO - utility_endpoints.py:111 - POST /settings for SOLUSDT and email klemenzivkovic@gmail.com: Settings updated in Redis for SOLUSDT: {'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'streamDeltaTime': 0, 'useLocalOllama': False, 'localOllamaModelName': '', 'showAgentTrades': False, 'symbol': 'SOLUSDT', 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1'}
+2025-08-29 13:16:29,980 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1732066272, 1756466189]
+2025-08-29 13:16:29,981 - logging_config - INFO - redis_utils.py:136 - Found 282 cached klines for SOLUSDT 1d between 1732066272 and 1756466189
+2025-08-29 13:16:29,982 - logging_config - INFO - chart_endpoints.py:101 - BYBIT: Fetch Completed with data returned from (1732147200) and higher
+2025-08-29 13:16:29,982 - logging_config - INFO - chart_endpoints.py:106 - Returning 282 klines for /history request. Requested range: from_ts=1732066272 (2024-11-20 01:31:12+00:00 UTC) to to_ts=1756466189 (2025-08-29 11:16:29+00:00 UTC). Actual data range: min_ts=1732147200 (2024-11-21 00:00:00+00:00 UTC) to max_ts=1756425600 (2025-08-29 00:00:00+00:00 UTC).
+2025-08-29 13:16:30,325 - logging_config - INFO - indicator_endpoints.py:42 - /indicatorHistory request: symbol=SOLUSDT, resolution=1d, from_ts=1732066272, to_ts=1758115441, requested_ids=['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], simulation=False
+2025-08-29 13:16:30,326 - logging_config - INFO - indicator_endpoints.py:47 - Time range: from_ts=1732066272 (2024-11-20 01:31:12 UTC), to_ts=1758115441 (2025-09-17 13:24:01 UTC)
+2025-08-29 13:16:30,326 - logging_config - INFO - indicator_endpoints.py:97 - Mode (sim=False): Original request from_ts=1732066272, to_ts=1758115441. Max lookback: 130, Candles needed: 131. Effective kline fetch range for calculation: 1720747872 to 1758115441
+2025-08-29 13:16:30,326 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1720747872, 1756466190]
+2025-08-29 13:16:30,328 - logging_config - INFO - redis_utils.py:136 - Found 413 cached klines for SOLUSDT 1d between 1720747872 and 1756466190
+2025-08-29 13:16:30,591 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1720747872, 1756466190]
+2025-08-29 13:16:30,593 - logging_config - INFO - redis_utils.py:136 - Found 413 cached klines for SOLUSDT 1d between 1720747872 and 1756466190
+2025-08-29 13:16:30,775 - logging_config - INFO - redis_utils.py:201 - Found 267 cached Open Interest entries for SOLUSDT 1d between 1720747872 and 1756466190
+2025-08-29 13:16:30,971 - logging_config - INFO - redis_utils.py:201 - Found 267 cached Open Interest entries for SOLUSDT 1d between 1720747872 and 1756466190
+2025-08-29 13:16:30,975 - logging_config - INFO - indicator_endpoints.py:152 - Prepared DataFrame for SOLUSDT 1d with 413 rows for calculation range 1720747872 to 1756466190.
+2025-08-29 13:16:31,364 - logging_config - INFO - auth.py:117 - Client authenticated and authorized via mTLS. Subject: <Name(C=SI,ST=Slovenija,OU=individuals,2.5.4.42=Klemen+2.5.4.4=Živkovič+2.5.4.5=2461096912042+CN=Klemen Živkovič)>
+2025-08-29 13:16:31,367 - logging_config - INFO - trading_endpoints.py:83 - GET /get_order_history/SOLUSDT request received.
+2025-08-29 13:16:31,596 - logging_config - INFO - trading_endpoints.py:178 - Returning 0 order history records from Redis for klemenzivkovic@gmail.com and symbol SOLUSDT
+2025-08-29 13:16:31,596 - logging_config - INFO - trading_endpoints.py:179 - []
+2025-08-29 13:16:31,774 - logging_config - INFO - trading_endpoints.py:209 - GET /get_buy_signals/SOLUSDT request: res=1d, from=2024-11-20 01:31:12 UTC, to=2025-09-17 13:24:01 UTC
+2025-08-29 13:16:31,774 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1710466272, 1758115441]
+2025-08-29 13:16:31,777 - logging_config - INFO - redis_utils.py:136 - Found 532 cached klines for SOLUSDT 1d between 1710466272 and 1758115441
+2025-08-29 13:16:31,777 - logging_config - INFO - trading_endpoints.py:227 - Cache miss or insufficient lookback for SOLUSDT. Fetching from Bybit.
+2025-08-29 13:16:32,163 - logging_config - INFO - redis_utils.py:97 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1710466272, 1758115441]
+2025-08-29 13:16:32,166 - logging_config - INFO - redis_utils.py:136 - Found 532 cached klines for SOLUSDT 1d between 1710466272 and 1758115441
+2025-08-29 13:16:32,175 - logging_config - INFO - indicators.py:227 - Starting find_buy_signals with enhanced logging for diagnosis
+2025-08-29 13:16:32,177 - logging_config - INFO - indicators.py:236 - Enhanced logging for date range: 2025-08-12 00:00:00+00:00 to 2025-08-14 00:00:00+00:00
+2025-08-29 13:16:32,178 - logging_config - INFO - indicators.py:259 - Total bars in DataFrame: 333
+2025-08-29 13:16:32,178 - logging_config - INFO - indicators.py:260 - cross_3_5 occurrences: 43
+2025-08-29 13:16:32,179 - logging_config - INFO - indicators.py:261 - cross_3_10 occurrences: 19
+2025-08-29 13:16:32,179 - logging_config - INFO - indicators.py:262 - cross_3_20 occurrences: 14
+2025-08-29 13:16:32,179 - logging_config - INFO - indicators.py:263 - stoch_cross occurrences: 13
+2025-08-29 13:16:32,179 - logging_config - INFO - indicators.py:264 - downtrend occurrences: 89
+2025-08-29 13:16:32,179 - logging_config - INFO - indicators.py:265 - oversold occurrences: 4
+2025-08-29 13:16:32,186 - logging_config - INFO - indicators.py:270 - Saved DataFrame with indicators and conditions to: buy_signals_debug_df_20241001_to_20250829.csv
+2025-08-29 13:16:32,207 - logging_config - INFO - indicators.py:291 - Bar 315 at 2025-08-12 00:00:00+00:00:
+2025-08-29 13:16:32,208 - logging_config - INFO - indicators.py:292 -   RSI_SMA_3=56.99, RSI_SMA_5=56.23, RSI_SMA_10=51.77, RSI_SMA_20=52.73
+2025-08-29 13:16:32,208 - logging_config - INFO - indicators.py:294 -   STOCHRSIk=49.40, STOCHRSId=46.33
+2025-08-29 13:16:32,208 - logging_config - INFO - indicators.py:296 -   EMA_21=175.56, EMA_50=169.83, EMA_200=164.31, close=191.81
+2025-08-29 13:16:32,208 - logging_config - INFO - indicators.py:298 -   Conditions: cross_3_5=False, cross_3_10=False, cross_3_20=False, stoch_cross=True
+2025-08-29 13:16:32,208 - logging_config - INFO - indicators.py:302 -   States: downtrend=False, oversold=False
+2025-08-29 13:16:32,208 - logging_config - INFO - indicators.py:303 -   Window (10 bars): has_all_events=True, has_downtrend=False, has_oversold=False
+2025-08-29 13:16:32,209 - logging_config - INFO - indicators.py:305 -   Window event counts: cross_3_5=1, cross_3_10=1, cross_3_20=1, stoch_cross=1
+2025-08-29 13:16:32,209 - logging_config - INFO - indicators.py:291 - Bar 316 at 2025-08-13 00:00:00+00:00:
+2025-08-29 13:16:32,209 - logging_config - INFO - indicators.py:292 -   RSI_SMA_3=59.66, RSI_SMA_5=58.62, RSI_SMA_10=54.13, RSI_SMA_20=53.06
+2025-08-29 13:16:32,209 - logging_config - INFO - indicators.py:294 -   STOCHRSIk=54.10, STOCHRSId=46.41
+2025-08-29 13:16:32,209 - logging_config - INFO - indicators.py:296 -   EMA_21=177.93, EMA_50=171.07, EMA_200=164.68, close=201.56
+2025-08-29 13:16:32,209 - logging_config - INFO - indicators.py:298 -   Conditions: cross_3_5=False, cross_3_10=False, cross_3_20=False, stoch_cross=False
+2025-08-29 13:16:32,209 - logging_config - INFO - indicators.py:302 -   States: downtrend=False, oversold=False
+2025-08-29 13:16:32,209 - logging_config - INFO - indicators.py:303 -   Window (10 bars): has_all_events=True, has_downtrend=False, has_oversold=False
+2025-08-29 13:16:32,209 - logging_config - INFO - indicators.py:305 -   Window event counts: cross_3_5=1, cross_3_10=1, cross_3_20=1, stoch_cross=1
+2025-08-29 13:16:32,210 - logging_config - INFO - indicators.py:291 - Bar 317 at 2025-08-14 00:00:00+00:00:
+2025-08-29 13:16:32,210 - logging_config - INFO - indicators.py:292 -   RSI_SMA_3=62.26, RSI_SMA_5=59.23, RSI_SMA_10=55.20, RSI_SMA_20=52.96
+2025-08-29 13:16:32,210 - logging_config - INFO - indicators.py:294 -   STOCHRSIk=56.53, STOCHRSId=47.00
+2025-08-29 13:16:32,210 - logging_config - INFO - indicators.py:296 -   EMA_21=179.25, EMA_50=171.91, EMA_200=164.95, close=192.44
+2025-08-29 13:16:32,210 - logging_config - INFO - indicators.py:298 -   Conditions: cross_3_5=False, cross_3_10=False, cross_3_20=False, stoch_cross=False
+2025-08-29 13:16:32,211 - logging_config - INFO - indicators.py:302 -   States: downtrend=False, oversold=False
+2025-08-29 13:16:32,211 - logging_config - INFO - indicators.py:303 -   Window (10 bars): has_all_events=True, has_downtrend=False, has_oversold=False
+2025-08-29 13:16:32,211 - logging_config - INFO - indicators.py:305 -   Window event counts: cross_3_5=1, cross_3_10=1, cross_3_20=1, stoch_cross=1
+2025-08-29 13:16:32,211 - logging_config - INFO - indicators.py:333 - Total buy signals detected: 1
+2025-08-29 13:16:33,485 - logging_config - INFO - websocket_handlers.py:16 - WebSocket connection accepted for live data: SOLUSDT
+2025-08-29 13:16:33,486 - logging_config - INFO - websocket_handlers.py:29 - Live stream for SOLUSDT: Attempting to GET settings from Redis key: 'settings:SOLUSDT'
+2025-08-29 13:16:33,487 - logging_config - INFO - websocket_handlers.py:32 - Live stream for SOLUSDT: Found settings_json in Redis: {"resolution": "1h", "range": "7d", "xAxisMin": 1752703582177, "xAxisMax": 1753308382177, "yAxisMin": 159.96332440149882, "yAxisMax": 206.52632440149884, "activeIndicators": ["macd", "rsi", "stochrsi_9_3", "stochrsi_14_3", "stochrsi_40_4", "stochrsi_60_10"], "liveDataEnabled": true, "streamDeltaTime": 1, "useLocalOllama": false, "localOllamaModelName": "", "symbol": "SOLUSDT", "replayFrom": "", "replayTo": "", "replaySpeed": "1", "showAgentTrades": false}
+2025-08-29 13:16:33,487 - logging_config - INFO - websocket_handlers.py:35 - Live stream for SOLUSDT: Retrieved 'streamDeltaTime' from symbol_settings: 1 (type: <class 'int'>)
+2025-08-29 13:16:33,488 - logging_config - INFO - websocket_handlers.py:37 - Live stream for SOLUSDT: Using stream_delta_seconds = 1
+2025-08-29 13:16:33,488 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 13:16:34,512 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 13:16:34,512 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 13:16:34,512 - logging_config - INFO - websocket_handlers.py:120 - Subscribing Bybit WebSocket to:  
+2025-08-29 13:16:37,744 - logging_config - INFO - drawing_endpoints.py:119 - GET /get_shape_properties/SOLUSDT/270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 request received
+2025-08-29 13:16:37,752 - logging_config - INFO - drawing_endpoints.py:119 - GET /get_shape_properties/SOLUSDT/270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 request received
+2025-08-29 13:16:37,759 - logging_config - INFO - drawing_endpoints.py:119 - GET /get_shape_properties/SOLUSDT/270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 request received
+2025-08-29 13:16:41,425 - logging_config - INFO - drawing_endpoints.py:66 - POST /save_shape_properties/SOLUSDT/270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 request received with properties: {'buyOnCross': False, 'sellOnCross': False, 'sendEmailOnCross': True, 'amount': 0, 'email_sent': False}
+2025-08-29 13:16:41,427 - logging_config - INFO - drawing_manager.py:115 - Drawing 270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 updated.
+2025-08-29 13:16:41,427 - logging_config - INFO - drawing_endpoints.py:115 - Shape 270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 properties updated successfully.
+2025-08-29 13:16:42,975 - logging_config - INFO - drawing_endpoints.py:119 - GET /get_shape_properties/SOLUSDT/c508a40f-0929-49dd-9815-14a7de5174c7 request received
+2025-08-29 13:16:42,986 - logging_config - INFO - drawing_endpoints.py:119 - GET /get_shape_properties/SOLUSDT/c508a40f-0929-49dd-9815-14a7de5174c7 request received
+2025-08-29 13:16:42,993 - logging_config - INFO - drawing_endpoints.py:119 - GET /get_shape_properties/SOLUSDT/c508a40f-0929-49dd-9815-14a7de5174c7 request received
+2025-08-29 13:16:45,923 - logging_config - INFO - drawing_endpoints.py:66 - POST /save_shape_properties/SOLUSDT/c508a40f-0929-49dd-9815-14a7de5174c7 request received with properties: {'buyOnCross': False, 'sellOnCross': False, 'sendEmailOnCross': True, 'amount': 0, 'email_sent': False}
+2025-08-29 13:16:45,924 - logging_config - INFO - drawing_manager.py:115 - Drawing c508a40f-0929-49dd-9815-14a7de5174c7 updated.
+2025-08-29 13:16:45,924 - logging_config - INFO - drawing_endpoints.py:115 - Shape c508a40f-0929-49dd-9815-14a7de5174c7 properties updated successfully.
+2025-08-29 13:16:48,280 - logging_config - INFO - drawing_endpoints.py:119 - GET /get_shape_properties/SOLUSDT/270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 request received
+2025-08-29 13:16:48,290 - logging_config - INFO - drawing_endpoints.py:119 - GET /get_shape_properties/SOLUSDT/270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 request received
+2025-08-29 13:16:48,301 - logging_config - INFO - drawing_endpoints.py:119 - GET /get_shape_properties/SOLUSDT/270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 request received
+2025-08-29 13:16:52,488 - logging_config - INFO - drawing_endpoints.py:119 - GET /get_shape_properties/SOLUSDT/c508a40f-0929-49dd-9815-14a7de5174c7 request received
+2025-08-29 13:16:52,497 - logging_config - INFO - drawing_endpoints.py:119 - GET /get_shape_properties/SOLUSDT/c508a40f-0929-49dd-9815-14a7de5174c7 request received
+2025-08-29 13:16:52,506 - logging_config - INFO - drawing_endpoints.py:119 - GET /get_shape_properties/SOLUSDT/c508a40f-0929-49dd-9815-14a7de5174c7 request received
+2025-08-29 13:16:59,553 - logging_config - INFO - drawing_endpoints.py:66 - POST /save_shape_properties/SOLUSDT/c508a40f-0929-49dd-9815-14a7de5174c7 request received with properties: {'buyOnCross': False, 'sellOnCross': False, 'sendEmailOnCross': True, 'amount': 0, 'email_sent': False}
+2025-08-29 13:16:59,554 - logging_config - INFO - drawing_manager.py:115 - Drawing c508a40f-0929-49dd-9815-14a7de5174c7 updated.
+2025-08-29 13:16:59,555 - logging_config - INFO - drawing_endpoints.py:115 - Shape c508a40f-0929-49dd-9815-14a7de5174c7 properties updated successfully.
+2025-08-29 13:17:24,057 - logging_config - INFO - websocket_handlers.py:65 - Client (live stream SOLUSDT) disconnected while trying to send data.
+2025-08-29 13:17:39,033 - logging_config - INFO - AppTradingView_refactored.py:186 - Local address: 192.168.1.52

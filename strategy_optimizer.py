@@ -22,7 +22,7 @@ import json
 # Assuming AppTradingView.py is in the same directory or accessible via PYTHONPATH
 from AppTradingView import get_sorted_set_key, get_sorted_set_oi_key, get_cached_open_interest, calculate_macd, calculate_rsi, calculate_stoch_rsi, calculate_open_interest, _prepare_dataframe, AVAILABLE_INDICATORS, get_cached_klines # Removed fetch_ohlcv_and_oi_from_redis, added get_cached_klines
 # Import divergence functions from detectBulishDivergence.py (no change needed here)
-from detectBulishDivergence import find_bullish_divergences, plot_divergences
+from detectBulishDivergence import detect_bullish_divergence, plot_chart_with_divergence
 
 # --- Configuration ---
 GEMINI_API_KEY = "YOUR_GEMINI_API_KEY" # Your key

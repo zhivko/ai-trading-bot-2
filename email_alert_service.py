@@ -11,7 +11,8 @@ from dataclasses import dataclass
 import logging
 from redis.asyncio import Redis
 from pathlib import Path
-from AppTradingView import get_redis_connection, SUPPORTED_SYMBOLS, _calculate_and_return_indicators, get_timeframe_seconds, BybitCredentials, fetch_klines_from_bybit, cache_klines, get_cached_klines
+from AppTradingView import get_redis_connection, SUPPORTED_SYMBOLS, _calculate_and_return_indicators, get_timeframe_seconds, BybitCredentials
+from redis_utils import fetch_klines_from_bybit, cache_klines, get_cached_klines
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd

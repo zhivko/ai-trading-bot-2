@@ -1,0 +1,80 @@
+# Background tasks for data fetching and processing
+
+import asyncio
+from datetime import datetime, timezone, timedelta
+from config import SUPPORTED_SYMBOLS, timeframe_config, TRADING_SYMBOL, TRADING_TIMEFRAME
+from redis_utils import (
+    get_cached_klines, cache_klines, get_cached_open_interest,
+    cache_open_interest, publish_resolution_kline
+)
+from redis_utils import fetch_klines_from_bybit
+from AppTradingView import fetch_open_interest_from_bybit
+from logging_config import logger
+
+async def fetch_and_publish_klines():
+    logger.info("Starting fetch_and_publish_klines background task")
+    last_fetch_times: dict[str, datetime] = {}
+    while True:
+        try:
+            current_time_utc = datetime.now(timezone.utc)
+            for resolution in timeframe_config.supported_resolutions:
+                time_boundary = current_time_utc.replace(second=0, microsecond=0)
+                if resolution == "1m":
+                    time_boundary = time_boundary.replace(minute=(time_boundary.minute // 1) * 1)  # Ensure 1m aligns
+                elif resolution == "5m":
+                    time_boundary = time_boundary.replace(minute=(time_boundary.minute // 5) * 5)
+                elif resolution == "1h":
+                    time_boundary = time_boundary.replace(minute=0)
+                elif resolution == "1d":
+                    time_boundary = time_boundary.replace(hour=0, minute=0)
+                elif resolution == "1w":
+                    time_boundary = time_boundary - timedelta(days=time_boundary.weekday())
+                    time_boundary = time_boundary.replace(hour=0, minute=0)
+
+                last_fetch = last_fetch_times.get(resolution)
+                if last_fetch is None or current_time_utc >= (last_fetch + timedelta(seconds=get_timeframe_seconds(resolution))):
+                    # logger.info(f"Fetching klines for {resolution} from {last_fetch or 'beginning'} up to {current_time_utc}")
+                    for symbol_val in SUPPORTED_SYMBOLS:
+                        end_ts = int(current_time_utc.timestamp())
+                        if last_fetch is None:
+                            start_ts_map = {"1m": 2*3600, "5m": 24*3600, "1h": 7*24*3600, "1d": 30*24*3600, "1w": 90*24*3600}  # Added 1m
+                            start_ts = end_ts - start_ts_map.get(resolution, 30*24*3600)
+                        else:
+                            start_ts = int(last_fetch.timestamp())
+
+                        if start_ts < end_ts:
+                            klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
+                            if klines:
+                                await cache_klines(symbol_val, resolution, klines)
+                                latest_kline = klines[-1]
+                                if latest_kline['time'] >= int(time_boundary.timestamp()):
+                                    await publish_resolution_kline(symbol_val, resolution, latest_kline)
+                                    # logger.info(f"Published {resolution} kline for {symbol_val} at {datetime.fromtimestamp(latest_kline['time'], timezone.utc)}")
+                    last_fetch_times[resolution] = current_time_utc
+            await asyncio.sleep(60)
+            # Also fetch and cache Open Interest data
+            for resolution in timeframe_config.supported_resolutions:
+                current_time_utc = datetime.now(timezone.utc)
+                end_ts = int(current_time_utc.timestamp())
+                # Fetch OI for the last 24 hours to ensure recent data is available
+                start_ts = end_ts - (24 * 3600)  # Fetch last 24 hours of OI
+                for symbol_val in SUPPORTED_SYMBOLS:
+                    oi_data = fetch_open_interest_from_bybit(symbol_val, resolution, start_ts, end_ts)
+                    if oi_data:
+                        await cache_open_interest(symbol_val, resolution, oi_data)
+        except Exception as e:
+            logger.error(f"Error in fetch_and_publish_klines task: {e}", exc_info=True)
+            await asyncio.sleep(10)
+
+async def bybit_realtime_feed_listener():
+    logger.info("Starting Bybit real-time feed listener task (conceptual - for shared WS to Redis)")
+    # This is a placeholder for a shared WebSocket connection that publishes to Redis.
+    # The /stream/live/{symbol} endpoint now creates a direct Bybit WS per client.
+    # If you want this listener to feed Redis for the old SSE endpoint, implement it here.
+    while True:
+        await asyncio.sleep(300)
+        logger.debug("bybit_realtime_feed_listener (shared conceptual) placeholder is alive")
+
+def get_timeframe_seconds(timeframe: str) -> int:
+    multipliers = {"1m": 60, "5m": 300, "1h": 3600, "1d": 86400, "1w": 604800}
+    return multipliers.get(timeframe, 3600)

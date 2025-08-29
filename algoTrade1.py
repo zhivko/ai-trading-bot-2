@@ -409,4 +409,3 @@ def run(self, use_sample_data=False):
         if not self.fetch_klines():
             return
 
-if
