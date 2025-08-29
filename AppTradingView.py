@@ -110,9 +110,9 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-
-logger = logging.getLogger('watchfiles.main')
-logger.setLevel(logging.WARNING)
+# Configure watchfiles logger separately to avoid overriding main logger
+watchfiles_logger = logging.getLogger('watchfiles.main')
+watchfiles_logger.setLevel(logging.WARNING)
 
 # --- Time Synchronization Functionality ---
 def sync_time_with_ntp():
@@ -1424,14 +1424,17 @@ async def delete_drawing_api_endpoint(symbol: str, drawing_id: str, request: Req
     return JSONResponse({"status": "success"})
 
 @app.put("/update_drawing/{symbol}/{drawing_id}")
-async def update_drawing_api_endpoint(symbol: str, drawing_id: str, drawing_data: DrawingData, request: Request): 
+async def update_drawing_api_endpoint(symbol: str, drawing_id: str, drawing_data: DrawingData, request: Request):
+    logger.info(f"PUT /update_drawing/{symbol}/{drawing_id} request received")
     if symbol not in SUPPORTED_SYMBOLS:
         return JSONResponse({"status": "error", "message": f"Unsupported symbol: {symbol}"}, status_code=400)
     drawing_data.symbol = symbol # Ensure symbol from path is used in the Pydantic model
     updated = await update_drawing(symbol, drawing_id, drawing_data, request)
     if not updated:
         return JSONResponse({"status": "error", "message": "Drawing not found"}, status_code=404)
+    logger.info(f"PUT /update_drawing/{symbol}/{drawing_id} request completed successfully")
     return JSONResponse({"status": "success"})
+
 
 @app.delete("/delete_all_drawings/{symbol}")
 async def delete_all_drawings_api_endpoint(symbol: str, request: Request):
@@ -2962,11 +2965,19 @@ async def get_order_history_endpoint(symbol: str, request: Request, cert_check: 
         existing_order_ids = {order['orderId'] for order in existing_order_history}
 
         # Retrieve recent order history from Bybit API
+        '''
         res = session.get_order_history(
             category="linear",
             symbol=symbol,
             limit=200  # Adjust limit as needed
         )
+        '''
+        # With this:
+        res = session.get_open_orders(
+            category="linear",
+            symbol=symbol
+        )
+
 
         if res.get("retCode") != 0:
             error_message = res.get('retMsg', 'Unknown Bybit API error')
@@ -3011,6 +3022,7 @@ async def get_order_history_endpoint(symbol: str, request: Request, cert_check: 
                     all_order_history = [json.loads(order) for order in stored_orders]
 
             logger.info(f"Returning {len(all_order_history)} order history records from Redis for {email} and symbol {symbol}")
+            logger.info(all_order_history)
             return JSONResponse({"status": "success", "order history": all_order_history})
 
         else:

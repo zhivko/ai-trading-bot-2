@@ -26058,3 +26058,337 @@ KeyError: ['EMA_200']
 2025-08-27 08:25:59,599 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
 2025-08-27 08:26:00,546 - websocket - INFO - _logging.py:89 - Websocket connected
 2025-08-27 08:26:00,546 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-27 15:14:46,285 - pybit._http_manager - ERROR - _http_manager.py:353 - Too many visits. Exceeded the API Rate Limit. (ErrCode: 10006). Hit the API rate limit. Sleeping, then trying again. Request: https://api.bybit.com/v5/market/kline
+2025-08-27 15:14:46,286 - watchfiles.main - ERROR - AppTradingView.py:815 - Bybit API request failed: 'x-bapi-limit-reset-timestamp'
+2025-08-27 17:09:47,022 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-27 17:09:48,050 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-27 17:09:48,050 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-27 17:10:34,471 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-27 17:10:35,447 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-27 17:10:35,447 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-27 17:10:45,312 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-27 17:10:46,317 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-27 17:10:46,317 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-27 21:00:25,398 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-27 21:00:26,498 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-27 21:00:26,498 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-27 23:38:44,776 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-27 23:38:45,729 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-27 23:38:45,729 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-27 23:38:46,097 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-27 23:38:47,419 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-27 23:38:47,419 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-27 23:41:51,504 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-27 23:41:53,004 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-27 23:41:53,004 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:10:37,539 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: Connection to remote host was lost..
+2025-08-28 04:10:37,539 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:10:38,679 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:10:38,679 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:10:38,679 - websocket - ERROR - _logging.py:77 - Connection to remote host was lost. - goodbye
+2025-08-28 04:11:28,576 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: Connection to remote host was lost..
+2025-08-28 04:11:28,576 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:11:30,005 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:11:30,005 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:11:30,006 - websocket - ERROR - _logging.py:77 - Connection to remote host was lost. - goodbye
+2025-08-28 04:15:46,537 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: Connection to remote host was lost..
+2025-08-28 04:15:46,538 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:15:47,721 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:15:47,721 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:15:47,722 - websocket - ERROR - _logging.py:77 - Connection to remote host was lost. - goodbye
+2025-08-28 04:15:55,794 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: Connection to remote host was lost..
+2025-08-28 04:15:55,794 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:15:56,900 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:15:56,900 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:15:56,901 - websocket - ERROR - _logging.py:77 - Connection to remote host was lost. - goodbye
+2025-08-28 04:26:27,690 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: Connection to remote host was lost..
+2025-08-28 04:26:27,690 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:26:28,965 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:26:28,965 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:26:28,965 - websocket - ERROR - _logging.py:77 - Connection to remote host was lost. - goodbye
+2025-08-28 04:26:50,195 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: Connection to remote host was lost..
+2025-08-28 04:26:50,195 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:26:51,757 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:26:51,757 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:26:51,758 - websocket - ERROR - _logging.py:77 - Connection to remote host was lost. - goodbye
+2025-08-28 04:32:26,617 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: Connection to remote host was lost..
+2025-08-28 04:32:26,617 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:32:27,334 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: Connection to remote host was lost..
+2025-08-28 04:32:27,366 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:32:27,754 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: Connection to remote host was lost..
+2025-08-28 04:32:27,862 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:32:28,589 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:32:28,589 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:32:28,667 - websocket - ERROR - _logging.py:77 - Connection to remote host was lost. - goodbye
+2025-08-28 04:32:29,464 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:32:29,480 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:32:29,588 - websocket - ERROR - _logging.py:77 - Connection to remote host was lost. - goodbye
+2025-08-28 04:32:29,898 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:32:29,898 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:32:29,899 - websocket - ERROR - _logging.py:77 - Connection to remote host was lost. - goodbye
+2025-08-28 04:32:45,090 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: ping/pong timed out.
+2025-08-28 04:32:45,098 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:32:46,225 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:32:46,226 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:32:46,227 - websocket - ERROR - _logging.py:77 - ping/pong timed out - goodbye
+2025-08-28 04:32:50,513 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: Connection to remote host was lost..
+2025-08-28 04:32:50,513 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:32:51,578 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:32:51,578 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:32:51,578 - websocket - ERROR - _logging.py:77 - Connection to remote host was lost. - goodbye
+2025-08-28 04:41:23,865 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: Connection to remote host was lost..
+2025-08-28 04:41:23,865 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:41:25,179 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:41:25,180 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:41:25,181 - websocket - ERROR - _logging.py:77 - Connection to remote host was lost. - goodbye
+2025-08-28 04:43:41,780 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: Connection to remote host was lost..
+2025-08-28 04:43:41,780 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:43:42,858 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:43:42,858 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:43:42,859 - websocket - ERROR - _logging.py:77 - Connection to remote host was lost. - goodbye
+2025-08-28 04:43:54,216 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: Connection to remote host was lost..
+2025-08-28 04:43:54,216 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:43:54,425 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: Connection to remote host was lost..
+2025-08-28 04:43:54,456 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:43:56,813 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:43:56,828 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:43:56,983 - websocket - ERROR - _logging.py:77 - Connection to remote host was lost. - goodbye
+2025-08-28 04:43:57,045 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:43:57,045 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:43:57,046 - websocket - ERROR - _logging.py:77 - Connection to remote host was lost. - goodbye
+2025-08-28 04:43:58,488 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: Connection to remote host was lost..
+2025-08-28 04:43:58,488 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 04:43:59,927 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 04:43:59,927 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 04:43:59,927 - websocket - ERROR - _logging.py:77 - Connection to remote host was lost. - goodbye
+2025-08-28 07:37:42,796 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 07:37:44,177 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 07:37:44,177 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 07:42:04,909 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 07:42:05,995 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 07:42:05,995 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 08:07:17,636 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 08:07:18,494 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 08:07:18,494 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 08:07:20,881 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 08:07:22,080 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 08:07:22,080 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 08:07:23,637 - watchfiles.main - WARNING - AppTradingView.py:697 - No data returned from zrangebyscore for key 'zset:kline:SOLUSDT:5m' with range [1755961138, 1756055848]. Checking if key exists and has members...
+2025-08-28 08:07:26,069 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 08:07:26,950 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 08:07:26,951 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 08:08:22,713 - watchfiles.main - WARNING - AppTradingView.py:697 - No data returned from zrangebyscore for key 'zset:kline:SOLUSDT:1d' with range [1756274902, 1756361302]. Checking if key exists and has members...
+2025-08-28 08:21:28,024 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 08:21:29,184 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 08:21:29,184 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 08:46:11,833 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 08:46:12,927 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 08:46:12,927 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 09:24:13,460 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 09:24:14,734 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 09:24:14,734 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 09:30:40,470 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 09:30:41,359 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 09:30:41,359 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 09:30:49,137 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 09:30:50,167 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 09:30:50,167 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 09:31:48,080 - watchfiles.main - ERROR - AppTradingView.py:2817 - Error re-checking settings for PAXGUSDT in WebSocket loop: Timeout connecting to server
+Traceback (most recent call last):
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 760, in _connect
+    reader, writer = await asyncio.open_connection(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\asyncio\streams.py", line 48, in open_connection
+    transport, _ = await loop.create_connection(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1083, in create_connection
+    infos = await self._ensure_resolved(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1466, in _ensure_resolved
+    return await loop.getaddrinfo(host, port, family=family, type=type,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 905, in getaddrinfo
+    return await self.run_in_executor(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 305, in connect_check_health
+    await self.retry.call_with_retry(
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\retry.py", line 50, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 759, in _connect
+    async with async_timeout(self.socket_connect_timeout):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\asyncio\timeouts.py", line 115, in __aexit__
+    raise TimeoutError from exc_val
+TimeoutError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\AppTradingView.py", line 2807, in stream_live_data_websocket_endpoint
+    settings_json_check = await redis_conn_check.get(settings_key_check)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\client.py", line 672, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 1149, in get_connection
+    await self.ensure_connection(connection)
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 1182, in ensure_connection
+    await connection.connect()
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 296, in connect
+    await self.connect_check_health(check_health=True)
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 313, in connect_check_health
+    raise TimeoutError("Timeout connecting to server")
+redis.exceptions.TimeoutError: Timeout connecting to server
+2025-08-28 09:32:07,123 - email_alert_service - ERROR - email_alert_service.py:322 - Error connecting to Redis or getting drawings: Timeout connecting to server
+Traceback (most recent call last):
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 760, in _connect
+    reader, writer = await asyncio.open_connection(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\asyncio\streams.py", line 48, in open_connection
+    transport, _ = await loop.create_connection(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1159, in create_connection
+    transport, protocol = await self._create_connection_transport(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1192, in _create_connection_transport
+    await waiter
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 305, in connect_check_health
+    await self.retry.call_with_retry(
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\retry.py", line 50, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 759, in _connect
+    async with async_timeout(self.socket_connect_timeout):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\asyncio\timeouts.py", line 115, in __aexit__
+    raise TimeoutError from exc_val
+TimeoutError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "c:\git\ai-trading-bot-2\email_alert_service.py", line 319, in check_price_alerts
+    drawings = await self.get_all_drawings(redis)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\git\ai-trading-bot-2\email_alert_service.py", line 41, in get_all_drawings
+    async for key in redis.scan_iter(match=pattern):
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\commands\core.py", line 3200, in scan_iter
+    cursor, data = await self.scan(
+                   ^^^^^^^^^^^^^^^^
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\client.py", line 672, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 1149, in get_connection
+    await self.ensure_connection(connection)
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 1182, in ensure_connection
+    await connection.connect()
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 296, in connect
+    await self.connect_check_health(check_health=True)
+  File "c:\Users\Admin\AppData\Local\Programs\Python\Python312\Lib\site-packages\redis\asyncio\connection.py", line 313, in connect_check_health
+    raise TimeoutError("Timeout connecting to server")
+redis.exceptions.TimeoutError: Timeout connecting to server
+2025-08-28 09:32:10,307 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 09:32:11,252 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 09:32:11,252 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 09:39:03,373 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 09:39:04,301 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 09:39:04,302 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 10:16:33,209 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: ping/pong timed out.
+2025-08-28 10:16:33,397 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 10:16:34,237 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 10:16:34,237 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 10:16:34,240 - websocket - ERROR - _logging.py:77 - ping/pong timed out - goodbye
+2025-08-28 10:16:40,011 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 10:16:41,078 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 10:16:41,078 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 10:17:46,260 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: ping/pong timed out.
+2025-08-28 10:17:46,307 - pybit._websocket_stream - ERROR - _websocket_stream.py:232 - WebSocket Unified V5 (wss://stream.bybit.com/v5/public/linear) encountered error: ping/pong timed out.
+2025-08-28 10:17:46,430 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 10:17:46,602 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 10:17:47,802 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 10:17:47,802 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 10:17:47,879 - websocket - ERROR - _logging.py:77 - ping/pong timed out - goodbye
+2025-08-28 10:17:48,021 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 10:17:48,021 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 10:17:48,030 - websocket - ERROR - _logging.py:77 - ping/pong timed out - goodbye
+2025-08-28 10:17:49,498 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 10:17:50,313 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 10:17:50,313 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 10:18:55,480 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 10:18:56,471 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 10:18:56,471 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 10:21:44,822 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 10:21:45,778 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 10:21:45,778 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 16:43:45,147 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 16:43:46,162 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 16:43:46,162 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 16:43:49,004 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 16:43:49,766 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 16:43:49,766 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 16:44:41,956 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 16:44:43,023 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 16:44:43,023 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 18:21:59,151 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 18:22:00,272 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 18:22:00,272 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 18:23:12,324 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 18:23:13,806 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 18:23:13,806 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-28 18:42:14,010 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-28 18:42:14,863 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-28 18:42:14,863 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 10:34:59,415 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 10:35:00,577 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 10:35:00,577 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 10:36:41,382 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 10:36:42,700 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 10:36:42,700 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 11:06:53,482 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 11:06:54,445 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 11:06:54,445 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 11:07:34,928 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 11:07:35,964 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 11:07:35,964 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 11:07:39,629 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 11:07:41,073 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 11:07:41,073 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 11:09:25,678 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 11:09:26,792 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 11:09:26,792 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 11:13:46,396 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 11:13:47,341 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 11:13:47,341 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 11:25:07,486 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 11:25:08,509 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 11:25:08,509 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 11:31:41,910 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 11:31:42,679 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 11:31:42,679 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 11:34:07,505 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 11:34:08,461 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 11:34:08,461 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 12:04:12,316 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 12:04:13,325 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 12:04:13,325 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 12:05:03,500 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 12:05:04,527 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 12:05:04,527 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 12:05:47,929 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 12:05:49,015 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 12:05:49,015 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 12:07:06,690 - __main__ - INFO - AppTradingView.py:3358 - Account info:
+2025-08-29 12:07:06,691 - __main__ - INFO - AppTradingView.py:3359 - {'marginMode': 'ISOLATED_MARGIN', 'updatedTime': '1746603355000', 'unifiedMarginStatus': 5, 'dcpStatus': 'OFF', 'timeWindow': 0, 'smpGroup': 0, 'isMasterTrader': False, 'spotHedgingStatus': 'ON'}
+2025-08-29 12:07:06,691 - __main__ - INFO - AppTradingView.py:3370 - Account Type: uta2.0
+2025-08-29 12:07:06,691 - __main__ - INFO - AppTradingView.py:3382 - Local address: 192.168.1.52

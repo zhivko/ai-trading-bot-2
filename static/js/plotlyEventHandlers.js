@@ -45,7 +45,10 @@ async function handleNewShapeSave(shapeObject) {
 
 function initializePlotlyEventHandlers(gd) {
     console.log('[DEBUG] initializePlotlyEventHandlers called with gd:', gd);
-    
+
+    // Test if Plotly events are working
+    console.log('[DEBUG] Plotly event handlers initialized');
+
     let currentDragMode = gd.layout.dragmode || 'pan';
     let isDragging = false;
     let shapeWasMoved = false;
@@ -142,6 +145,69 @@ function initializePlotlyEventHandlers(gd) {
             d3.selectAll('g[drag-helper="true"]').remove();
         }
         console.log('[plotly_relayouting] event fired - drag helpers cleaned', eventData);
+    });
+
+
+    // Handle Plotly click events for better coordinate handling
+    gd.on('plotly_click', function(plotlyEventData) {
+        console.log('[DEBUG] PLOTLY_CLICK EVENT FIRED! Event data:', plotlyEventData);
+
+        // Plotly provides better coordinate handling
+        if (plotlyEventData.points && plotlyEventData.points.length > 0) {
+            const point = plotlyEventData.points[0];
+            console.log('[DEBUG] Plotly click point:', point);
+
+            // For now, let's just try to detect if we're near any shapes
+            // We'll use a simpler approach - check all shapes and see if any are close to the click
+            const currentShapes = gd.layout.shapes || [];
+            console.log(`[DEBUG] Checking ${currentShapes.length} shapes for click proximity`);
+
+            for (let i = 0; i < currentShapes.length; i++) {
+                const shape = currentShapes[i];
+                if (shape.type === 'line' && shape.backendId && !shape.isSystemShape) {
+                    console.log(`[DEBUG] Found clickable shape ${i}: ID=${shape.backendId}, x0=${shape.x0}, y0=${shape.y0}, x1=${shape.x1}, y1=${shape.y1}`);
+
+                    // For now, let's just assume any line shape that exists is clickable
+                    // This is a simplified approach to test if the event handling works
+                    window.hoveredShapeBackendId = shape.backendId;
+                    console.log(`[DEBUG] Set hovered shape ID to: ${window.hoveredShapeBackendId}`);
+
+                    // Check for double-click
+                    const currentTime = Date.now();
+                    const timeDiff = currentTime - (window.lastClickTime || 0);
+                    console.log(`[DEBUG] Double-click check: currentTime=${currentTime}, lastClickTime=${window.lastClickTime || 0}, timeDiff=${timeDiff}ms, threshold=1000ms`);
+                    console.log(`[DEBUG] Shape check: currentShape=${window.hoveredShapeBackendId}, lastShape=${window.lastClickedShapeId || 'null'}`);
+
+                    if (window.lastClickedShapeId === window.hoveredShapeBackendId &&
+                        timeDiff < 1000) { // 1000ms threshold
+                        console.log(`[DEBUG] DOUBLE-CLICK detected on shape: ${window.hoveredShapeBackendId}`);
+
+                        if (typeof window.openShapePropertiesDialog === 'function') {
+                            console.log(`[DEBUG] Opening shape properties dialog for: ${window.hoveredShapeBackendId}`);
+                            window.openShapePropertiesDialog(window.hoveredShapeBackendId);
+                        } else {
+                            console.warn('[DEBUG] openShapePropertiesDialog function not found');
+                        }
+
+                        // Reset
+                        window.lastClickTime = 0;
+                        window.lastClickedShapeId = null;
+                    } else {
+                        console.log(`[DEBUG] Single click on shape: ${window.hoveredShapeBackendId}`);
+                        window.lastClickTime = currentTime;
+                        window.lastClickedShapeId = window.hoveredShapeBackendId;
+                    }
+
+                    // Update UI
+                    if(window.hoveredShapeBackendId) {
+                        findAndupdateSelectedShapeInfoPanel(window.hoveredShapeBackendId);
+                    }
+                    debouncedUpdateShapeVisuals();
+
+                    break; // Stop after finding first shape
+                }
+            }
+        }
     });
 
     gd.on('plotly_relayout', async function(eventData) {

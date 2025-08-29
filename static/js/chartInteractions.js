@@ -38,12 +38,16 @@ function updateOrAddCrosshairVLine(gd, xDataValue, doRelayout = true) {
 }
 
 
-function colorTheLine()
+function colorTheLine(eventParam)
 {
         // console.groupCollapsed('[NativeMousemove] Event Processing');
         console.log('[colorTheLine] Current dragmode:', window.gd ? window.gd.layout.dragmode : 'N/A');
-        if (!window.gd || !window.gd.layout || window.gd.layout.dragmode !== 'pan') {
-            //console.log('[NativeMousemove] Exiting early: Chart not ready or dragmode not pan.');
+
+        // Use the passed event or fall back to global event
+        const currentEvent = eventParam || event;
+
+        if (!window.gd || !window.gd.layout) {
+            //console.log('[NativeMousemove] Exiting early: Chart not ready.');
             if (window.hoveredShapeBackendId !== null) { // Assumes hoveredShapeBackendId is global from state.js
                 window.hoveredShapeBackendId = null;
                 debouncedUpdateShapeVisuals(); // Assumes debouncedUpdateShapeVisuals is global
@@ -52,45 +56,97 @@ function colorTheLine()
             return;
         }
 
-        if (event.target.closest('.modebar') ||
-            event.target.closest('select') ||
-            event.target.closest('input') ||
-            event.target.closest('.rangeslider') ||
-            event.target.closest('.legend')) {
+        if (currentEvent && (currentEvent.target.closest('.modebar') ||
+            currentEvent.target.closest('select') ||
+            currentEvent.target.closest('input') ||
+            currentEvent.target.closest('.rangeslider') ||
+            currentEvent.target.closest('.legend'))) {
             //console.log('[NativeMousemove] Exiting early: Mouse over Plotly UI element.');
             //console.groupEnd();
             return;
         }
 
         const rect = window.chartDiv.getBoundingClientRect();
-        const mouseX_div = event.clientX - rect.left;
-        const mouseY_div = event.clientY - rect.top;
+
+        // Try to get mouse coordinates from event, or use a fallback method
+        let mouseX_div, mouseY_div;
+        if (currentEvent && currentEvent.clientX !== undefined && currentEvent.clientY !== undefined &&
+            currentEvent.clientX !== 0 && currentEvent.clientY !== 0) {
+            mouseX_div = currentEvent.clientX - rect.left;
+            mouseY_div = currentEvent.clientY - rect.top;
+            console.log(`[colorTheLine] Using event coordinates: clientX=${currentEvent.clientX}, clientY=${currentEvent.clientY}`);
+        } else if (currentEvent && currentEvent.touches && currentEvent.touches.length > 0) {
+            // Handle touch events
+            const touch = currentEvent.touches[0] || currentEvent.changedTouches[0];
+            mouseX_div = touch.clientX - rect.left;
+            mouseY_div = touch.clientY - rect.top;
+            console.log(`[colorTheLine] Using touch coordinates: clientX=${touch.clientX}, clientY=${touch.clientY}`);
+        } else {
+            // Fallback: try to get mouse position from window.event or other methods
+            const globalEvent = window.event;
+            if (globalEvent && globalEvent.clientX !== undefined && globalEvent.clientY !== undefined &&
+                globalEvent.clientX !== 0 && globalEvent.clientY !== 0) {
+                mouseX_div = globalEvent.clientX - rect.left;
+                mouseY_div = globalEvent.clientY - rect.top;
+                console.log(`[colorTheLine] Using global event coordinates: clientX=${globalEvent.clientX}, clientY=${globalEvent.clientY}`);
+            } else {
+                // Try to get mouse position from document.elementFromPoint or other methods
+                try {
+                    const centerX = rect.left + rect.width/2;
+                    const centerY = rect.top + rect.height/2;
+                    const elementsAtCenter = document.elementsFromPoint(centerX, centerY);
+                    if (elementsAtCenter && elementsAtCenter.length > 0) {
+                        mouseX_div = rect.width / 2;
+                        mouseY_div = rect.height / 2;
+                        console.log(`[colorTheLine] Using center coordinates as fallback: x=${mouseX_div}, y=${mouseY_div}`);
+                    } else {
+                        throw new Error("No elements found at center");
+                    }
+                } catch (e) {
+                    // Last resort: assume center of chart for testing
+                    mouseX_div = rect.width / 2;
+                    mouseY_div = rect.height / 2;
+                    console.log(`[colorTheLine] Using fallback center coordinates: x=${mouseX_div}, y=${mouseY_div}, error: ${e.message}`);
+                }
+            }
+        }
+
+        console.log(`[colorTheLine] Chart div rect: left=${rect.left}, top=${rect.top}, width=${rect.width}, height=${rect.height}`);
+        console.log(`[colorTheLine] Mouse relative to div: x=${mouseX_div}, y=${mouseY_div}`);
 
         if (!window.gd._fullLayout || typeof window.gd._fullLayout.height === 'undefined' || !window.gd._fullLayout.yaxis || typeof window.gd._fullLayout.yaxis._length === 'undefined') {
-            console.log("[NativeMousemove] Mouse is outside the chart's plotting area. Ignoring.");
+            console.log("[colorTheLine] Chart layout not ready, skipping hover detection");
             return;
         }
 
+        // Convert DOM coordinates to Plotly paper coordinates
+        // Paper coordinates are relative to the full chart area (including margins)
+        const plotMargin = window.gd._fullLayout.margin;
         const mouseX_paper = mouseX_div;
         const mouseY_paper = mouseY_div;
 
-        /*
-        console.log("Mouse x: ", mouseX_paper)
-        console.log("Mouse y: ", mouseY_paper)
-        */
+        console.log(`[colorTheLine] Chart dimensions: width=${window.gd._fullLayout.width}, height=${window.gd._fullLayout.height}`);
+        console.log(`[colorTheLine] Plot margins: l=${plotMargin.l}, r=${plotMargin.r}, t=${plotMargin.t}, b=${plotMargin.b}`);
+        console.log(`[colorTheLine] Mouse in paper coordinates: x=${mouseX_paper}, y=${mouseY_paper}`);
 
-        //New check - is the cursor in plot area?
-         if (mouseX_paper < 0 || mouseX_paper > window.gd._fullLayout.width || mouseY_paper < 0 || mouseY_paper > window.gd._fullLayout.height) {
-            console.log("[NativeMousemove] Mouse is outside the chart's plotting area. Ignoring.");
+        // Check if mouse is within the chart's plotting area (with some tolerance for edge cases)
+        const tolerance = 10; // Allow 10px tolerance for edge cases
+        const isOutsideBounds = mouseX_paper < -tolerance ||
+                               mouseX_paper > window.gd._fullLayout.width + tolerance ||
+                               mouseY_paper < -tolerance ||
+                               mouseY_paper > window.gd._fullLayout.height + tolerance;
+
+        console.log(`[colorTheLine] Bounds check: mouseX=${mouseX_paper}, mouseY=${mouseY_paper}, width=${window.gd._fullLayout.width}, height=${window.gd._fullLayout.height}, tolerance=${tolerance}, isOutside=${isOutsideBounds}`);
+
+        if (isOutsideBounds) {
+            console.log("[colorTheLine] Mouse is outside the chart's plotting area. Ignoring.");
             if (window.hoveredShapeBackendId !== null) {
                 window.hoveredShapeBackendId = null;
                 debouncedUpdateShapeVisuals();
             }
-            //console.groupEnd();
             return;
         }
 
-        const plotMargin = window.gd._fullLayout.margin;
         const mainYAxis = window.gd._fullLayout.yaxis;
         const plotAreaHeight = mainYAxis._length;
         const mouseX_plotArea = mouseX_div - plotMargin.l;
@@ -110,8 +166,10 @@ function colorTheLine()
         }
 
         const currentShapes = window.gd.layout.shapes || [];
+        console.log(`[colorTheLine] Checking ${currentShapes.length} shapes for hover detection`);
         for (let i = 0; i < currentShapes.length; i++) {
             const shape = currentShapes[i];
+            console.log(`[colorTheLine] Shape ${i}: type=${shape.type}, backendId=${shape.backendId}, isSystemShape=${shape.isSystemShape}`);
             if (shape.type === 'line' && shape.backendId && !shape.isSystemShape) { // Ignore system shapes
                 const xrefKeyForFilter = getAxisLayoutKey(shape.xref, 'xaxis'); // Assumes getAxisLayoutKey is global
                 const yrefKeyForFilter = getAxisLayoutKey(shape.yref, 'yaxis');
@@ -164,26 +222,30 @@ function colorTheLine()
                     continue;
                 }
                 const distSq = distToSegmentSquared({ x: mouseX_paper, y: mouseY_paper }, p0, p1); // From utils.js
-                //console.log(`Calculated DistSq: ${distSq.toFixed(2)}. Threshold: ${HOVER_THRESHOLD_PIXELS_SQ}`);
+                console.log(`[colorTheLine] Shape ${i} (ID: ${shape.backendId}) - DistSq: ${distSq.toFixed(2)}, Threshold: ${HOVER_THRESHOLD_PIXELS_SQ}, Mouse: (${mouseX_paper.toFixed(2)}, ${mouseY_paper.toFixed(2)}), Shape endpoints: (${p0.x.toFixed(2)}, ${p0.y.toFixed(2)}) to (${p1.x.toFixed(2)}, ${p1.y.toFixed(2)})`);
                 if (distSq < HOVER_THRESHOLD_PIXELS_SQ && distSq < minDistanceSq) {
                     minDistanceSq = distSq;
                     window.newHoveredShapeId = shape.backendId;
+                    console.log(`[colorTheLine] Shape ${i} (ID: ${shape.backendId}) is now the closest hovered shape!`);
                 }
                 //console.groupEnd(); // End group for this shape
             }
         }
 
+        console.log(`[colorTheLine] Final: hoveredShapeBackendId=${window.hoveredShapeBackendId}, newHoveredShapeId=${window.newHoveredShapeId}`);
         if (window.hoveredShapeBackendId !== window.newHoveredShapeId) {
             window.hoveredShapeBackendId = window.newHoveredShapeId;
+            console.log(`[colorTheLine] Updated hoveredShapeBackendId to: ${window.hoveredShapeBackendId}`);
             if(window.hoveredShapeBackendId) findAndupdateSelectedShapeInfoPanel(window.hoveredShapeBackendId)
             debouncedUpdateShapeVisuals();
         }
-        /*
-        if (!hoveredSubplotRefs && window.hoveredShapeBackendId !== null) {
+
+        // Only clear shape ID if we're sure no shape should be hovered (mouse outside chart area)
+        if (isOutsideBounds && window.hoveredShapeBackendId !== null) {
+            console.log(`[colorTheLine] Mouse outside bounds, clearing hovered shape`);
             window.hoveredShapeBackendId = null;
             debouncedUpdateShapeVisuals();
         }
-        */
 
         // Crosshair logic
         const mainXAxis = window.gd._fullLayout.xaxis;
@@ -346,9 +408,29 @@ function initializeChartInteractions() {
     // Add double-click handler first
     addDoubleClickHandler();
     
+    // Throttle mousemove events to prevent excessive processing
+    let mousemoveThrottleTimer = null;
+    let isMouseDown = false;
+
+    window.chartDiv.addEventListener('mousedown', function() {
+        isMouseDown = true;
+    }, { capture: true, passive: true });
+
+    window.chartDiv.addEventListener('mouseup', function() {
+        isMouseDown = false;
+    }, { capture: true, passive: true });
+
     window.chartDiv.addEventListener('mousemove', function(event) {
-        colorTheLine();
-    });
+        // Only process mousemove when mouse is not pressed (to avoid interfering with drags)
+        if (isMouseDown) return;
+
+        if (mousemoveThrottleTimer) return; // Skip if already processing
+
+        mousemoveThrottleTimer = setTimeout(() => {
+            colorTheLine(event); // Pass the event for coordinate detection
+            mousemoveThrottleTimer = null;
+        }, 16); // ~60fps throttling
+    }, { capture: true, passive: true });
 
     window.chartDiv.addEventListener('mouseleave', function() {
         if (window.hoveredShapeBackendId !== null) { // From state.js
@@ -454,7 +536,7 @@ function findAndupdateSelectedShapeInfoPanel(id) {
 function handleShapeDoubleClick(shapeId) {
     console.log(`[DEBUG] handleShapeDoubleClick called with shapeId: ${shapeId}`);
     const currentTime = Date.now();
-    const doubleClickThreshold = 500; // ms between clicks to count as double-click
+    const doubleClickThreshold = 1000; // ms between clicks to count as double-click
     
     console.log(`[DEBUG] Last click time: ${window.lastClickTime}, Last clicked shape: ${window.lastClickedShapeId}`);
     console.log(`[DEBUG] Current time: ${currentTime}, Time difference: ${currentTime - window.lastClickTime}ms`);
@@ -482,22 +564,228 @@ function handleShapeDoubleClick(shapeId) {
 // Add double-click handler to chart div
 function addDoubleClickHandler() {
     if (window.chartDiv) {
-        console.log('[DEBUG] Adding double-click event listener to chart div (capturing phase)');
-        // Use capturing phase to catch the event before Plotly does
-        window.chartDiv.addEventListener('dblclick', function(event) {
-            console.log('[DEBUG] Double-click event detected on chart');
-            // Check if we're hovering over a shape when double-click occurs
-            console.log(`[DEBUG] Current hovered shape ID: ${window.hoveredShapeBackendId}`);
-            if (window.hoveredShapeBackendId) {
-                console.log(`[DEBUG] Handling double-click on shape: ${window.hoveredShapeBackendId}`);
-                // Prevent the event from propagating to Plotly
-                event.stopPropagation();
-                event.preventDefault();
-                handleShapeDoubleClick(window.hoveredShapeBackendId);
-            } else {
-                console.log('[DEBUG] No shape hovered during double-click');
+        console.log('[DEBUG] Adding double-click event listener to chart div');
+
+        // Track mouse state to distinguish clicks from drags
+        let mouseDownTime = 0;
+        let mouseDownPos = { x: 0, y: 0 };
+        let isDragging = false;
+
+        // Function to handle clicks on SVG elements (for double-click simulation)
+        function handleSVGClick(event) {
+            // Skip if this was a drag operation
+            if (isDragging) {
+                console.log('[DEBUG] Skipping click - was part of drag operation');
+                return;
             }
-        }, true); // Use capturing phase (true)
+
+            console.log('[DEBUG] Click event detected on SVG element');
+            console.log(`[DEBUG] Event coordinates: clientX=${event.clientX}, clientY=${event.clientY}`);
+            console.log(`[DEBUG] SVG Event target: ${event.target.tagName}, Event type: ${event.type}`);
+
+            // Use the current hovered shape if available, otherwise try to detect it
+            let currentShapeId = window.hoveredShapeBackendId;
+
+            // If no current hovered shape, try to detect one at click location
+            if (!currentShapeId) {
+                colorTheLine(event);
+                currentShapeId = window.hoveredShapeBackendId;
+            }
+
+            console.log(`[DEBUG] Current hovered shape ID: ${currentShapeId}`);
+
+            if (currentShapeId) {
+                const currentTime = Date.now();
+                const timeDiff = currentTime - (window.lastClickTime || 0);
+                console.log(`[DEBUG] Double-click check: currentTime=${currentTime}, lastClickTime=${window.lastClickTime || 0}, timeDiff=${timeDiff}ms, threshold=1000ms`);
+                console.log(`[DEBUG] Shape check: currentShape=${currentShapeId}, lastShape=${window.lastClickedShapeId || 'null'}`);
+
+                if (window.lastClickedShapeId === currentShapeId &&
+                    timeDiff < 1000) { // 1000ms threshold
+                    // Double-click detected!
+                    console.log(`[DEBUG] DOUBLE-CLICK detected on shape: ${currentShapeId}`);
+                    // Don't stop propagation or prevent default to allow Plotly's native behavior
+                    handleShapeDoubleClick(currentShapeId);
+
+                    // Reset after handling double-click
+                    window.lastClickTime = 0;
+                    window.lastClickedShapeId = null;
+                } else {
+                    // Single click - update tracking
+                    console.log(`[DEBUG] Single click on shape: ${currentShapeId}`);
+                    window.lastClickTime = currentTime;
+                    window.lastClickedShapeId = currentShapeId;
+                }
+            } else {
+                console.log('[DEBUG] No shape detected at click location');
+            }
+        }
+
+        // Track mouse down to detect drags
+        window.chartDiv.addEventListener('mousedown', function(event) {
+            mouseDownTime = Date.now();
+            mouseDownPos = { x: event.clientX, y: event.clientY };
+            isDragging = false;
+            console.log(`[DEBUG] Mouse down at: ${mouseDownPos.x}, ${mouseDownPos.y}, target: ${event.target.tagName}`);
+
+            // Don't interfere with Plotly's drag handles or resize elements
+            const targetClass = event.target.className || '';
+            const targetTag = event.target.tagName || '';
+            if ((typeof targetClass === 'string' && (targetClass.includes('drag') || targetClass.includes('resize'))) ||
+                targetTag === 'circle' || targetTag === 'rect' ||
+                event.target.closest('.plotly-drag-layer')) {
+                console.log('[DEBUG] Mouse down on Plotly drag element - allowing native behavior');
+                // Don't set isDragging to false here, let Plotly handle it
+                return;
+            }
+        }, { capture: true, passive: true });
+
+        // Track mouse up to detect if it was a drag
+        window.chartDiv.addEventListener('mouseup', function(event) {
+            const mouseUpTime = Date.now();
+            const mouseUpPos = { x: event.clientX, y: event.clientY };
+            const timeDiff = mouseUpTime - mouseDownTime;
+            const distance = Math.sqrt(
+                Math.pow(mouseUpPos.x - mouseDownPos.x, 2) +
+                Math.pow(mouseUpPos.y - mouseDownPos.y, 2)
+            );
+
+            // Consider it a drag if moved more than 5px or held for more than 500ms
+            isDragging = distance > 5 || timeDiff > 500;
+            console.log(`[DEBUG] Mouse up - distance: ${distance.toFixed(1)}px, time: ${timeDiff}ms, isDragging: ${isDragging}`);
+        }, { capture: true, passive: true });
+
+        // Add click handler to the main chart div
+        window.chartDiv.addEventListener('click', function(event) {
+            // Skip if this was a drag operation
+            if (isDragging) {
+                console.log('[DEBUG] Skipping chart div click - was part of drag operation');
+                return;
+            }
+
+            // Skip if Plotly is in a drawing or editing mode
+            const currentDragMode = window.gd && window.gd.layout ? window.gd.layout.dragmode : 'pan';
+            if (currentDragMode === 'drawline' || currentDragMode === 'drawopenpath' ||
+                currentDragMode === 'drawclosedpath' || currentDragMode === 'drawcircle' ||
+                currentDragMode === 'drawrect') {
+                console.log(`[DEBUG] Skipping click - Plotly in draw mode: ${currentDragMode}`);
+                return;
+            }
+
+            // Skip if clicking on Plotly UI elements
+            if (event.target.closest('.modebar') || event.target.closest('select') ||
+                event.target.closest('input') || event.target.closest('.rangeslider')) {
+                console.log('[DEBUG] Skipping click - on Plotly UI element');
+                return;
+            }
+
+            // Allow Plotly's native drag operations to work by not preventing default
+            // Only process our custom click logic if it's clearly not a drag operation
+            console.log('[DEBUG] CLICK EVENT DETECTED ON CHART DIV');
+            console.log(`[DEBUG] Event coordinates: clientX=${event.clientX}, clientY=${event.clientY}`);
+            console.log(`[DEBUG] Event target: ${event.target.tagName}, Event type: ${event.type}`);
+            console.log(`[DEBUG] Chart div bounds: left=${window.chartDiv.getBoundingClientRect().left}, top=${window.chartDiv.getBoundingClientRect().top}`);
+
+            // Use the current hovered shape if available, otherwise try to detect it
+            let currentShapeId = window.hoveredShapeBackendId;
+
+            // If no current hovered shape, try to detect one at click location
+            if (!currentShapeId) {
+                colorTheLine(event);
+                currentShapeId = window.hoveredShapeBackendId;
+            }
+
+            // Handle double-click detection
+            if (currentShapeId) {
+                const currentTime = Date.now();
+                const timeDiff = currentTime - (window.lastClickTime || 0);
+                console.log(`[DEBUG] Chart div double-click check: currentTime=${currentTime}, lastClickTime=${window.lastClickTime || 0}, timeDiff=${timeDiff}ms, threshold=1000ms`);
+                console.log(`[DEBUG] Chart div shape check: currentShape=${currentShapeId}, lastShape=${window.lastClickedShapeId || 'null'}`);
+
+                if (window.lastClickedShapeId === currentShapeId &&
+                    timeDiff < 1000) { // 1000ms threshold
+                    // Double-click detected!
+                    console.log(`[DEBUG] DOUBLE-CLICK detected on chart div for shape: ${currentShapeId}`);
+                    handleShapeDoubleClick(currentShapeId);
+
+                    // Reset after handling double-click
+                    window.lastClickTime = 0;
+                    window.lastClickedShapeId = null;
+                } else {
+                    // Single click - update tracking
+                    console.log(`[DEBUG] Single click on chart div for shape: ${currentShapeId}`);
+                    window.lastClickTime = currentTime;
+                    window.lastClickedShapeId = currentShapeId;
+                }
+            } else {
+                console.log('[DEBUG] No shape detected at chart div click location');
+            }
+
+            handleSVGClick(event);
+        }, { capture: true, passive: true });
+
+        // Add click handlers to SVG elements using mutation observer
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                mutation.addedNodes.forEach(function(node) {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        // Check if it's an SVG element or contains SVG elements
+                        if (node.tagName === 'svg' || node.querySelector('svg')) {
+                            const svgElement = node.tagName === 'svg' ? node : node.querySelector('svg');
+                            if (svgElement) {
+                                console.log('[DEBUG] Found SVG element, adding click listener for double-click simulation');
+                                // Add drag-aware click handler
+                                svgElement.addEventListener('click', function(event) {
+                                    // Skip if this was a drag operation
+                                    if (isDragging) {
+                                        console.log('[DEBUG] Skipping SVG click - was part of drag operation');
+                                        return;
+                                    }
+                                    handleSVGClick(event);
+                                }, { capture: true, passive: true });
+                            }
+                        }
+                        // Also check for any existing SVG elements in the added node
+                        const svgElements = node.querySelectorAll ? node.querySelectorAll('svg') : [];
+                        svgElements.forEach(function(svg) {
+                            console.log('[DEBUG] Found existing SVG element in added node, adding click listener for double-click simulation');
+                            // Add drag-aware click handler
+                            svg.addEventListener('click', function(event) {
+                                // Skip if this was a drag operation
+                                if (isDragging) {
+                                    console.log('[DEBUG] Skipping SVG click - was part of drag operation');
+                                    return;
+                                }
+                                handleSVGClick(event);
+                            }, { capture: true, passive: true });
+                        });
+                    }
+                });
+            });
+        });
+
+        // Start observing the chart div for changes
+        observer.observe(window.chartDiv, {
+            childList: true,
+            subtree: true
+        });
+
+        // Also try to find and add listeners to any existing SVG elements
+        const existingSVGs = window.chartDiv.querySelectorAll('svg');
+        existingSVGs.forEach(function(svg) {
+            console.log('[DEBUG] Found existing SVG element, adding click listener for double-click simulation');
+            // Add drag-aware click handler
+            svg.addEventListener('click', function(event) {
+                // Skip if this was a drag operation
+                if (isDragging) {
+                    console.log('[DEBUG] Skipping existing SVG click - was part of drag operation');
+                    return;
+                }
+                handleSVGClick(event);
+            }, { capture: true, passive: true });
+        });
+
+
     } else {
         console.warn('[DEBUG] chartDiv not found when adding double-click handler');
     }

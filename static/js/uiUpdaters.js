@@ -6,8 +6,18 @@ function updateSelectedShapeInfoPanel(activeShape) {
             <p><strong>ID:</strong> ${activeShape.id}<button onclick="openShapePropertiesDialog('${activeShape.id}')">Edit Properties</button></p>
         `;
         window.activeShapeForPotentialDeletion = activeShape;
+        
+        // Show the "Delete line" button when a shape is selected
+        if (window.deleteShapeBtn) {
+            window.deleteShapeBtn.style.display = 'inline-block';
+        }
     } else {
         window.selectedShapeInfoDiv.innerHTML = '<p>No shape selected.</p>';
+        
+        // Hide the "Delete line" button when no shape is selected
+        if (window.deleteShapeBtn) {
+            window.deleteShapeBtn.style.display = 'none';
+        }
     }
 }
 
@@ -36,9 +46,8 @@ async function updateShapeVisuals() {
                 } else {
                     newShape.line.color = DEFAULT_DRAWING_COLOR;
                 }
-                //if (isHovered) {
-                    newShape.onmousedown = () => openShapePropertiesDialog(s.backendId);
-                //}
+                // Removed problematic onmousedown handler that was interfering with drag functionality
+                // Double-click functionality is now handled by chartInteractions.js
             }
         }
         return newShape;
@@ -82,6 +91,9 @@ async function openShapePropertiesDialog(shapeId) {
     currentShapeId = shapeId;
     console.log("Opening dialog for shape ID:", shapeId);
     const dialog = document.getElementById('shape-properties-dialog');
+
+// Make function globally available
+    window.openShapePropertiesDialog = openShapePropertiesDialog;
     
     if (!dialog) {
         console.error("Shape properties dialog element not found");
@@ -159,6 +171,9 @@ function closeShapePropertiesDialog() {
     if (dialog) dialog.style.display = 'none';
 }
 
+// Make functions globally available
+window.closeShapePropertiesDialog = closeShapePropertiesDialog;
+
 async function saveShapeProperties() {
     if (!currentShapeId) {
         console.error("No shape ID selected for saving properties.");
@@ -215,3 +230,6 @@ async function saveShapeProperties() {
         alert("Network error while saving properties. See console for details.");
     }
 }
+
+// Make function globally available
+window.saveShapeProperties = saveShapeProperties;

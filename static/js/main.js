@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.yAxisMaxDisplay = document.getElementById('y-axis-max-display');
     window.liveDataCheckbox = document.getElementById('live-data-checkbox');
     window.selectedShapeInfoDiv = document.getElementById('selected-shape-info');
+    window.deleteShapeBtn = document.getElementById('delete-shape-btn');
     window.deleteAllShapesBtn = document.getElementById('delete-all-shapes-btn');
     window.cursorTimeDisplay = document.getElementById('cursor-time-display');
     window.cursorPriceDisplay = document.getElementById('cursor-price-display');
@@ -135,6 +136,50 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.streamDeltaValueDisplay.textContent = window.streamDeltaSlider.value;
         saveSettings(); // from settingsManager.js
     });
+
+    // Event listener for "Delete line" button
+    if (window.deleteShapeBtn) {
+        window.deleteShapeBtn.addEventListener('click', async () => {
+            if (!window.activeShapeForPotentialDeletion || !window.activeShapeForPotentialDeletion.id) {
+                alert("No shape selected for deletion.");
+                return;
+            }
+            
+            const symbol = window.symbolSelect.value;
+            if (!symbol) {
+                alert("Please select a symbol first.");
+                return;
+            }
+            
+            const drawingId = window.activeShapeForPotentialDeletion.id;
+            const confirmation = confirm(`Are you sure you want to delete this drawing (ID: ${drawingId})?`);
+            if (!confirmation) return;
+
+            try {
+                const response = await fetch(`/delete_drawing/${symbol}/${drawingId}`, { method: 'DELETE' });
+                if (!response.ok) {
+                    const errorBody = await response.text().catch(() => "Could not read error body");
+                    throw new Error(`Failed to delete drawing from backend: ${response.status} - ${errorBody}`);
+                }
+                console.log(`Drawing ${drawingId} deleted successfully from backend.`);
+                
+                // Remove the shape from the chart
+                if (window.gd && window.gd.layout && window.gd.layout.shapes) {
+                    const shapes = window.gd.layout.shapes.filter(shape => shape.backendId !== drawingId);
+                    Plotly.relayout(window.gd, { shapes: shapes });
+                }
+                
+                // Clear the active shape state
+                window.activeShapeForPotentialDeletion = null;
+                updateSelectedShapeInfoPanel(null);
+                hoveredShapeBackendId = null;
+                
+            } catch (error) {
+                console.error(`Error deleting drawing ${drawingId}:`, error);
+                alert(`Failed to delete drawing: ${error.message}`);
+            }
+        });
+    }
 
     // Event listener for "Delete ALL Drawings" button
     if (window.deleteAllShapesBtn) {
