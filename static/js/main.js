@@ -98,6 +98,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (window.cancelRequests) window.cancelRequests("Range change initiated by user");
         console.log("[main.js] Range changed by user. Calculating and setting new x-axis range, triggering chart update.");
         if (window.gd) removeRealtimePriceLine(window.gd);
+        saveSettings(); // Save the new X axis range to Redis
         updateChart();
     }); // Replaced .onchange with addEventListener('change',...)
 

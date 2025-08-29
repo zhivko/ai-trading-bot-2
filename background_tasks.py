@@ -8,7 +8,7 @@ from redis_utils import (
     cache_open_interest, publish_resolution_kline
 )
 from redis_utils import fetch_klines_from_bybit
-from AppTradingView import fetch_open_interest_from_bybit
+from indicators import fetch_open_interest_from_bybit
 from logging_config import logger
 
 async def fetch_and_publish_klines():

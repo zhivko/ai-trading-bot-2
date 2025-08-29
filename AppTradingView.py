@@ -190,7 +190,7 @@ if __name__ == "__main__":
     app.extra["debug_mode"] = is_debug_mode
 
     uvicorn.run(
-        "AppTradingView_refactored:app",
+        "AppTradingView:app",
         host=IP_ADDRESS,
         port=5000,
         reload=True,

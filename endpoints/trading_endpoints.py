@@ -3,6 +3,7 @@
 import json
 import glob
 import pandas as pd
+import pandas_ta as ta
 import numpy as np
 from datetime import datetime, timezone
 from fastapi import Request, HTTPException, Depends
@@ -234,21 +235,33 @@ async def get_buy_signals_endpoint(symbol: str, resolution: str, from_ts: int, t
         if not klines_for_calc:
             return JSONResponse({"status": "error", "message": "Not enough historical data to perform analysis."}, status_code=404)
 
-        # Prepare DataFrame
-        df = pd.DataFrame(klines_for_calc)
-        df['time'] = pd.to_datetime(df['time'], unit='s')
-        df.set_index('time', inplace=True)
-        df.rename(columns={'vol': 'volume'}, inplace=True)
-        # pandas_ta needs lowercase ohlcv
-        df.columns = [col.lower() for col in df.columns]
+        # Prepare DataFrame using the same method as indicators.py
+        df = _prepare_dataframe(klines_for_calc, [])
 
         # Add all necessary indicators for the signal logic
-        df.ta.ema(length=21, append=True)
-        df.ta.ema(length=50, append=True)
-        df.ta.ema(length=200, append=True)
-        df.ta.rsi(length=14, append=True)
-        df.ta.stochrsi(rsi_length=60, length=60, k=10, d=10, append=True)
-        df.ta.macd(fast=12, slow=26, signal=9, append=True)  # Add MACD calculation
+        df['EMA_21'] = ta.ema(df['close'], length=21)
+        df['EMA_50'] = ta.ema(df['close'], length=50)
+        df['EMA_200'] = ta.ema(df['close'], length=200)
+
+        # RSI calculation
+        rsi_result = ta.rsi(df['close'], length=14)
+        if rsi_result is not None:
+            df['RSI_14'] = rsi_result
+        else:
+            raise ValueError("RSI calculation failed - returned None")
+
+        # Stochastic RSI calculation
+        stoch_rsi_result = ta.stochrsi(df['close'], rsi_length=60, length=60, k=10, d=10)
+        if stoch_rsi_result is not None:
+            df['STOCHRSIk_60_60_10_10'] = stoch_rsi_result.iloc[:, 0]  # K value
+            df['STOCHRSId_60_60_10_10'] = stoch_rsi_result.iloc[:, 1]  # D value
+
+        # MACD calculation
+        macd_result = ta.macd(df['close'], fast=12, slow=26, signal=9)
+        if macd_result is not None:
+            df['MACD_12_26_9'] = macd_result.iloc[:, 0]      # MACD line
+            df['MACDs_12_26_9'] = macd_result.iloc[:, 1]     # Signal line
+            df['MACDh_12_26_9'] = macd_result.iloc[:, 2]     # Histogram
 
         # Calculate SMAs for RSI
         df[f'RSI_SMA_5'] = df['RSI_14'].rolling(window=5).mean()

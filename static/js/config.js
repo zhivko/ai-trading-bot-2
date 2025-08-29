@@ -25,7 +25,7 @@ const layout = {
         },
         rangeslider: { visible: false },
         type: 'date',
-        tickformat: '%H:%M\n%b %d',
+        tickformat: '%Y-%m-%d<br>%H:%M',
         showgrid: false,
         gridcolor: '#e5e7eb',
         linecolor: '#6b7280',

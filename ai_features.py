@@ -20,7 +20,8 @@ from auth import creds
 from redis_utils import get_redis_connection, fetch_klines_from_bybit
 from indicators import (
     _prepare_dataframe, calculate_macd, calculate_rsi, calculate_stoch_rsi,
-    calculate_open_interest, calculate_jma_indicator, format_indicator_data_for_llm_as_dict
+    calculate_open_interest, calculate_jma_indicator, format_indicator_data_for_llm_as_dict,
+    fetch_open_interest_from_bybit
 )
 from logging_config import logger
 

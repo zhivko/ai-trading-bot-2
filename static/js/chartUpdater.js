@@ -71,13 +71,13 @@ async function updateChart() {
             for (let i = 0; i < numTicks; i++) {
                 const date = new Date(firstDate.getTime() + (i * timeDiff / (numTicks - 1)));
                 tickValues.push(date);
-                if (timeDiff > 365 * 86400000) tickTexts.push(date.toLocaleString('en-US', { month: 'short', year: 'numeric' }));
-                else if (timeDiff > 30 * 86400000) tickTexts.push(date.toLocaleString('en-US', { month: 'short', day: 'numeric' }));
-                else tickTexts.push(date.toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short'}));
+                if (timeDiff > 365 * 86400000) tickTexts.push(date.toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ''));
+                else if (timeDiff > 30 * 86400000) tickTexts.push(date.toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ''));
+                else tickTexts.push(date.toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ''));
             }
         } else if (numTicks === 1) {
             tickValues.push(firstDate);
-            tickTexts.push(firstDate.toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short'}));
+            tickTexts.push(firstDate.toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ''));
         }
     }
 
@@ -199,7 +199,7 @@ async function updateChart() {
                 pattern: 'independent',
                 roworder: 'top to bottom',
                 rowheights: rowHeights,
-                ygap: 0.025
+                ygap: 0.08
             };
             
             // Clean up any numbered yaxisN/xaxisN that are not part of the grid
@@ -211,7 +211,7 @@ async function updateChart() {
             });
 
             // Configure main xaxis (for the first subplot)
-            currentLayout.xaxis.showticklabels = (numValidIndicators === 0); // Only show if no indicators
+            currentLayout.xaxis.showticklabels = true; // Always show X axis labels on main chart
             currentLayout.xaxis.rangeslider = { visible: false }; // Ensure no rangeslider on main x-axis with grid
 
             // Configure main yaxis (for the first subplot)
@@ -361,16 +361,16 @@ async function updateChart() {
         currentLayout[primaryXAxisLayoutKey].dtick = null;
         currentLayout[primaryXAxisLayoutKey].tickvals = null;
         currentLayout[primaryXAxisLayoutKey].ticktext = null;
-        currentLayout[primaryXAxisLayoutKey].tickformat = '%H:%M\n%b %d';
+        currentLayout[primaryXAxisLayoutKey].tickformat = '%Y-%m-%d<br>%H:%M';
     } else { // Range selected from dropdown
         currentLayout[primaryXAxisLayoutKey].range = [new Date(fromTs * 1000), new Date(toTs * 1000)];
         currentLayout[primaryXAxisLayoutKey].autorange = false;
         switch(resolution) {
-            case '1m': currentLayout[primaryXAxisLayoutKey].dtick = 60 * 1000; currentLayout[primaryXAxisLayoutKey].tickformat = '%H:%M\n%b %d'; break;
-            case '5m': currentLayout[primaryXAxisLayoutKey].dtick = 5 * 60 * 1000; currentLayout[primaryXAxisLayoutKey].tickformat = '%H:%M\n%b %d'; break;
-            case '1h': currentLayout[primaryXAxisLayoutKey].dtick = 60 * 60 * 1000; currentLayout[primaryXAxisLayoutKey].tickformat = '%H:%M\n%b %d'; break;
-            case '1d': currentLayout[primaryXAxisLayoutKey].dtick = 86400000; currentLayout[primaryXAxisLayoutKey].tickformat = '%H:%M\n%b %d'; break;
-            case '1w': currentLayout[primaryXAxisLayoutKey].dtick = 7 * 86400000; currentLayout[primaryXAxisLayoutKey].tickformat = '%b %d\n%Y'; break;
+            case '1m': currentLayout[primaryXAxisLayoutKey].dtick = 60 * 1000; currentLayout[primaryXAxisLayoutKey].tickformat = '%Y-%m-%d<br>%H:%M'; break;
+            case '5m': currentLayout[primaryXAxisLayoutKey].dtick = 5 * 60 * 1000; currentLayout[primaryXAxisLayoutKey].tickformat = '%Y-%m-%d<br>%H:%M'; break;
+            case '1h': currentLayout[primaryXAxisLayoutKey].dtick = 60 * 60 * 1000; currentLayout[primaryXAxisLayoutKey].tickformat = '%Y-%m-%d<br>%H:%M'; break;
+            case '1d': currentLayout[primaryXAxisLayoutKey].dtick = 86400000; currentLayout[primaryXAxisLayoutKey].tickformat = '%Y-%m-%d<br>%H:%M'; break;
+            case '1w': currentLayout[primaryXAxisLayoutKey].dtick = 7 * 86400000; currentLayout[primaryXAxisLayoutKey].tickformat = '%Y-%m-%d<br>%H:%M'; break;
             default: currentLayout[primaryXAxisLayoutKey].dtick = null; currentLayout[primaryXAxisLayoutKey].tickformat = null;
         }
         if (tickValues.length > 0) {
