@@ -91,10 +91,11 @@ async function openShapePropertiesDialog(shapeId) {
     currentShapeId = shapeId;
     console.log("Opening dialog for shape ID:", shapeId);
     const dialog = document.getElementById('shape-properties-dialog');
+    const backdrop = document.getElementById('shape-properties-backdrop');
 
 // Make function globally available
     window.openShapePropertiesDialog = openShapePropertiesDialog;
-    
+
     if (!dialog) {
         console.error("Shape properties dialog element not found");
         return;
@@ -102,8 +103,13 @@ async function openShapePropertiesDialog(shapeId) {
 
     console.log(`[DEBUG] Found dialog, setting shape ID display to: ${shapeId}`);
     document.getElementById('shape-id-display').textContent = shapeId;
+
+    // Show backdrop and dialog
+    if (backdrop) {
+        backdrop.style.display = 'block';
+    }
     dialog.style.display = 'block';
-    console.log('[DEBUG] Dialog displayed');
+    console.log('[DEBUG] Dialog and backdrop displayed');
     
     // Helper function to populate form fields
     const populateFormFields = (props) => {
@@ -168,7 +174,9 @@ async function openShapePropertiesDialog(shapeId) {
 
 function closeShapePropertiesDialog() {
     const dialog = document.getElementById('shape-properties-dialog');
+    const backdrop = document.getElementById('shape-properties-backdrop');
     if (dialog) dialog.style.display = 'none';
+    if (backdrop) backdrop.style.display = 'none';
 }
 
 // Make functions globally available

@@ -14,8 +14,26 @@ const BUY_EVENT_MARKER_SYMBOL = 'triangle-up';
 const SELL_EVENT_MARKER_SYMBOL = 'triangle-down';
 const REALTIME_PRICE_TEXT_ANNOTATION_NAME = 'realtimePriceTextAnnotation';
 
+// Function to detect mobile devices
+function isMobileDevice() {
+    // Check user agent for mobile devices
+    const userAgentMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+    // Check screen dimensions (with fallback for when window is not fully loaded)
+    const screenMobile = (window.innerWidth && window.innerWidth <= 768) ||
+                        (window.innerHeight && window.innerHeight <= 1024) ||
+                        (screen.width && screen.width <= 768) ||
+                        (screen.height && screen.height <= 1024);
+
+    // Check for touch capability
+    const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+    return userAgentMobile || screenMobile || hasTouch;
+}
+
 const layout = {
-    hovermode: 'x unified', // Optional: enhances hover behavior for traces
+    hovermode: isMobileDevice() ? false : 'x unified', // Disable hover popups on mobile devices
+    hoverdistance: isMobileDevice() ? 0 : 20, // Set hover distance to 0 on mobile to prevent accidental hovers
     title: {
         text: ''
     },
@@ -81,6 +99,52 @@ const config = {
     }
 };
 
+// Function to disable hover on mobile devices
+function disableMobileHover(gd) {
+    if (isMobileDevice() && gd) {
+        Plotly.relayout(gd, {
+            hovermode: false,
+            hoverdistance: 0
+        });
+        console.log('Mobile hover disabled via Plotly.relayout');
+    }
+}
+
+// Function to force hide hover elements via CSS
+function forceHideHoverElements() {
+    if (isMobileDevice()) {
+        // Create a style element to hide hover elements
+        const style = document.createElement('style');
+        style.id = 'mobile-hover-blocker';
+        style.textContent = `
+            .js-plotly-plot .hoverlayer,
+            .js-plotly-plot .hovertext,
+            .js-plotly-plot g.hoverlayer,
+            .js-plotly-plot .hoverlayer text,
+            .js-plotly-plot [class*="hover"] {
+                display: none !important;
+                visibility: hidden !important;
+                opacity: 0 !important;
+            }
+        `;
+        document.head.appendChild(style);
+        console.log('Mobile hover elements hidden via CSS injection');
+    }
+}
+
+// Function to get mobile-optimized layout
+function getMobileOptimizedLayout() {
+    const baseLayout = { ...layout }; // Clone the base layout
+
+    if (isMobileDevice()) {
+        baseLayout.hovermode = false;
+        baseLayout.hoverdistance = 0;
+        console.log('Mobile-optimized layout applied');
+    }
+
+    return baseLayout;
+}
+
 // Make them available globally for other scripts, or consider a module system later
 window.REALTIME_PRICE_LINE_NAME = REALTIME_PRICE_LINE_NAME;
 window.DEFAULT_DRAWING_COLOR = DEFAULT_DRAWING_COLOR;
@@ -91,3 +155,7 @@ window.BUY_EVENT_MARKER_COLOR = BUY_EVENT_MARKER_COLOR;
 window.SELL_EVENT_MARKER_COLOR = SELL_EVENT_MARKER_COLOR;
 window.BUY_EVENT_MARKER_SYMBOL = BUY_EVENT_MARKER_SYMBOL;
 window.SELL_EVENT_MARKER_SYMBOL = SELL_EVENT_MARKER_SYMBOL;
+window.isMobileDevice = isMobileDevice;
+window.disableMobileHover = disableMobileHover;
+window.getMobileOptimizedLayout = getMobileOptimizedLayout;
+window.forceHideHoverElements = forceHideHoverElements;

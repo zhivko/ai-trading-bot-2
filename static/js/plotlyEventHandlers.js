@@ -112,6 +112,16 @@ function initializePlotlyEventHandlers(gd) {
                 newlyAddedShapeInLayout.line = { color: DEFAULT_DRAWING_COLOR, width: 2, layer: 'above' };
             }
 
+            // Add larger markers for mobile touch targets (only for user-drawn lines)
+            if (newlyAddedShapeInLayout.type === 'line' && !newlyAddedShapeInLayout.isSystemShape) {
+                newlyAddedShapeInLayout.marker = {
+                    size: isMobileDevice() ? 12 : 6, // Larger markers on mobile
+                    color: DEFAULT_DRAWING_COLOR,
+                    symbol: 'circle',
+                    line: { width: 2, color: 'white' }
+                };
+            }
+
             // Pass the layout shape to handleNewShapeSave, as it has resolved xref/yref
             const backendId = await handleNewShapeSave(newlyAddedShapeInLayout);
 
@@ -148,9 +158,27 @@ function initializePlotlyEventHandlers(gd) {
     });
 
 
+    // Long press detection variables
+    let longPressTimer = null;
+    let longPressShapeId = null;
+    let isLongPress = false;
+    const LONG_PRESS_DURATION = 800; // 800ms for long press
+
     // Handle Plotly click events for better coordinate handling
     gd.on('plotly_click', function(plotlyEventData) {
         console.log('[DEBUG] PLOTLY_CLICK EVENT FIRED! Event data:', plotlyEventData);
+
+        // Clear any pending long press timer
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+
+        // If this was a long press, don't process as a regular click
+        if (isLongPress) {
+            isLongPress = false;
+            return;
+        }
 
         // Plotly provides better coordinate handling
         if (plotlyEventData.points && plotlyEventData.points.length > 0) {
@@ -169,44 +197,64 @@ function initializePlotlyEventHandlers(gd) {
 
                     // For now, let's just assume any line shape that exists is clickable
                     // This is a simplified approach to test if the event handling works
-                    window.hoveredShapeBackendId = shape.backendId;
-                    console.log(`[DEBUG] Set hovered shape ID to: ${window.hoveredShapeBackendId}`);
+                    const clickedShapeId = shape.backendId;
+                    console.log(`[DEBUG] Clicked on shape ID: ${clickedShapeId}`);
 
-                    // Check for double-click
-                    const currentTime = Date.now();
-                    const timeDiff = currentTime - (window.lastClickTime || 0);
-                    console.log(`[DEBUG] Double-click check: currentTime=${currentTime}, lastClickTime=${window.lastClickTime || 0}, timeDiff=${timeDiff}ms, threshold=1000ms`);
-                    console.log(`[DEBUG] Shape check: currentShape=${window.hoveredShapeBackendId}, lastShape=${window.lastClickedShapeId || 'null'}`);
-
-                    if (window.lastClickedShapeId === window.hoveredShapeBackendId &&
-                        timeDiff < 1000) { // 1000ms threshold
-                        console.log(`[DEBUG] DOUBLE-CLICK detected on shape: ${window.hoveredShapeBackendId}`);
-
-                        if (typeof window.openShapePropertiesDialog === 'function') {
-                            console.log(`[DEBUG] Opening shape properties dialog for: ${window.hoveredShapeBackendId}`);
-                            window.openShapePropertiesDialog(window.hoveredShapeBackendId);
-                        } else {
-                            console.warn('[DEBUG] openShapePropertiesDialog function not found');
-                        }
-
-                        // Reset
-                        window.lastClickTime = 0;
-                        window.lastClickedShapeId = null;
-                    } else {
-                        console.log(`[DEBUG] Single click on shape: ${window.hoveredShapeBackendId}`);
-                        window.lastClickTime = currentTime;
-                        window.lastClickedShapeId = window.hoveredShapeBackendId;
-                    }
-
-                    // Update UI
-                    if(window.hoveredShapeBackendId) {
-                        findAndupdateSelectedShapeInfoPanel(window.hoveredShapeBackendId);
+                    // Update UI for click (selection)
+                    if(clickedShapeId) {
+                        findAndupdateSelectedShapeInfoPanel(clickedShapeId);
                     }
                     debouncedUpdateShapeVisuals();
 
                     break; // Stop after finding first shape
                 }
             }
+        }
+    });
+
+    // Handle mouse down for long press detection
+    gd.on('plotly_hover', function(plotlyEventData) {
+        // Clear any existing timer
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+        }
+
+        if (plotlyEventData.points && plotlyEventData.points.length > 0) {
+            // Check if hovering over a shape
+            const currentShapes = gd.layout.shapes || [];
+            for (let i = 0; i < currentShapes.length; i++) {
+                const shape = currentShapes[i];
+                if (shape.type === 'line' && shape.backendId && !shape.isSystemShape) {
+                    longPressShapeId = shape.backendId;
+
+                    // Start long press timer
+                    longPressTimer = setTimeout(() => {
+                        console.log(`[DEBUG] LONG PRESS detected on shape: ${longPressShapeId}`);
+                        isLongPress = true;
+
+                        if (typeof window.openShapePropertiesDialog === 'function') {
+                            console.log(`[DEBUG] Opening shape properties dialog for: ${longPressShapeId}`);
+                            window.openShapePropertiesDialog(longPressShapeId);
+                        } else {
+                            console.warn('[DEBUG] openShapePropertiesDialog function not found');
+                        }
+
+                        longPressTimer = null;
+                        longPressShapeId = null;
+                    }, LONG_PRESS_DURATION);
+
+                    break;
+                }
+            }
+        }
+    });
+
+    // Handle mouse leave to cancel long press
+    gd.on('plotly_unhover', function() {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+            longPressShapeId = null;
         }
     });
 
@@ -309,6 +357,16 @@ function initializePlotlyEventHandlers(gd) {
                     shapeInLayout.line.layer = 'above';
                 } else if (shapeInLayout.type === 'line') {
                     shapeInLayout.line = { color: DEFAULT_DRAWING_COLOR, width: 2, layer: 'above' };
+                }
+
+                // Add larger markers for mobile touch targets (only for user-drawn lines)
+                if (shapeInLayout.type === 'line' && !shapeInLayout.isSystemShape) {
+                    shapeInLayout.marker = {
+                        size: isMobileDevice() ? 12 : 6, // Larger markers on mobile
+                        color: DEFAULT_DRAWING_COLOR,
+                        symbol: 'circle',
+                        line: { width: 2, color: 'white' }
+                    };
                 }
 
                 const backendId = await handleNewShapeSave(shapeInLayout);

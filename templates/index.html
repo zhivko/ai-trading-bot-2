@@ -184,7 +184,10 @@
             </div>
         </div>
     </div>
-    <div id="shape-properties-dialog" style="display:none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 20px; border: 1px solid black; z-index: 1000;">
+    <!-- Modal backdrop for shape properties dialog -->
+    <div id="shape-properties-backdrop" style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); z-index: 999;"></div>
+
+    <div id="shape-properties-dialog" style="display:none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 20px; border: 1px solid black; z-index: 1000; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
         <h3>Shape Properties</h3>
         <p><strong>ID:</strong> <span id="shape-id-display"></span></p>
         <label for="buy-on-cross">Buy on Cross:</label>

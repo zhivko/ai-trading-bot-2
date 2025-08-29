@@ -166,3 +166,49 @@ body {
     z-index: 1000; /* Or a higher value if needed */
     transform: translate(-50%, -50%);
 }
+
+/* Mobile-specific styles to disable hover popups */
+@media (max-width: 768px), (max-height: 1024px) {
+    /* Hide Plotly hover elements on mobile */
+    .js-plotly-plot .hoverlayer {
+        display: none !important;
+    }
+
+    .js-plotly-plot .hovertext {
+        display: none !important;
+    }
+
+    .js-plotly-plot g.hoverlayer {
+        display: none !important;
+    }
+
+    .js-plotly-plot .hoverlayer text {
+        display: none !important;
+    }
+
+    /* Hide any hover-related elements */
+    .js-plotly-plot [class*="hover"] {
+        display: none !important;
+    }
+
+    /* Hide tooltip containers */
+    .plotly-notifier {
+        display: none !important;
+    }
+}
+
+/* Additional mobile detection for touch devices */
+@media (hover: none) and (pointer: coarse) {
+    /* Hide hover elements on touch devices */
+    .js-plotly-plot .hoverlayer,
+    .js-plotly-plot .hovertext,
+    .js-plotly-plot g.hoverlayer,
+    .js-plotly-plot .hoverlayer text {
+        display: none !important;
+    }
+
+    /* Hide hover-related classes */
+    .js-plotly-plot [class*="hover"] {
+        display: none !important;
+    }
+}

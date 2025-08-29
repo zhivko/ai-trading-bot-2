@@ -208,7 +208,7 @@ def calculate_rsi_sma(df_input: pd.DataFrame, sma_period: int, rsi_values: List[
 
     # Now, assign to the DataFrame
     df['rsi'] = aligned_rsi_values
-    logger.info(f"calculate_rsi_sma: Assigned RSI column of length {len(df['rsi'])} (index length: {len(df.index)}) to DataFrame.")
+    logger.debug(f"calculate_rsi_sma: Assigned RSI column of length {len(df['rsi'])} (index length: {len(df.index)}) to DataFrame.")
 
     df[f'RSI_SMA_{sma_period}'] = df['rsi'].rolling(window=sma_period).mean()
     return _extract_results(df, [f'RSI_SMA_{sma_period}'], original_time_index)
@@ -224,7 +224,7 @@ def find_buy_signals(df: pd.DataFrame) -> list:
     - RSI_SMA_3 crosses above RSI_SMA_20
     - StochRSI K crosses above D
     """
-    logger.info("Starting find_buy_signals with enhanced logging for diagnosis")
+    logger.debug("Starting find_buy_signals with enhanced logging for diagnosis")
     signals = []
 
     # Reset index for easy access
@@ -233,41 +233,41 @@ def find_buy_signals(df: pd.DataFrame) -> list:
     # Define the date range for focused logging (e.g., April 5th to April 7th)
     target_date_start = pd.to_datetime("2025-08-12", utc=True)
     target_date_end = pd.to_datetime("2025-08-14", utc=True)
-    logger.info(f"Enhanced logging for date range: {target_date_start} to {target_date_end}")
+    logger.debug(f"Enhanced logging for date range: {target_date_start} to {target_date_end}")
 
     # Define key event flags (crossovers)
     df['cross_3_5'] = ((df['RSI_SMA_3'] > df['RSI_SMA_5']) &
-                      (df['RSI_SMA_3'].shift(1) <= df['RSI_SMA_5'].shift(1))).fillna(False)
+                       (df['RSI_SMA_3'].shift(1) <= df['RSI_SMA_5'].shift(1))).fillna(False)
     df['cross_3_10'] = ((df['RSI_SMA_3'] > df['RSI_SMA_10']) &
-                        (df['RSI_SMA_3'].shift(1) <= df['RSI_SMA_10'].shift(1))).fillna(False)
+                         (df['RSI_SMA_3'].shift(1) <= df['RSI_SMA_10'].shift(1))).fillna(False)
     df['cross_3_20'] = ((df['RSI_SMA_3'] > df['RSI_SMA_20']) &
-                        (df['RSI_SMA_3'].shift(1) <= df['RSI_SMA_20'].shift(1))).fillna(False)
+                         (df['RSI_SMA_3'].shift(1) <= df['RSI_SMA_20'].shift(1))).fillna(False)
     df['stoch_cross'] = ((df['STOCHRSIk_60_60_10_10'] > df['STOCHRSId_60_60_10_10']) &
-                         (df['STOCHRSIk_60_60_10_10'].shift(1) <= df['STOCHRSId_60_60_10_10'].shift(1))).fillna(False)
+                          (df['STOCHRSIk_60_60_10_10'].shift(1) <= df['STOCHRSId_60_60_10_10'].shift(1))).fillna(False)
 
     # Define state flags
     df['downtrend'] = ((df['EMA_21'] < df['EMA_50']) &
-                      (df['EMA_50'] < df['EMA_200']) &
-                      (df['close'] < df['EMA_200'])).fillna(False)
+                       (df['EMA_50'] < df['EMA_200']) &
+                       (df['close'] < df['EMA_200'])).fillna(False)
     df['oversold'] = ((df['RSI_14'] < 30) &
-                      (df['STOCHRSIk_60_60_10_10'] < 20)).fillna(False)
+                       (df['STOCHRSIk_60_60_10_10'] < 20)).fillna(False)
 
     # Required events for the relaxed condition
     required_events = ['cross_3_5', 'cross_3_10', 'cross_3_20', 'stoch_cross']
 
     # Log counts of each condition across the entire dataset
-    logger.info(f"Total bars in DataFrame: {len(df)}")
-    logger.info(f"cross_3_5 occurrences: {df['cross_3_5'].sum()}")
-    logger.info(f"cross_3_10 occurrences: {df['cross_3_10'].sum()}")
-    logger.info(f"cross_3_20 occurrences: {df['cross_3_20'].sum()}")
-    logger.info(f"stoch_cross occurrences: {df['stoch_cross'].sum()}")
-    logger.info(f"downtrend occurrences: {df['downtrend'].sum()}")
-    logger.info(f"oversold occurrences: {df['oversold'].sum()}")
+    logger.debug(f"Total bars in DataFrame: {len(df)}")
+    logger.debug(f"cross_3_5 occurrences: {df['cross_3_5'].sum()}")
+    logger.debug(f"cross_3_10 occurrences: {df['cross_3_10'].sum()}")
+    logger.debug(f"cross_3_20 occurrences: {df['cross_3_20'].sum()}")
+    logger.debug(f"stoch_cross occurrences: {df['stoch_cross'].sum()}")
+    logger.debug(f"downtrend occurrences: {df['downtrend'].sum()}")
+    logger.debug(f"oversold occurrences: {df['oversold'].sum()}")
 
     # Save DataFrame with all indicators and conditions to CSV for inspection
     debug_csv_filename = f"buy_signals_debug_df_{df['time'].iloc[0].strftime('%Y%m%d')}_to_{df['time'].iloc[-1].strftime('%Y%m%d')}.csv"
     df.to_csv(debug_csv_filename, index=False)
-    logger.info(f"Saved DataFrame with indicators and conditions to: {debug_csv_filename}")
+    logger.debug(f"Saved DataFrame with indicators and conditions to: {debug_csv_filename}")
 
     for i in range(0, len(df)):
         # Ensure current_time is timezone-aware (UTC) for comparison
@@ -288,21 +288,21 @@ def find_buy_signals(df: pd.DataFrame) -> list:
 
         # Log details for bars around April 6th
         if is_target_date:
-            logger.info(f"Bar {i} at {current_time}:")
-            logger.info(f"  RSI_SMA_3={df['RSI_SMA_3'].iloc[i]:.2f}, RSI_SMA_5={df['RSI_SMA_5'].iloc[i]:.2f}, "
+            logger.debug(f"Bar {i} at {current_time}:")
+            logger.debug(f"  RSI_SMA_3={df['RSI_SMA_3'].iloc[i]:.2f}, RSI_SMA_5={df['RSI_SMA_5'].iloc[i]:.2f}, "
                         f"RSI_SMA_10={df['RSI_SMA_10'].iloc[i]:.2f}, RSI_SMA_20={df['RSI_SMA_20'].iloc[i]:.2f}")
-            logger.info(f"  STOCHRSIk={df['STOCHRSIk_60_60_10_10'].iloc[i]:.2f}, "
+            logger.debug(f"  STOCHRSIk={df['STOCHRSIk_60_60_10_10'].iloc[i]:.2f}, "
                         f"STOCHRSId={df['STOCHRSId_60_60_10_10'].iloc[i]:.2f}")
-            logger.info(f"  EMA_21={df['EMA_21'].iloc[i]:.2f}, EMA_50={df['EMA_50'].iloc[i]:.2f}, "
+            logger.debug(f"  EMA_21={df['EMA_21'].iloc[i]:.2f}, EMA_50={df['EMA_50'].iloc[i]:.2f}, "
                         f"EMA_200={df['EMA_200'].iloc[i]:.2f}, close={df['close'].iloc[i]:.2f}")
-            logger.info(f"  Conditions: cross_3_5={df['cross_3_5'].iloc[i]}, "
+            logger.debug(f"  Conditions: cross_3_5={df['cross_3_5'].iloc[i]}, "
                         f"cross_3_10={df['cross_3_10'].iloc[i]}, "
                         f"cross_3_20={df['cross_3_20'].iloc[i]}, "
                         f"stoch_cross={df['stoch_cross'].iloc[i]}")
-            logger.info(f"  States: downtrend={df['downtrend'].iloc[i]}, oversold={df['oversold'].iloc[i]}")
-            logger.info(f"  Window ({len(window)} bars): has_all_events={has_all_events}, "
+            logger.debug(f"  States: downtrend={df['downtrend'].iloc[i]}, oversold={df['oversold'].iloc[i]}")
+            logger.debug(f"  Window ({len(window)} bars): has_all_events={has_all_events}, "
                         f"has_downtrend={has_downtrend}, has_oversold={has_oversold}")
-            logger.info(f"  Window event counts: cross_3_5={window['cross_3_5'].sum()}, "
+            logger.debug(f"  Window event counts: cross_3_5={window['cross_3_5'].sum()}, "
                         f"cross_3_10={window['cross_3_10'].sum()}, "
                         f"cross_3_20={window['cross_3_20'].sum()}, "
                         f"stoch_cross={window['stoch_cross'].sum()}")
@@ -327,10 +327,10 @@ def find_buy_signals(df: pd.DataFrame) -> list:
                     'type': 'buy'
                 })
                 if is_target_date:
-                    logger.info(f"BUY SIGNAL DETECTED at {current_time}: timestamp={timestamp}, "
+                    logger.debug(f"BUY SIGNAL DETECTED at {current_time}: timestamp={timestamp}, "
                                 f"price={df['close'].iloc[i]:.2f}")
 
-    logger.info(f"Total buy signals detected: {len(signals)}")
+    logger.debug(f"Total buy signals detected: {len(signals)}")
     return signals
 
 def format_indicator_data_for_llm_as_dict(indicator_id: str, indicator_config_details: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
@@ -425,7 +425,7 @@ def fetch_open_interest_from_bybit(symbol: str, interval: str, start_ts: int, en
 
         list_data = response.get("result", {}).get("list", [])
         if not list_data:
-            logger.info("  No more Open Interest data available from Bybit for this range.")
+            logger.debug("  No more Open Interest data available from Bybit for this range.")
             break
 
         # Data is usually newest first, reverse to get chronological order

@@ -93,7 +93,10 @@ async function updateChart() {
         type: 'candlestick', // Main price chart
         xaxis: 'x', // Default, will be adjusted
         yaxis: 'y', // Default, will be adjusted if indicators are present
-        name: symbol
+        name: symbol,
+        // Disable hover popups on mobile devices
+        hoverinfo: isMobileDevice() ? 'skip' : 'all',
+        hovertemplate: isMobileDevice() ? null : undefined
     };
 
     let currentLayout = JSON.parse(JSON.stringify(layout)); // Assumes layout is global from config.js
@@ -260,7 +263,7 @@ async function updateChart() {
                     }
 
                     if (indicatorId === 'rsi' && data.rsi) {
-                        indicatorTraces.push({ x: xValues, y: data.rsi, type: 'scatter', mode: 'lines', name: 'RSI', yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, line: {color: 'purple'} });
+                        indicatorTraces.push({ x: xValues, y: data.rsi, type: 'scatter', mode: 'lines', name: 'RSI', yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, line: {color: 'purple'}, hoverinfo: isMobileDevice() ? 'skip' : 'all' });
                     }
                     else if(indicatorId === 'jma') {
                         if(data.jma_up) {
@@ -269,7 +272,8 @@ async function updateChart() {
                                 type: 'scatter',
                                 mode: 'lines', name: 'JMA (Up)',
                                 yaxis: yAxisTraceRef, xaxis: xAxisTraceRef,
-                                line: { color: 'green' }
+                                line: { color: 'green' },
+                                hoverinfo: isMobileDevice() ? 'skip' : 'all'
                             });
                         }
                         if(data.jma_down) {
@@ -281,22 +285,23 @@ async function updateChart() {
                                 name: 'JMA (Down)',
                                 yaxis: yAxisTraceRef,
                                 xaxis: xAxisTraceRef,
-                                line: { color: 'red' }
+                                line: { color: 'red' },
+                                hoverinfo: isMobileDevice() ? 'skip' : 'all'
                             });
                         }
                     }
                     else if (indicatorId === 'macd' && data.macd && data.signal && data.histogram) {
-                        indicatorTraces.push({ x: xValues, y: data.macd, type: 'scatter', mode: 'lines', name: 'MACD Line', yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, line: { color: 'blue' } });
-                        indicatorTraces.push({ x: xValues, y: data.histogram, type: 'bar', name: 'Histogram', yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, marker: { color: data.histogram.map(v => v >= 0 ? 'green' : 'red') } });
-                        indicatorTraces.push({ x: xValues, y: data.signal, type: 'scatter', mode: 'lines', name: 'Signal Line', yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, line: { color: 'orange' } });
+                        indicatorTraces.push({ x: xValues, y: data.macd, type: 'scatter', mode: 'lines', name: 'MACD Line', yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, line: { color: 'blue' }, hoverinfo: isMobileDevice() ? 'skip' : 'all' });
+                        indicatorTraces.push({ x: xValues, y: data.histogram, type: 'bar', name: 'Histogram', yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, marker: { color: data.histogram.map(v => v >= 0 ? 'green' : 'red') }, hoverinfo: isMobileDevice() ? 'skip' : 'all' });
+                        indicatorTraces.push({ x: xValues, y: data.signal, type: 'scatter', mode: 'lines', name: 'Signal Line', yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, line: { color: 'orange' }, hoverinfo: isMobileDevice() ? 'skip' : 'all' });
                     }
                     else if (indicatorId.startsWith('stochrsi') && data.stoch_k && data.stoch_d) {
-                        indicatorTraces.push({ x: xValues, y: data.stoch_k, type: 'scatter', mode: 'lines', name: `StochK (${indicatorId})`, yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, line: { color: 'dodgerblue' } });
-                        indicatorTraces.push({ x: xValues, y: data.stoch_d, type: 'scatter', mode: 'lines', name: `StochD (${indicatorId})`, yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, line: { color: 'darkorange' } });
+                        indicatorTraces.push({ x: xValues, y: data.stoch_k, type: 'scatter', mode: 'lines', name: `StochK (${indicatorId})`, yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, line: { color: 'dodgerblue' }, hoverinfo: isMobileDevice() ? 'skip' : 'all' });
+                        indicatorTraces.push({ x: xValues, y: data.stoch_d, type: 'scatter', mode: 'lines', name: `StochD (${indicatorId})`, yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, line: { color: 'darkorange' }, hoverinfo: isMobileDevice() ? 'skip' : 'all' });
                     }
                     else if (indicatorId === 'open_interest' && data.open_interest) {
                         // Open Interest is typically visualized as a bar chart (histogram)
-                        indicatorTraces.push({ x: xValues, y: data.open_interest, type: 'bar', name: 'Open Interest', yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, marker: { color: 'rgba(128, 0, 128, 0.6)' } }); // Purple bars
+                        indicatorTraces.push({ x: xValues, y: data.open_interest, type: 'bar', name: 'Open Interest', yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, marker: { color: 'rgba(128, 0, 128, 0.6)' }, hoverinfo: isMobileDevice() ? 'skip' : 'all' }); // Purple bars
                     }
 
                     if ((indicatorId === 'rsi' || indicatorId.startsWith('stochrsi')) && xValues.length > 0) {
@@ -421,6 +426,16 @@ async function updateChart() {
                     editable: false, // Will be managed by updateShapeVisuals
                     name: `drawing-${drawing.id}` // Optional, for easier debugging
                 };
+
+                // Add larger markers for mobile touch targets (only for user-drawn lines)
+                if (drawing.type === 'line' && !drawing.isSystemShape) {
+                    shape.marker = {
+                        size: isMobileDevice() ? 12 : 6, // Larger markers on mobile
+                        color: DEFAULT_DRAWING_COLOR,
+                        symbol: 'circle',
+                        line: { width: 2, color: 'white' }
+                    };
+                }
                 console.log(`[DEBUG chartUpdater] Adding drawing ${drawing.id} to ${refs.xref}/${refs.yref}`);
                 currentLayout.shapes.push(shape);
             } else {
@@ -501,16 +516,17 @@ async function updateChart() {
                 marker: { symbol: window.BUY_EVENT_MARKER_SYMBOL, color: window.BUY_EVENT_MARKER_COLOR, size: 16 },
                 xaxis: 'x', yaxis: 'y', isSystemShape: true, // Increased marker size
                 customdata: buyEventCustomData, // <-- Attached here
-                hovertemplate: `<b>%{fullData.name}</b><br>` +
-                            `createdTime: %{x|%Y-%m-%d %H:%M:%S}<br>` +
-                            `Price: %{y:.2f}<br>` +                            
-                            `Side: %{customdata.side}<br>` + 
-                            `Size: %{customdata.size}<br>` + 
-                            `Leverage: %{customdata.leverage}<br>` + 
-                            `Position Value: %{customdata.positionValue}<br>` + 
-                            `Unrealized PnL: %{customdata.unrealisedPnl}<br>` + 
-                            `TP: %{customdata.takeProfit}<br>` + 
-                            `SL: %{customdata.stopLoss}<extra></extra>` // <-- Hover template defined here
+                hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                hovertemplate: isMobileDevice() ? null : `<b>%{fullData.name}</b><br>` +
+                             `createdTime: %{x|%Y-%m-%d %H:%M:%S}<br>` +
+                             `Price: %{y:.2f}<br>` +
+                             `Side: %{customdata.side}<br>` +
+                             `Size: %{customdata.size}<br>` +
+                             `Leverage: %{customdata.leverage}<br>` +
+                             `Position Value: %{customdata.positionValue}<br>` +
+                             `Unrealized PnL: %{customdata.unrealisedPnl}<br>` +
+                             `TP: %{customdata.takeProfit}<br>` +
+                             `SL: %{customdata.stopLoss}<extra></extra>` // <-- Hover template defined here
             });
         }
         if (sellEventX.length > 0) {
@@ -518,18 +534,19 @@ async function updateChart() {
             allTraces.push({
                 x: sellEventX, y: sellEventY, type: 'scatter', mode: 'markers', name: 'Sell Event',
                 marker: { symbol: window.SELL_EVENT_MARKER_SYMBOL, color: window.SELL_EVENT_MARKER_COLOR, size: 10 },
-                xaxis: 'x', yaxis: 'y', isSystemShape: SVGComponentTransferFunctionElement,
+                xaxis: 'x', yaxis: 'y', isSystemShape: true,
                 customdata: sellEventCustomData, // <-- Attached here
-                hovertemplate: `<b>%{fullData.name}</b><br>` +
-                            `Time: %{x|%Y-%m-%d %H:%M:%S}<br>` +
-                            `Price: %{y:.2f}<br>` + 
-                            `Side: %{customdata.side}<br>` + 
-                            `Size: %{customdata.size}<br>` + 
-                            `Leverage: %{customdata.leverage}<br>` + 
-                            `Position Value: %{customdata.positionValue}<br>` + 
-                            `Unrealized PnL: %{customdata.unrealisedPnl}<br>` + 
-                            `TP: %{customdata.takeProfit}<br>` + 
-                            `SL: %{customdata.stopLoss}<extra></extra>` // <-- Hover template defined here               
+                hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                hovertemplate: isMobileDevice() ? null : `<b>%{fullData.name}</b><br>` +
+                             `Time: %{x|%Y-%m-%d %H:%M:%S}<br>` +
+                             `Price: %{y:.2f}<br>` +
+                             `Side: %{customdata.side}<br>` +
+                             `Size: %{customdata.size}<br>` +
+                             `Leverage: %{customdata.leverage}<br>` +
+                             `Position Value: %{customdata.positionValue}<br>` +
+                             `Unrealized PnL: %{customdata.unrealisedPnl}<br>` +
+                             `TP: %{customdata.takeProfit}<br>` +
+                             `SL: %{customdata.stopLoss}<extra></extra>` // <-- Hover template defined here
             });
         }
     } catch (error) {
@@ -589,7 +606,8 @@ async function updateChart() {
                     marker: { symbol: 'triangle-up', color: 'rgba(0, 255, 0, 0.8)', size: 10, line: { color: 'darkgreen', width: 1 } },
                     xaxis: 'x', yaxis: 'y', isSystemShape: true,
                     customdata: buyMarkers.customdata,
-                    hovertemplate: `<b>Agent Buy</b><br>Price: %{customdata.price}<br>Networth: %{customdata.networth}<br>Reason: %{customdata.reason}<extra></extra>`
+                    hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                    hovertemplate: isMobileDevice() ? null : `<b>Agent Buy</b><br>Price: %{customdata.price}<br>Networth: %{customdata.networth}<br>Reason: %{customdata.reason}<extra></extra>`
                 });
             }
             if (sellMarkers.x.length > 0) {
@@ -598,7 +616,8 @@ async function updateChart() {
                     marker: { symbol: 'triangle-down', color: 'rgba(255, 0, 0, 0.8)', size: 10, line: { color: 'darkred', width: 1 } },
                     xaxis: 'x', yaxis: 'y', isSystemShape: true,
                     customdata: sellMarkers.customdata,
-                    hovertemplate: `<b>Agent Sell</b><br>Price: %{customdata.price}<br>Networth: %{customdata.networth}<br>Reason: %{customdata.reason}<extra></extra>`
+                    hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                    hovertemplate: isMobileDevice() ? null : `<b>Agent Sell</b><br>Price: %{customdata.price}<br>Networth: %{customdata.networth}<br>Reason: %{customdata.reason}<extra></extra>`
                 });
             }
             if (closeLongMarkers.x.length > 0) {
@@ -607,7 +626,8 @@ async function updateChart() {
                     marker: { symbol: 'square', color: 'rgba(0, 255, 0, 0.5)', size: 8 },
                     xaxis: 'x', yaxis: 'y', isSystemShape: true,
                     customdata: closeLongMarkers.customdata,
-                    hovertemplate: `<b>Close Long</b><br>Price: %{customdata.price}<br>Networth: %{customdata.networth}<br>Reason: %{customdata.reason}<extra></extra>`
+                    hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                    hovertemplate: isMobileDevice() ? null : `<b>Close Long</b><br>Price: %{customdata.price}<br>Networth: %{customdata.networth}<br>Reason: %{customdata.reason}<extra></extra>`
                 });
             }
             if (closeShortMarkers.x.length > 0) {
@@ -616,7 +636,8 @@ async function updateChart() {
                     marker: { symbol: 'square', color: 'rgba(255, 0, 0, 0.5)', size: 8 },
                     xaxis: 'x', yaxis: 'y', isSystemShape: true,
                     customdata: closeShortMarkers.customdata,
-                    hovertemplate: `<b>Close Short</b><br>Price: %{customdata.price}<br>Networth: %{customdata.networth}<br>Reason: %{customdata.reason}<extra></extra>`
+                    hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                    hovertemplate: isMobileDevice() ? null : `<b>Close Short</b><br>Price: %{customdata.price}<br>Networth: %{customdata.networth}<br>Reason: %{customdata.reason}<extra></extra>`
                 });
             }
         } catch (error) {
@@ -653,7 +674,8 @@ async function updateChart() {
                     marker: { symbol: 'arrow', color: 'green', size: 16, line: { color: 'darkgreen', width: 2 } },
                     xaxis: 'x', yaxis: 'y', isSystemShape: true,
                     customdata: buySignalCustomData,
-                    hovertemplate: `<b>Buy Signal</b><br>Time: %{x|%Y-%m-%d %H:%M:%S}<br>Price: %{y:.2f}<br>RSI: %{customdata.rsi}<br>StochK: %{customdata.stoch_k}<extra></extra>`
+                    hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                    hovertemplate: isMobileDevice() ? null : `<b>Buy Signal</b><br>Time: %{x|%Y-%m-%d %H:%M:%S}<br>Price: %{y:.2f}<br>RSI: %{customdata.rsi}<br>StochK: %{customdata.stoch_k}<extra></extra>`
                 });
                 console.log(`Added ${buySignalsData.signals.length} buy signal markers to the chart.`);
             }

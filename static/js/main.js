@@ -31,12 +31,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.debouncedUpdateCrosshair = debounce(updateOrAddCrosshairVLine, 100); // updateOrAddCrosshairVLine from chartInteractions.js
 
     // Initialize Plotly chart (empty initially)
-    Plotly.newPlot('chart', [], layout, config).then(function(gd) { // layout & config from config.js
+    const mobileOptimizedLayout = getMobileOptimizedLayout(); // Get mobile-optimized layout
+    Plotly.newPlot('chart', [], mobileOptimizedLayout, config).then(function(gd) { // layout & config from config.js
         window.gd = gd; // Make Plotly graph div object global
 
         // Initialize Plotly specific event handlers after chart is ready
         initializePlotlyEventHandlers(gd); // From plotlyEventHandlers.js
 
+        // Ensure mobile hover is disabled after chart creation
+        disableMobileHover(gd);
+        forceHideHoverElements(); // Force hide hover elements via CSS
 
     }).catch(err => console.error('Plotly initialization error:', err));
 
