@@ -11,8 +11,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.yAxisMaxDisplay = document.getElementById('y-axis-max-display');
     window.liveDataCheckbox = document.getElementById('live-data-checkbox');
     window.selectedShapeInfoDiv = document.getElementById('selected-shape-info');
-    window.editShapeBtn = document.getElementById('edit-shape-btn');
     window.deleteShapeBtn = document.getElementById('delete-shape-btn');
+    window.editShapeBtn = document.getElementById('edit-shape-btn');
     window.deleteAllShapesBtn = document.getElementById('delete-all-shapes-btn');
     window.cursorTimeDisplay = document.getElementById('cursor-time-display');
     window.cursorPriceDisplay = document.getElementById('cursor-price-display');
@@ -24,19 +24,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.localOllamaModelDiv = document.getElementById('local-ollama-model-selection-div');
     window.localOllamaModelSelect = document.getElementById('local-ollama-model-select');
 
-    // Shape properties modal elements
-    window.shapePropertiesModal = document.getElementById('shape-properties-modal');
-    window.shapeStartPriceInput = document.getElementById('shape-start-price');
-    window.shapeEndPriceInput = document.getElementById('shape-end-price');
-    window.shapeStartTimeInput = document.getElementById('shape-start-time');
-    window.shapeEndTimeInput = document.getElementById('shape-end-time');
-    window.shapeColorInput = document.getElementById('shape-color');
-    window.shapeWidthInput = document.getElementById('shape-width');
-    window.shapeStyleSelect = document.getElementById('shape-style');
-    window.saveShapePropertiesBtn = document.getElementById('save-shape-properties');
-    window.cancelShapePropertiesBtn = document.getElementById('cancel-shape-properties');
-    window.closeModalBtn = document.querySelector('.close-modal');
-
     window.streamDeltaSlider = document.getElementById('stream-delta-slider');
     window.streamDeltaValueDisplay = document.getElementById('stream-delta-value');
     // Initialize debounced functions
@@ -46,55 +33,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Initialize Plotly chart (empty initially)
     const mobileOptimizedLayout = getMobileOptimizedLayout(); // Get mobile-optimized layout
-
-    // Debug: Check mobile detection and config before Plotly initialization
-    console.log('[MOBILE DEBUG] isMobileDevice():', isMobileDevice());
-    console.log('[MOBILE DEBUG] Config before Plotly init:', {
-        displayModeBar: config.displayModeBar,
-        modeBarButtonsToAdd: config.modeBarButtonsToAdd,
-        modeBarButtonsToRemove: config.modeBarButtonsToRemove
-    });
-
     Plotly.newPlot('chart', [], mobileOptimizedLayout, config).then(function(gd) { // layout & config from config.js
         window.gd = gd; // Make Plotly graph div object global
-
-        // Debug: Check modebar after Plotly initialization
-        console.log('[MOBILE DEBUG] Plotly initialized. gd._fullLayout:', {
-            modebar: gd._fullLayout.modebar || 'undefined',
-            dragmode: gd.layout.dragmode,
-            isMobile: isMobileDevice()
-        });
-
-        // Debug: Check if modebar buttons are present in DOM
-        setTimeout(() => {
-            const modebar = document.querySelector('.modebar');
-            const drawlineBtn = document.querySelector('.modebar-btn[data-title*="draw"], .modebar-btn[data-title*="Draw"]');
-            console.log('[MOBILE DEBUG] Modebar elements in DOM:', {
-                modebar: modebar ? 'found' : 'not found',
-                drawlineBtn: drawlineBtn ? 'found' : 'not found',
-                allModebarBtns: document.querySelectorAll('.modebar-btn').length,
-                modebarVisible: modebar ? (modebar.offsetWidth > 0 && modebar.offsetHeight > 0) : false
-            });
-
-            if (drawlineBtn) {
-                console.log('[MOBILE DEBUG] Drawline button details:', {
-                    title: drawlineBtn.getAttribute('data-title'),
-                    disabled: drawlineBtn.disabled,
-                    style: drawlineBtn.style.cssText,
-                    className: drawlineBtn.className
-                });
-            }
-
-            // Debug: Check for CSS rules that might hide modebar
-            const modebarStyles = window.getComputedStyle(modebar);
-            console.log('[MOBILE DEBUG] Modebar computed styles:', {
-                display: modebarStyles.display,
-                visibility: modebarStyles.visibility,
-                opacity: modebarStyles.opacity,
-                width: modebarStyles.width,
-                height: modebarStyles.height
-            });
-        }, 100);
 
         // Initialize Plotly specific event handlers after chart is ready
         initializePlotlyEventHandlers(gd); // From plotlyEventHandlers.js
@@ -102,28 +42,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Ensure mobile hover is disabled after chart creation
         disableMobileHover(gd);
         forceHideHoverElements(); // Force hide hover elements via CSS
-
-        // Force modebar visibility on mobile devices
-        if (isMobileDevice()) {
-            setTimeout(() => {
-                const modebar = document.querySelector('.modebar');
-                if (modebar) {
-                    modebar.style.display = 'block';
-                    modebar.style.visibility = 'visible';
-                    modebar.style.opacity = '1';
-
-                    // Ensure all modebar buttons are visible
-                    const modebarBtns = modebar.querySelectorAll('.modebar-btn');
-                    modebarBtns.forEach(btn => {
-                        btn.style.display = 'inline-block';
-                        btn.style.visibility = 'visible';
-                        btn.style.opacity = '1';
-                    });
-
-                    console.log('[MOBILE DEBUG] Forced modebar visibility on mobile device');
-                }
-            }, 200);
-        }
 
     }).catch(err => console.error('Plotly initialization error:', err));
 
@@ -234,165 +152,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveSettings(); // from settingsManager.js
     });
 
-    // Shape properties modal functions
-    function showShapePropertiesModal(shape) {
-        // Populate modal with current shape data
-        window.shapeStartPriceInput.value = shape.y0;
-        window.shapeEndPriceInput.value = shape.y1;
-
-        // Convert timestamps to datetime-local format (YYYY-MM-DDTHH:MM)
-        const startDate = new Date(shape.x0);
-        const endDate = new Date(shape.x1);
-
-        window.shapeStartTimeInput.value = startDate.toISOString().slice(0, 16);
-        window.shapeEndTimeInput.value = endDate.toISOString().slice(0, 16);
-
-        // Get current line properties - check both direct properties and properties field
-        const lineColor = shape.line?.color || shape.properties?.line_color || '#FF0000';
-        const lineWidth = shape.line?.width || shape.properties?.line_width || 2;
-        const lineDash = shape.line?.dash || shape.properties?.line_style || 'solid';
-
-        window.shapeColorInput.value = lineColor;
-        window.shapeWidthInput.value = lineWidth;
-        window.shapeStyleSelect.value = lineDash;
-
-        // Show modal
-        window.shapePropertiesModal.style.display = 'block';
-    }
-
-    function hideShapePropertiesModal() {
-        window.shapePropertiesModal.style.display = 'none';
-    }
-
-    async function saveShapeProperties() {
-        if (!window.activeShapeForPotentialDeletion || !window.activeShapeForPotentialDeletion.id) {
-            alert("No shape selected for saving.");
-            return;
-        }
-
-        const symbol = window.symbolSelect.value;
-        if (!symbol) {
-            alert("Please select a symbol first.");
-            return;
-        }
-
-        const drawingId = window.activeShapeForPotentialDeletion.id;
-
-        // Get updated values from modal
-        const startPrice = parseFloat(window.shapeStartPriceInput.value);
-        const endPrice = parseFloat(window.shapeEndPriceInput.value);
-        const startTime = new Date(window.shapeStartTimeInput.value).getTime() / 1000; // Convert to seconds
-        const endTime = new Date(window.shapeEndTimeInput.value).getTime() / 1000; // Convert to seconds
-        const lineColor = window.shapeColorInput.value;
-        const lineWidth = parseInt(window.shapeWidthInput.value);
-        const lineStyle = window.shapeStyleSelect.value;
-
-        try {
-            // Update shape on chart
-            const shapes = window.gd.layout.shapes || [];
-            const shapeIndex = shapes.findIndex(shape => shape.backendId === drawingId);
-
-            if (shapeIndex !== -1) {
-                shapes[shapeIndex].x0 = new Date(startTime * 1000);
-                shapes[shapeIndex].y0 = startPrice;
-                shapes[shapeIndex].x1 = new Date(endTime * 1000);
-                shapes[shapeIndex].y1 = endPrice;
-                shapes[shapeIndex].line = {
-                    ...shapes[shapeIndex].line,
-                    color: lineColor,
-                    width: lineWidth,
-                    dash: lineStyle
-                };
-
-                Plotly.relayout(window.gd, { shapes: shapes });
-            }
-
-            // Send update to backend
-            const response = await fetch(`/update_drawing/${symbol}/${drawingId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    symbol: symbol,
-                    type: shape.type || 'line',
-                    start_time: Math.floor(startTime),
-                    end_time: Math.floor(endTime),
-                    start_price: startPrice,
-                    end_price: endPrice,
-                    subplot_name: shape.subplot_name || symbol,
-                    resolution: window.resolutionSelect.value,
-                    properties: {
-                        line_color: lineColor,
-                        line_width: lineWidth,
-                        line_style: lineStyle
-                    }
-                })
-            });
-
-            if (!response.ok) {
-                const errorBody = await response.text().catch(() => "Could not read error body");
-                throw new Error(`Failed to update drawing: ${response.status} - ${errorBody}`);
-            }
-
-            console.log(`Drawing ${drawingId} updated successfully`);
-            hideShapePropertiesModal();
-
-        } catch (error) {
-            console.error(`Error updating drawing ${drawingId}:`, error);
-            alert(`Failed to update drawing: ${error.message}`);
-        }
-    }
-
-    // Event listener for "Edit line" button
-    if (window.editShapeBtn) {
-        window.editShapeBtn.addEventListener('click', async () => {
-            if (!window.activeShapeForPotentialDeletion || !window.activeShapeForPotentialDeletion.id) {
-                alert("No shape selected for editing.");
-                return;
-            }
-
-            const symbol = window.symbolSelect.value;
-            if (!symbol) {
-                alert("Please select a symbol first.");
-                return;
-            }
-
-            const drawingId = window.activeShapeForPotentialDeletion.id;
-            console.log(`Editing drawing ${drawingId} for ${symbol}`);
-
-            // Find the shape in the layout
-            const shapes = window.gd.layout.shapes || [];
-            const shape = shapes.find(s => s.backendId === drawingId);
-
-            if (!shape) {
-                alert("Shape not found in chart layout.");
-                return;
-            }
-
-            // Show the properties modal
-            showShapePropertiesModal(shape);
-        });
-    }
-
-    // Modal event listeners
-    if (window.closeModalBtn) {
-        window.closeModalBtn.addEventListener('click', hideShapePropertiesModal);
-    }
-
-    if (window.cancelShapePropertiesBtn) {
-        window.cancelShapePropertiesBtn.addEventListener('click', hideShapePropertiesModal);
-    }
-
-    if (window.saveShapePropertiesBtn) {
-        window.saveShapePropertiesBtn.addEventListener('click', saveShapeProperties);
-    }
-
-    // Close modal when clicking outside
-    window.addEventListener('click', (event) => {
-        if (event.target === window.shapePropertiesModal) {
-            hideShapePropertiesModal();
-        }
-    });
-
     // Event listener for "Delete line" button
     if (window.deleteShapeBtn) {
         window.deleteShapeBtn.addEventListener('click', async () => {
@@ -433,6 +192,25 @@ document.addEventListener('DOMContentLoaded', async () => {
             } catch (error) {
                 console.error(`Error deleting drawing ${drawingId}:`, error);
                 alert(`Failed to delete drawing: ${error.message}`);
+            }
+        });
+    }
+
+    // Event listener for "Edit line" button
+    if (window.editShapeBtn) {
+        window.editShapeBtn.addEventListener('click', () => {
+            if (!window.activeShapeForPotentialDeletion || !window.activeShapeForPotentialDeletion.id) {
+                alert("No shape selected for editing.");
+                return;
+            }
+
+            // Populate the dialog with current shape properties
+            populateShapePropertiesDialog(window.activeShapeForPotentialDeletion);
+
+            // Show the dialog
+            const dialog = document.getElementById('shape-properties-dialog');
+            if (dialog) {
+                dialog.style.display = 'block';
             }
         });
     }
@@ -571,13 +349,11 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
                if (!isNaN(timestamp)) {
                    if (timestamp < xMin) {
                        xMin = timestamp;
-                       const xMinDateStr = !isNaN(timestamp) ? new Date(timestamp).toISOString() : 'Invalid';
-                       console.log(`Autoscale: New xMin found at trace ${index}, index ${tsIndex}: ${xMinDateStr}`);
+                       console.log(`Autoscale: New xMin found at trace ${index}, index ${tsIndex}: ${new Date(timestamp).toISOString()}`);
                    }
                    if (timestamp > xMax) {
                        xMax = timestamp;
-                       const xMaxDateStr = !isNaN(timestamp) ? new Date(timestamp).toISOString() : 'Invalid';
-                       console.log(`Autoscale: New xMax found at trace ${index}, index ${tsIndex}: ${xMaxDateStr}`);
+                       console.log(`Autoscale: New xMax found at trace ${index}, index ${tsIndex}: ${new Date(timestamp).toISOString()}`);
                    }
                    xDataFound = true;
                } else {
@@ -587,9 +363,7 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
        }
    });
 
-   const xMinDateStr = (xMin !== Infinity && xMin !== -Infinity && !isNaN(xMin)) ? new Date(xMin).toISOString() : 'Invalid';
-   const xMaxDateStr = (xMax !== Infinity && xMax !== -Infinity && !isNaN(xMax)) ? new Date(xMax).toISOString() : 'Invalid';
-   console.log(`Autoscale: X-axis calculation complete. xDataFound: ${xDataFound}, xMin: ${xMin} (${xMinDateStr}), xMax: ${xMax} (${xMaxDateStr})`);
+   console.log(`Autoscale: X-axis calculation complete. xDataFound: ${xDataFound}, xMin: ${xMin} (${new Date(xMin).toISOString()}), xMax: ${xMax} (${new Date(xMax).toISOString()})`);
 
    if (xDataFound) {
        let xPadding;
@@ -606,47 +380,17 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
        }
        const finalXMin = xMin - xPadding;
        const finalXMax = xMax + xPadding;
-
-       // 🚨 OLD ALARM CHECK: Validate autoscale calculated timestamps
-       const finalMinDate = new Date(finalXMin);
-       const finalMaxDate = new Date(finalXMax);
-       if (finalMinDate.getFullYear() < 2000 || finalMaxDate.getFullYear() < 2000) {
-           const finalMinDateStr = isNaN(finalMinDate.getTime()) ? 'Invalid Date' : finalMinDate.toISOString();
-           const finalMaxDateStr = isNaN(finalMaxDate.getTime()) ? 'Invalid Date' : finalMaxDate.toISOString();
-           console.warn('🚨 OLD ALARM DETECTED: Autoscale calculated very old dates!', {
-               source: 'applyAutoscale_function',
-               xMin: xMin,
-               xMax: xMax,
-               xPadding: xPadding,
-               finalXMin: finalXMin,
-               finalXMax: finalXMax,
-               finalMinDate: finalMinDateStr,
-               finalMaxDate: finalMaxDateStr,
-               finalMinYear: finalMinDate.getFullYear(),
-               finalMaxYear: finalMaxDate.getFullYear(),
-               action: 'Autoscale calculated timestamps before year 2000 - this should not happen!'
-           });
-       }
-
-       const finalXMinDate = new Date(finalXMin);
-       const finalXMaxDate = new Date(finalXMax);
-       if (!isNaN(finalXMinDate.getTime()) && !isNaN(finalXMaxDate.getTime())) {
-           layoutUpdate['xaxis.range[0]'] = finalXMinDate.toISOString();
-           layoutUpdate['xaxis.range[1]'] = finalXMaxDate.toISOString();
-           layoutUpdate['xaxis.autorange'] = false;
-           console.log(`Autoscale: Final X-axis range: ${finalXMinDate.toISOString()} to ${finalXMaxDate.toISOString()}`);
-       } else {
-           console.warn('Autoscale: Invalid final timestamps, skipping x-axis range update');
-       }
+       layoutUpdate['xaxis.range[0]'] = new Date(finalXMin).toISOString();
+       layoutUpdate['xaxis.range[1]'] = new Date(finalXMax).toISOString();
+       layoutUpdate['xaxis.autorange'] = false;
+       console.log(`Autoscale: Final X-axis range: ${new Date(finalXMin).toISOString()} to ${new Date(finalXMax).toISOString()}`);
 
        // Apply to matching x-axes
        Object.keys(inputLayout).forEach(key => {
            if (key.startsWith('xaxis') && key !== 'xaxis' && inputLayout[key] && inputLayout[key].matches === 'x') {
-               if (layoutUpdate['xaxis.range[0]'] && layoutUpdate['xaxis.range[1]']) {
-                   layoutUpdate[`${key}.range[0]`] = layoutUpdate['xaxis.range[0]'];
-                   layoutUpdate[`${key}.range[1]`] = layoutUpdate['xaxis.range[1]'];
-                   layoutUpdate[`${key}.autorange`] = false;
-               }
+               layoutUpdate[`${key}.range[0]`] = layoutUpdate['xaxis.range[0]'];
+               layoutUpdate[`${key}.range[1]`] = layoutUpdate['xaxis.range[1]'];
+               layoutUpdate[`${key}.autorange`] = false;
            }
        });
    } else {
@@ -751,27 +495,6 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
         console.log("Autoscale: Applying layoutUpdate:", JSON.stringify(layoutUpdate, null, 2));
         try {
             Plotly.relayout(plotlyGraphObj, layoutUpdate);
-
-            // After autoscale completes, save the corrected settings
-            setTimeout(() => {
-                console.log('Autoscale: Saving corrected settings after autoscale completion');
-                if (typeof window.saveSettings === 'function') {
-                    // Update window.currentXAxisRange and window.currentYAxisRange with the new values
-                    if (layoutUpdate['xaxis.range[0]'] && layoutUpdate['xaxis.range[1]']) {
-                        const newXMin = new Date(layoutUpdate['xaxis.range[0]']).getTime();
-                        const newXMax = new Date(layoutUpdate['xaxis.range[1]']).getTime();
-                        window.currentXAxisRange = [newXMin, newXMax];
-                        console.log('Autoscale: Updated window.currentXAxisRange:', window.currentXAxisRange);
-                    }
-                    if (layoutUpdate['yaxis.range[0]'] && layoutUpdate['yaxis.range[1]']) {
-                        window.currentYAxisRange = [layoutUpdate['yaxis.range[0]'], layoutUpdate['yaxis.range[1]']];
-                        console.log('Autoscale: Updated window.currentYAxisRange:', window.currentYAxisRange);
-                    }
-                    window.saveSettings();
-                } else {
-                    console.warn('Autoscale: window.saveSettings function not available');
-                }
-            }, 1000); // Wait for relayout to complete
         } catch (e) {
             console.error("Autoscale: Error during Plotly.relayout:", e);
             console.error("Autoscale: Failed layoutUpdate was:", JSON.stringify(layoutUpdate, null, 2));
@@ -820,3 +543,152 @@ async function getLastSelectedSymbol() {
 }
 
 window.applyAutoscale = applyAutoscale; // Ensure it's globally available if called from config.js
+
+// Shape Properties Dialog Functions
+async function populateShapePropertiesDialog(activeShape) {
+    if (!activeShape || !activeShape.id) return;
+
+    // Set the shape ID display
+    const shapeIdDisplay = document.getElementById('shape-id-display');
+    if (shapeIdDisplay) {
+        shapeIdDisplay.textContent = activeShape.id;
+    }
+
+    // Get symbol
+    const symbol = window.symbolSelect ? window.symbolSelect.value : null;
+    if (!symbol) {
+        console.warn('No symbol selected, cannot fetch shape properties');
+        return;
+    }
+
+    // Set default values initially
+    const buyOnCross = document.getElementById('buy-on-cross');
+    const sellOnCross = document.getElementById('sell-on-cross');
+    const amount = document.getElementById('amount');
+    const sendEmailOnCross = document.getElementById('send-email-on-cross');
+    const emailSent = document.getElementById('email-sent');
+    const emailDateDisplay = document.getElementById('email-date-display');
+
+    if (buyOnCross) buyOnCross.checked = false;
+    if (sellOnCross) sellOnCross.checked = false;
+    if (amount) amount.value = '';
+    if (sendEmailOnCross) sendEmailOnCross.checked = false;
+    if (emailSent) emailSent.checked = false;
+    if (emailDateDisplay) emailDateDisplay.textContent = 'Not sent yet';
+
+    // Fetch existing properties from backend
+    try {
+        const response = await fetch(`/get_shape_properties/${symbol}/${activeShape.id}`);
+        const result = await response.json();
+
+        if (response.ok && result.status === 'success') {
+            const properties = result.properties || {};
+
+            // Populate form with existing properties
+            if (buyOnCross && properties.buyOnCross !== undefined) {
+                buyOnCross.checked = properties.buyOnCross;
+            }
+            if (sellOnCross && properties.sellOnCross !== undefined) {
+                sellOnCross.checked = properties.sellOnCross;
+            }
+            if (amount && properties.amount !== undefined) {
+                amount.value = properties.amount;
+            }
+            if (sendEmailOnCross && properties.sendEmailOnCross !== undefined) {
+                sendEmailOnCross.checked = properties.sendEmailOnCross;
+            }
+            if (emailSent && properties.emailSent !== undefined) {
+                emailSent.checked = properties.emailSent;
+            }
+            if (emailDateDisplay && properties.emailDate) {
+                emailDateDisplay.textContent = new Date(properties.emailDate).toLocaleString();
+            }
+
+            console.log('Loaded existing shape properties:', properties);
+        } else {
+            console.log('No existing properties found for shape, using defaults');
+        }
+    } catch (error) {
+        console.error('Error fetching shape properties:', error);
+        // Continue with default values
+    }
+}
+
+async function saveShapeProperties() {
+    // Get values from the dialog
+    const buyOnCross = document.getElementById('buy-on-cross').checked;
+    const sellOnCross = document.getElementById('sell-on-cross').checked;
+    const amountInput = document.getElementById('amount').value;
+    const sendEmailOnCross = document.getElementById('send-email-on-cross').checked;
+
+    // Get symbol and drawing ID
+    const symbol = window.symbolSelect ? window.symbolSelect.value : null;
+    const drawingId = document.getElementById('shape-id-display').textContent;
+
+    if (!symbol) {
+        alert('Please select a symbol first.');
+        return;
+    }
+
+    if (!drawingId) {
+        alert('No shape selected.');
+        return;
+    }
+
+    // Prepare properties object
+    const properties = {
+        buyOnCross,
+        sellOnCross,
+        sendEmailOnCross
+    };
+
+    // Handle amount - convert to number if provided
+    if (amountInput.trim() !== '') {
+        const amount = parseFloat(amountInput);
+        if (isNaN(amount) || amount <= 0) {
+            alert('Please enter a valid positive amount.');
+            return;
+        }
+        properties.amount = amount;
+    }
+
+    try {
+        // Make API call to save shape properties
+        const response = await fetch(`/save_shape_properties/${symbol}/${drawingId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(properties)
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.status === 'success') {
+            console.log('Shape properties saved successfully:', {
+                shapeId: drawingId,
+                symbol,
+                properties
+            });
+
+            // Close the dialog
+            closeShapePropertiesDialog();
+
+            // Show success message
+            // alert('Shape properties saved successfully!');
+        } else {
+            console.error('Failed to save shape properties:', result.message);
+            alert(`Failed to save shape properties: ${result.message || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error saving shape properties:', error);
+        alert('An error occurred while saving shape properties. Please try again.');
+    }
+}
+
+function closeShapePropertiesDialog() {
+    const dialog = document.getElementById('shape-properties-dialog');
+    if (dialog) {
+        dialog.style.display = 'none';
+    }
+}

@@ -298,53 +298,30 @@
         </div>
     </div>
 
-    <!-- Shape Properties Modal -->
-    <div id="shape-properties-modal" class="modal" style="display: none;">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Edit Shape Properties</h3>
-                <span class="close-modal">&times;</span>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label for="shape-start-price">Start Price:</label>
-                    <input type="number" id="shape-start-price" step="0.00000001">
-                </div>
-                <div class="form-group">
-                    <label for="shape-end-price">End Price:</label>
-                    <input type="number" id="shape-end-price" step="0.00000001">
-                </div>
-                <div class="form-group">
-                    <label for="shape-start-time">Start Time:</label>
-                    <input type="datetime-local" id="shape-start-time">
-                </div>
-                <div class="form-group">
-                    <label for="shape-end-time">End Time:</label>
-                    <input type="datetime-local" id="shape-end-time">
-                </div>
-                <div class="form-group">
-                    <label for="shape-color">Line Color:</label>
-                    <input type="color" id="shape-color" value="#FF0000">
-                </div>
-                <div class="form-group">
-                    <label for="shape-width">Line Width:</label>
-                    <input type="number" id="shape-width" min="1" max="10" value="2">
-                </div>
-                <div class="form-group">
-                    <label for="shape-style">Line Style:</label>
-                    <select id="shape-style">
-                        <option value="solid">Solid</option>
-                        <option value="dash">Dash</option>
-                        <option value="dot">Dot</option>
-                        <option value="dashdot">Dash-Dot</option>
-                    </select>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button id="save-shape-properties">Save</button>
-                <button id="cancel-shape-properties">Cancel</button>
-            </div>
-        </div>
+    <div id="shape-properties-dialog" style="display:none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 20px; border: 1px solid black; z-index: 1000;">
+        <h3>Shape Properties</h3>
+        <p><strong>ID:</strong> <span id="shape-id-display"></span></p>
+        <label for="buy-on-cross">Buy on Cross:</label>
+        <input type="checkbox" id="buy-on-cross"><br><br>
+
+        <label for="sell-on-cross">Sell on Cross:</label>
+        <input type="checkbox" id="sell-on-cross"><br><br>
+
+        <label for="amount">Amount:</label>
+        <input type="number" id="amount"><br><br>
+
+        <label for="send-email-on-cross">Send an email on cross:</label>
+        <input type="checkbox" id="send-email-on-cross"><br><br>
+
+
+        <label for="email-sent">Email Sent:</label>
+        <input type="checkbox" id="email-sent"><br><br>
+
+        <label for="email-date">Email Date:</label>
+        <span id="email-date-display">Not sent yet</span><br><br>
+
+        <button onclick="saveShapeProperties()">Save</button>
+        <button onclick="closeShapePropertiesDialog()">Cancel</button>
     </div>
 
     <!-- <script src="/static/plotly-2.22.0.js"></script> -->

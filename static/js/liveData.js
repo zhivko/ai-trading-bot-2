@@ -147,8 +147,14 @@ function handleRealtimeKline(klineData) {
 
     // Lenient initialization check - just ensure chart exists and has basic structure
     // The chart update process may temporarily have inconsistent data during updates
-    if (!gd.data) {
-        console.warn('WebSocket: Chart data structure not available, cannot apply real-time update.');
+    if (!gd.data || !Array.isArray(gd.data)) {
+        console.warn('WebSocket: Chart data structure not available or invalid, cannot apply real-time update.');
+        return;
+    }
+
+    // Ensure layout exists
+    if (!gd.layout) {
+        console.warn('WebSocket: Chart layout not available, cannot apply real-time update.');
         return;
     }
 
@@ -165,7 +171,7 @@ function handleRealtimeKline(klineData) {
 
     try {
         // Debug: Log all available traces
-        console.log('WebSocket: Available traces:', gd.data.map((t, i) => ({ index: i, type: t.type, name: t.name })));
+        // console.log('WebSocket: Available traces:', gd.data.map((t, i) => ({ index: i, type: t.type, name: t.name })));
 
         // First try to find by exact symbol match
         priceTraceIndex = gd.data.findIndex(trace => trace.type === 'candlestick' && trace.name === window.symbolSelect.value);
@@ -216,35 +222,84 @@ function handleRealtimeKline(klineData) {
     const candleStartTimeMsForLine = currentPeriodStartSec * 1000;
     const candleEndTimeMsForLine = (currentPeriodStartSec + timeframeSeconds) * 1000;
 
-    if (lastCandleIndex < 0 || currentPeriodStartSec > lastCandleOpenTimeSec) {
-        const newCandleData = {
-            x: [[currentPeriodStartTime]],
-            open: [[livePrice]],
-            high: [[livePrice]],
-            low: [[livePrice]],
-            close: [[livePrice]],
-            volume: [[0]] // Assuming new candles start with 0 volume from live tick
-        };
-        updateOrAddRealtimePriceLine(gd, livePrice, candleStartTimeMsForLine, candleEndTimeMsForLine, false);
-        // console.log('[handleRealtimeKline] Update candle - gd.layout.annotations before react:', JSON.parse(JSON.stringify(gd.layout.annotations)));
-        Plotly.extendTraces(gd, newCandleData, [priceTraceIndex], MAX_LIVE_CANDLES); // MAX_LIVE_CANDLES from config.js
-        Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations }); // Include annotations
-        // console.log('[handleRealtimeKline] New candle - After relayout, gd.layout.annotations:', JSON.parse(JSON.stringify(gd.layout.annotations)));
-    } else if (currentPeriodStartSec === lastCandleOpenTimeSec) {
-        const candleTrace = gd.data[priceTraceIndex];
-        candleTrace.high[lastCandleIndex] = Math.max(candleTrace.high[lastCandleIndex], livePrice);
-        candleTrace.low[lastCandleIndex] = Math.min(candleTrace.low[lastCandleIndex], livePrice);
-        candleTrace.close[lastCandleIndex] = livePrice;
+    try {
+        // Additional validation before Plotly operations
+        if (isNaN(livePrice) || !isFinite(livePrice)) {
+            console.error("WebSocket: Invalid live price:", livePrice);
+            return;
+        }
 
-        updateOrAddRealtimePriceLine(gd, livePrice, candleStartTimeMsForLine, candleEndTimeMsForLine, false);
-        candleTrace.high = [...candleTrace.high];
-        candleTrace.low = [...candleTrace.low];
-        candleTrace.close = [...candleTrace.close];
-        Plotly.react(gd, gd.data, gd.layout); // gd.layout now includes updated annotations
-    } else {
-        const message = `Ignored out-of-sequence live tick. Tick time: ${new Date(liveUpdateTimeSec * 1000).toLocaleString()}, Last chart candle: ${new Date(lastCandleOpenTimeSec * 1000).toLocaleString()}`;
-        console.warn('[LiveUpdate] ' + message, 'Raw Data:', klineData);
-        logEventToPanel(`Live Data Warning: ${message}. Raw: ${JSON.stringify(klineData)}`, 'WARN'); // Use the new logging function
+        if (isNaN(liveUpdateTimeSec) || !isFinite(liveUpdateTimeSec)) {
+            console.error("WebSocket: Invalid timestamp:", liveUpdateTimeSec);
+            return;
+        }
+
+        if (isNaN(currentPeriodStartSec) || !isFinite(currentPeriodStartSec)) {
+            console.error("WebSocket: Invalid period start:", currentPeriodStartSec);
+            return;
+        }
+
+        if (lastCandleIndex < 0 || currentPeriodStartSec > lastCandleOpenTimeSec) {
+            const newCandleData = {
+                x: [[currentPeriodStartTime]],
+                open: [[livePrice]],
+                high: [[livePrice]],
+                low: [[livePrice]],
+                close: [[livePrice]],
+                volume: [[0]] // Assuming new candles start with 0 volume from live tick
+            };
+
+            // Validate new candle data
+            if (!Array.isArray(newCandleData.x) || newCandleData.x[0][0] === undefined) {
+                console.error("WebSocket: Invalid new candle x data");
+                return;
+            }
+
+            updateOrAddRealtimePriceLine(gd, livePrice, candleStartTimeMsForLine, candleEndTimeMsForLine, false);
+            Plotly.extendTraces(gd, newCandleData, [priceTraceIndex], MAX_LIVE_CANDLES);
+            Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations });
+        } else if (currentPeriodStartSec === lastCandleOpenTimeSec) {
+            const candleTrace = gd.data[priceTraceIndex];
+
+            // Validate existing candle data
+            if (!candleTrace || !Array.isArray(candleTrace.high) || !Array.isArray(candleTrace.low) || !Array.isArray(candleTrace.close)) {
+                console.error("WebSocket: Invalid candle trace data");
+                return;
+            }
+
+            if (lastCandleIndex >= candleTrace.high.length) {
+                console.error("WebSocket: Candle index out of bounds");
+                return;
+            }
+
+            const currentHigh = candleTrace.high[lastCandleIndex];
+            const currentLow = candleTrace.low[lastCandleIndex];
+
+            if (isNaN(currentHigh) || isNaN(currentLow)) {
+                console.error("WebSocket: Invalid existing candle high/low values");
+                return;
+            }
+
+            candleTrace.high[lastCandleIndex] = Math.max(currentHigh, livePrice);
+            candleTrace.low[lastCandleIndex] = Math.min(currentLow, livePrice);
+            candleTrace.close[lastCandleIndex] = livePrice;
+
+            updateOrAddRealtimePriceLine(gd, livePrice, candleStartTimeMsForLine, candleEndTimeMsForLine, false);
+
+            // Ensure arrays are copied to trigger reactivity
+            candleTrace.high = [...candleTrace.high];
+            candleTrace.low = [...candleTrace.low];
+            candleTrace.close = [...candleTrace.close];
+
+            Plotly.react(gd, gd.data, gd.layout);
+        } else {
+            const message = `Ignored out-of-sequence live tick. Tick time: ${new Date(liveUpdateTimeSec * 1000).toLocaleString()}, Last chart candle: ${new Date(lastCandleOpenTimeSec * 1000).toLocaleString()}`;
+            console.warn('[LiveUpdate] ' + message, 'Raw Data:', klineData);
+            logEventToPanel(`Live Data Warning: ${message}. Raw: ${JSON.stringify(klineData)}`, 'WARN');
+        }
+    } catch (plotlyError) {
+        console.error("WebSocket: Error during Plotly update:", plotlyError, "Data:", klineData);
+        // Don't rethrow - we want to continue processing other messages
     }
 }
 
@@ -282,7 +337,28 @@ function setupWebSocket(symbolToStream) {
                 console.warn(`WebSocket: Message received for ${symbolToStream}, but current active stream is for ${currentSymbolForStream}. Discarding.`);
                 return;
             }
+
+            // Validate event.data before parsing
+            if (!event.data || typeof event.data !== 'string') {
+                console.warn("WebSocket: Received invalid event.data:", event.data);
+                return;
+            }
+
             const klineData = JSON.parse(event.data);
+
+            // Additional validation of parsed data
+            if (!klineData || typeof klineData !== 'object') {
+                console.warn("WebSocket: Parsed data is not a valid object:", klineData);
+                return;
+            }
+
+            // Validate required fields
+            if (typeof klineData.symbol !== 'string' || typeof klineData.time !== 'number' ||
+                (typeof klineData.price !== 'number' && typeof klineData.close !== 'number')) {
+                console.warn("WebSocket: Invalid kline data structure:", klineData);
+                return;
+            }
+
             handleRealtimeKline(klineData);
         } catch (e) {
             console.error("WebSocket: Error parsing message data", e, "Raw data:", event.data);

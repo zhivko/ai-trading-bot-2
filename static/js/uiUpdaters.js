@@ -7,22 +7,22 @@ function updateSelectedShapeInfoPanel(activeShape) {
         `;
         window.activeShapeForPotentialDeletion = activeShape;
         
-        // Show the "Edit line" and "Delete line" buttons when a shape is selected
-        if (window.editShapeBtn) {
-            window.editShapeBtn.style.display = 'inline-block';
-        }
+        // Show the "Delete line" and "Edit line" buttons when a shape is selected
         if (window.deleteShapeBtn) {
             window.deleteShapeBtn.style.display = 'inline-block';
+        }
+        if (window.editShapeBtn) {
+            window.editShapeBtn.style.display = 'inline-block';
         }
     } else {
         window.selectedShapeInfoDiv.innerHTML = '<p>No shape selected.</p>';
         
-        // Hide the "Edit line" and "Delete line" buttons when no shape is selected
-        if (window.editShapeBtn) {
-            window.editShapeBtn.style.display = 'none';
-        }
+        // Hide the "Delete line" and "Edit line" buttons when no shape is selected
         if (window.deleteShapeBtn) {
             window.deleteShapeBtn.style.display = 'none';
+        }
+        if (window.editShapeBtn) {
+            window.editShapeBtn.style.display = 'none';
         }
     }
 }

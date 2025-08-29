@@ -39,12 +39,13 @@ function updateOrAddCrosshairVLine(gd, xDataValue, doRelayout = true) {
 
 function colorTheLine(eventParam)
 {
+        console.log('[DEBUG] colorTheLine called with event:', eventParam ? 'event provided' : 'no event');
         // console.groupCollapsed('[NativeMousemove] Event Processing');
         // console.log('[colorTheLine] Current dragmode:', window.gd ? window.gd.layout.dragmode : 'N/A');
 
         // Skip if a shape is currently being dragged
         if (window.isDraggingShape) {
-            // console.log('[colorTheLine] Skipping because shape is being dragged');
+            console.log('[DEBUG] colorTheLine skipping because shape is being dragged');
             return;
         }
 
@@ -237,10 +238,10 @@ function colorTheLine(eventParam)
             }
         }
 
-        // console.log(`[colorTheLine] Final: hoveredShapeBackendId=${window.hoveredShapeBackendId}, newHoveredShapeId=${window.newHoveredShapeId}`);
+        console.log(`[DEBUG] colorTheLine Final: hoveredShapeBackendId=${window.hoveredShapeBackendId}, newHoveredShapeId=${window.newHoveredShapeId}`);
         if (window.hoveredShapeBackendId !== window.newHoveredShapeId) {
+            console.log(`[DEBUG] colorTheLine Updated hoveredShapeBackendId to: ${window.newHoveredShapeId}`);
             window.hoveredShapeBackendId = window.newHoveredShapeId;
-            // console.log(`[colorTheLine] Updated hoveredShapeBackendId to: ${window.hoveredShapeBackendId}`);
             if(window.hoveredShapeBackendId) findAndupdateSelectedShapeInfoPanel(window.hoveredShapeBackendId)
             debouncedUpdateShapeVisuals();
         }
