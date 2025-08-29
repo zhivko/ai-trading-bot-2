@@ -317,11 +317,11 @@ class EmailAlertService:
         return [None] * len(timestamps)
 
     async def check_price_alerts(self):
-        logger.info("Starting check_price_alerts cycle.")
+        #logger.info("Starting check_price_alerts cycle.")
         try:
             redis = await get_redis_connection()
             drawings = await self.get_all_drawings(redis)
-            logger.info(f"Found {len(drawings)} drawings to check.")
+            #logger.info(f"Found {len(drawings)} drawings to check.")
         except Exception as e:
             logger.error(f"Error connecting to Redis or getting drawings: {e}", exc_info=True)
             return

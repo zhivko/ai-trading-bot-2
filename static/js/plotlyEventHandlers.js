@@ -175,6 +175,13 @@ function initializePlotlyEventHandlers(gd) {
                 Plotly.relayout(gd, { dragmode: 'drawline' });
                 console.log('[DRAGGING] Switched to drawline mode for shape editing');
             }
+
+            // 🚨 DISABLE LIVE DATA when dragging shapes to prevent interference
+            if (window.liveDataCheckbox && window.liveDataCheckbox.checked) {
+                console.log('[DRAGGING] Disabling live data during shape dragging to prevent interference');
+                window.liveDataCheckbox.checked = false;
+                window.liveDataCheckbox.dispatchEvent(new Event('change'));
+            }
         } else {
             // For axis range changes or unknown events, don't set dragging flag
             window.isDraggingShape = false;
@@ -373,6 +380,26 @@ function initializePlotlyEventHandlers(gd) {
                 // Keep in milliseconds - Plotly already provides proper Date objects/timestamps
                 const minTimestamp = (xRange[0] instanceof Date) ? xRange[0].getTime() : new Date(xRange[0]).getTime();
                 const maxTimestamp = (xRange[1] instanceof Date) ? xRange[1].getTime() : new Date(xRange[1]).getTime();
+        
+                // 🚨 OLD ALARM CHECK: Validate zoom/pan timestamps before saving
+                const minDate = new Date(minTimestamp);
+                const maxDate = new Date(maxTimestamp);
+                if (minDate.getFullYear() < 2000 || maxDate.getFullYear() < 2000) {
+                    const minDateStr = isNaN(minDate.getTime()) ? 'Invalid Date' : minDate.toISOString();
+                    const maxDateStr = isNaN(maxDate.getTime()) ? 'Invalid Date' : maxDate.toISOString();
+                    console.warn('🚨 OLD ALARM DETECTED: Chart zoom/pan resulted in very old dates!', {
+                        source: 'plotly_relayout_zoom',
+                        xRange: xRange,
+                        minTimestamp: minTimestamp,
+                        maxTimestamp: maxTimestamp,
+                        minDate: minDateStr,
+                        maxDate: maxDateStr,
+                        minYear: minDate.getFullYear(),
+                        maxYear: maxDate.getFullYear(),
+                        action: 'Chart zoom/pan calculated timestamps before year 2000 - this should not happen!'
+                    });
+                }
+        
                 window.currentXAxisRange = [minTimestamp, maxTimestamp];
                 window.xAxisMinDisplay.textContent = new Date(minTimestamp).toLocaleString();
                 window.xAxisMaxDisplay.textContent = new Date(maxTimestamp).toLocaleString();

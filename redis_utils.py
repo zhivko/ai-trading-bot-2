@@ -245,7 +245,7 @@ async def publish_live_data_tick(symbol: str, live_data: dict) -> None:
 def fetch_klines_from_bybit(symbol: str, resolution: str, start_ts: int, end_ts: int) -> list[Dict[str, Any]]:
     """Fetches klines from Bybit API."""
 
-    logger.info(f"Fetching klines for {symbol} {resolution} from {datetime.fromtimestamp(start_ts, timezone.utc)} to {datetime.fromtimestamp(end_ts, timezone.utc)}")
+    #logger.info(f"Fetching klines for {symbol} {resolution} from {datetime.fromtimestamp(start_ts, timezone.utc)} to {datetime.fromtimestamp(end_ts, timezone.utc)}")
     all_klines: list[KlineData] = []
     current_start = start_ts
     timeframe_seconds = get_timeframe_seconds(resolution)
@@ -295,7 +295,7 @@ def fetch_klines_from_bybit(symbol: str, resolution: str, start_ts: int, end_ts:
         current_start = last_fetched_ts + timeframe_seconds
 
     all_klines.sort(key=lambda x: x["time"])
-    logger.info(f"Completed Bybit fetch for {symbol} {resolution}: {batch_count} batches, {total_bars_received} total bars received, {len(all_klines)} klines processed")
+    #logger.info(f"Completed Bybit fetch for {symbol} {resolution}: {batch_count} batches, {total_bars_received} total bars received, {len(all_klines)} klines processed")
     return all_klines
 
 def format_kline_data(bar: list[Any]) -> Dict[str, Any]:

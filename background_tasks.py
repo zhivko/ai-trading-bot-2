@@ -12,7 +12,7 @@ from indicators import fetch_open_interest_from_bybit
 from logging_config import logger
 
 async def fetch_and_publish_klines():
-    logger.info("Starting fetch_and_publish_klines background task")
+    #logger.info("Starting fetch_and_publish_klines background task")
     last_fetch_times: dict[str, datetime] = {}
     cycle_count = 0
 
@@ -20,7 +20,7 @@ async def fetch_and_publish_klines():
         try:
             cycle_count += 1
             current_time_utc = datetime.now(timezone.utc)
-            logger.info(f"Background task cycle #{cycle_count} started at {current_time_utc}")
+            #logger.info(f"Background task cycle #{cycle_count} started at {current_time_utc}")
 
             for resolution in timeframe_config.supported_resolutions:
                 time_boundary = current_time_utc.replace(second=0, microsecond=0)
@@ -38,7 +38,7 @@ async def fetch_and_publish_klines():
 
                 last_fetch = last_fetch_times.get(resolution)
                 if last_fetch is None or current_time_utc >= (last_fetch + timedelta(seconds=get_timeframe_seconds(resolution))):
-                    logger.info(f"Fetching klines for {resolution} from {last_fetch or 'beginning'} up to {current_time_utc}")
+                    #logger.info(f"Fetching klines for {resolution} from {last_fetch or 'beginning'} up to {current_time_utc}")
                     symbols_processed = 0
                     total_klines_fetched = 0
 
@@ -51,7 +51,7 @@ async def fetch_and_publish_klines():
                             start_ts = int(last_fetch.timestamp())
 
                         if start_ts < end_ts:
-                            logger.debug(f"Fetching {resolution} klines for {symbol_val} from {datetime.fromtimestamp(start_ts, timezone.utc)} to {datetime.fromtimestamp(end_ts, timezone.utc)}")
+                            #logger.debug(f"Fetching {resolution} klines for {symbol_val} from {datetime.fromtimestamp(start_ts, timezone.utc)} to {datetime.fromtimestamp(end_ts, timezone.utc)}")
                             klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
                             if klines:
                                 await cache_klines(symbol_val, resolution, klines)
@@ -61,18 +61,18 @@ async def fetch_and_publish_klines():
 
                                 if latest_kline['time'] >= int(time_boundary.timestamp()):
                                     await publish_resolution_kline(symbol_val, resolution, latest_kline)
-                                    logger.info(f"Published {resolution} kline for {symbol_val} at {datetime.fromtimestamp(latest_kline['time'], timezone.utc)} (close: {latest_kline['close']})")
+                                    #logger.info(f"Published {resolution} kline for {symbol_val} at {datetime.fromtimestamp(latest_kline['time'], timezone.utc)} (close: {latest_kline['close']})")
                             else:
                                 logger.warning(f"No klines fetched for {symbol_val} {resolution} in range {start_ts} to {end_ts}")
 
-                    logger.info(f"Completed {resolution} fetch cycle: processed {symbols_processed} symbols, fetched {total_klines_fetched} total klines")
+                    #logger.info(f"Completed {resolution} fetch cycle: processed {symbols_processed} symbols, fetched {total_klines_fetched} total klines")
                     last_fetch_times[resolution] = current_time_utc
 
-            logger.info(f"Background task cycle #{cycle_count} kline fetching completed, sleeping for 60 seconds")
+            #logger.info(f"Background task cycle #{cycle_count} kline fetching completed, sleeping for 60 seconds")
             await asyncio.sleep(60)
 
             # Also fetch and cache Open Interest data
-            logger.info("Starting Open Interest data fetch cycle")
+            #logger.info("Starting Open Interest data fetch cycle")
             oi_symbols_processed = 0
             oi_total_entries = 0
 
@@ -93,8 +93,8 @@ async def fetch_and_publish_klines():
                     else:
                         logger.warning(f"No Open Interest data fetched for {symbol_val} {resolution}")
 
-            logger.info(f"Open Interest fetch cycle completed: processed {oi_symbols_processed} symbols, cached {oi_total_entries} total entries")
-            logger.info(f"Background task cycle #{cycle_count} fully completed")
+            #logger.info(f"Open Interest fetch cycle completed: processed {oi_symbols_processed} symbols, cached {oi_total_entries} total entries")
+            #logger.info(f"Background task cycle #{cycle_count} fully completed")
 
         except Exception as e:
             logger.error(f"Error in fetch_and_publish_klines task cycle #{cycle_count}: {e}", exc_info=True)

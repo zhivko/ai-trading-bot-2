@@ -87,8 +87,11 @@ const config = {
         },
         'zoomIn2d', 'zoomOut2d', 'drawline', 'select2d', 'lasso2d' // Keep other buttons from your original config
     ],
+    // Force modebar to show on mobile devices
+    displaylogo: false, // Hide Plotly logo to save space
+    showTips: false, // Disable tips that might interfere on mobile
     editable: false,
-    autosize: true, // Recommended for handling dynamic content
+    autosize: true, // Keep autosize for responsive behavior, but grid rowheights should take precedence
     edits: {
         shapePosition: true,
         annotationPosition: false,

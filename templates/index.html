@@ -60,6 +60,118 @@
         #indicator-checkbox-list div {
             margin-bottom: 5px;
         }
+
+        /* Modal Styles */
+        .modal {
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 0;
+            border: 1px solid #888;
+            width: 90%;
+            max-width: 500px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .modal-header {
+            padding: 15px 20px;
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+            border-radius: 8px 8px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            color: #333;
+        }
+
+        .close-modal {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close-modal:hover {
+            color: #000;
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .form-group input[type="color"] {
+            height: 40px;
+            cursor: pointer;
+        }
+
+        .modal-footer {
+            padding: 15px 20px;
+            background-color: #f8f9fa;
+            border-top: 1px solid #dee2e6;
+            border-radius: 0 0 8px 8px;
+            text-align: right;
+        }
+
+        .modal-footer button {
+            padding: 8px 16px;
+            margin-left: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        #save-shape-properties {
+            background-color: #007bff;
+            color: white;
+        }
+
+        #save-shape-properties:hover {
+            background-color: #0056b3;
+        }
+
+        #cancel-shape-properties {
+            background-color: #6c757d;
+            color: white;
+        }
+
+        #cancel-shape-properties:hover {
+            background-color: #545b62;
+        }
     </style>
 </head>
 <body>
@@ -130,6 +242,7 @@
                 <p>No shape selected.</p>
             </div>
             <div>
+                <button id="edit-shape-btn" style="display: none;">Edit line</button>
                 <button id="delete-shape-btn" style="display: none;">Delete line</button>
                 <button id="delete-all-shapes-btn">Delete ALL Drawings</button>
             </div>
@@ -181,6 +294,55 @@
                     <input type="checkbox" id="indicator-jma" value="jma">
                     <label for="indicator-jma">Jurik MA</label>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shape Properties Modal -->
+    <div id="shape-properties-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Edit Shape Properties</h3>
+                <span class="close-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="shape-start-price">Start Price:</label>
+                    <input type="number" id="shape-start-price" step="0.00000001">
+                </div>
+                <div class="form-group">
+                    <label for="shape-end-price">End Price:</label>
+                    <input type="number" id="shape-end-price" step="0.00000001">
+                </div>
+                <div class="form-group">
+                    <label for="shape-start-time">Start Time:</label>
+                    <input type="datetime-local" id="shape-start-time">
+                </div>
+                <div class="form-group">
+                    <label for="shape-end-time">End Time:</label>
+                    <input type="datetime-local" id="shape-end-time">
+                </div>
+                <div class="form-group">
+                    <label for="shape-color">Line Color:</label>
+                    <input type="color" id="shape-color" value="#FF0000">
+                </div>
+                <div class="form-group">
+                    <label for="shape-width">Line Width:</label>
+                    <input type="number" id="shape-width" min="1" max="10" value="2">
+                </div>
+                <div class="form-group">
+                    <label for="shape-style">Line Style:</label>
+                    <select id="shape-style">
+                        <option value="solid">Solid</option>
+                        <option value="dash">Dash</option>
+                        <option value="dot">Dot</option>
+                        <option value="dashdot">Dash-Dot</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="save-shape-properties">Save</button>
+                <button id="cancel-shape-properties">Cancel</button>
             </div>
         </div>
     </div>

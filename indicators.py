@@ -136,6 +136,12 @@ def calculate_rsi(df_input: pd.DataFrame, period: int = 14) -> Dict[str, Any]:
     df = df_input.copy()
     original_time_index = df.index.to_series()
 
+    # DEBUG: Log input data
+    logger.debug(f"[DEBUG RSI] Input DataFrame length: {len(df)}, period: {period}")
+    if len(df) > 0:
+        logger.debug(f"[DEBUG RSI] Sample close prices: {df['close'].head(5).tolist()}")
+        logger.debug(f"[DEBUG RSI] Close price range: min={df['close'].min():.2f}, max={df['close'].max():.2f}")
+
     # 1️⃣ Compute the raw RSI
     df.ta.rsi(length=period, append=True)
     rsi_col = f"RSI_{period}"
@@ -145,12 +151,26 @@ def calculate_rsi(df_input: pd.DataFrame, period: int = 14) -> Dict[str, Any]:
         )
         return {"t": [], "rsi": [], "rsi_sma14": []}
 
+    # DEBUG: Log RSI values
+    logger.debug(f"[DEBUG RSI] RSI column created: {rsi_col}")
+    if len(df) > 0:
+        logger.debug(f"[DEBUG RSI] Sample RSI values: {df[rsi_col].head(5).tolist()}")
+        logger.debug(f"[DEBUG RSI] RSI range: min={df[rsi_col].min():.2f}, max={df[rsi_col].max():.2f}")
+
     # 2️⃣ Compute SMA‑14 of that RSI
     sma_col = f"RSI_{period}_sma14"
     df[sma_col] = df[rsi_col].rolling(window=14).mean()
 
+    # DEBUG: Log SMA values
+    logger.debug(f"[DEBUG RSI] SMA column created: {sma_col}")
+    if len(df) > 0:
+        logger.debug(f"[DEBUG RSI] Sample SMA values: {df[sma_col].head(5).tolist()}")
+        logger.debug(f"[DEBUG RSI] SMA range: min={df[sma_col].min():.2f}, max={df[sma_col].max():.2f}")
+
     # 3️⃣ Return both columns via _extract_results
-    return _extract_results(df, [rsi_col, sma_col], original_time_index)
+    result = _extract_results(df, [rsi_col, sma_col], original_time_index)
+    logger.debug(f"[DEBUG RSI] Final result length: {len(result.get('t', []))}")
+    return result
 
 def calculate_stoch_rsi(df_input: pd.DataFrame, rsi_period: int, stoch_period: int, k_period: int, d_period: int) -> Dict[str, Any]:
     df = df_input.copy()
@@ -384,7 +404,7 @@ def format_indicator_data_for_llm_as_dict(indicator_id: str, indicator_config_de
 def fetch_open_interest_from_bybit(symbol: str, interval: str, start_ts: int, end_ts: int) -> list[Dict[str, Any]]:
     """Fetches Open Interest data from Bybit."""
 
-    logger.info(f"Fetching Open Interest for {symbol} {interval} from {datetime.fromtimestamp(start_ts, timezone.utc)} to {datetime.fromtimestamp(end_ts, timezone.utc)}")
+    #logger.info(f"Fetching Open Interest for {symbol} {interval} from {datetime.fromtimestamp(start_ts, timezone.utc)} to {datetime.fromtimestamp(end_ts, timezone.utc)}")
     all_oi_data: list[Dict[str, Any]] = []
     current_start = start_ts
     batch_count = 0
@@ -454,5 +474,5 @@ def fetch_open_interest_from_bybit(symbol: str, interval: str, start_ts: int, en
         current_start = last_fetched_ts_in_batch + interval_seconds
 
     all_oi_data.sort(key=lambda x: x["time"]) # Ensure chronological order
-    logger.info(f"Completed Bybit Open Interest fetch for {symbol} {interval}: {batch_count} batches, {total_entries_received} total entries received, {len(all_oi_data)} entries processed")
+    #logger.info(f"Completed Bybit Open Interest fetch for {symbol} {interval}: {batch_count} batches, {total_entries_received} total entries received, {len(all_oi_data)} entries processed")
     return all_oi_data

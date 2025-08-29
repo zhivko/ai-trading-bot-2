@@ -60,6 +60,21 @@ async function updateChart() {
     window.currentDataStart = new Date(jsonData.t[0] * 1000);
     window.currentDataEnd = new Date(jsonData.t[jsonData.t.length - 1] * 1000);
 
+    // DEBUG: Log OHLC sample values
+    console.log('[DEBUG OHLC] Sample OHLC values:', {
+        symbol: symbol,
+        resolution: resolution,
+        length: jsonData.t.length,
+        firstTimestamp: jsonData.t[0],
+        lastTimestamp: jsonData.t[jsonData.t.length - 1],
+        sampleOpen: jsonData.o.slice(0, 5),
+        sampleHigh: jsonData.h.slice(0, 5),
+        sampleLow: jsonData.l.slice(0, 5),
+        sampleClose: jsonData.c.slice(0, 5),
+        minClose: Math.min(...jsonData.c),
+        maxClose: Math.max(...jsonData.c)
+    });
+
     const firstDate = window.currentDataStart;
     const lastDate = window.currentDataEnd;
     const timeDiff = lastDate.getTime() - firstDate.getTime();
@@ -109,17 +124,6 @@ async function updateChart() {
         const yMin = parseFloat(window.currentYAxisRange[0]);
         const yMax = parseFloat(window.currentYAxisRange[1]);
         const yRange = yMax - yMin;
-
-        if (yRange < 0.1 || yMin < 0 || yMax > 100) {
-            console.warn('🚨 CHART OLD ALARM: Applying unusual Y-axis range to chart!', {
-                symbol: symbol,
-                yAxisMin: window.currentYAxisRange[0],
-                yAxisMax: window.currentYAxisRange[1],
-                range: yRange,
-                action: 'Chart is displaying unusual Y-axis values - please verify'
-            });
-        }
-
         mainPriceChartCalculatedRange = window.currentYAxisRange;
     } else {
         if (jsonData.l && jsonData.l.length > 0 && jsonData.h && jsonData.h.length > 0) {
@@ -158,6 +162,26 @@ async function updateChart() {
                 activeIndicatorIds.forEach(id => {
                     if (allIndicatorsResponse.data[id] && allIndicatorsResponse.data[id].s === 'ok') {
                         validIndicatorData.push({ id: id, data: allIndicatorsResponse.data[id] });
+                        // DEBUG: Log indicator sample values
+                        const indData = allIndicatorsResponse.data[id];
+                        console.log(`[DEBUG INDICATOR] ${id} data:`, {
+                            length: indData.t ? indData.t.length : 0,
+                            firstTimestamp: indData.t ? indData.t[0] : null,
+                            lastTimestamp: indData.t ? indData.t[indData.t.length - 1] : null,
+                            sampleValues: Object.keys(indData).filter(k => k !== 't' && k !== 's').reduce((acc, key) => {
+                                acc[key] = indData[key] ? indData[key].slice(0, 5) : [];
+                                return acc;
+                            }, {}),
+                            minMax: Object.keys(indData).filter(k => k !== 't' && k !== 's').reduce((acc, key) => {
+                                if (indData[key] && indData[key].length > 0) {
+                                    acc[key] = {
+                                        min: Math.min(...indData[key].filter(v => v !== null)),
+                                        max: Math.max(...indData[key].filter(v => v !== null))
+                                    };
+                                }
+                                return acc;
+                            }, {})
+                        });
                     } else {
                         console.warn(`No data or error for indicator ${id} in combined response.`, allIndicatorsResponse.data[id]);
                     }
@@ -197,7 +221,7 @@ async function updateChart() {
             
             // Setup layout.grid
             const numTotalPlots = 1 + numValidIndicators;
-            const mainChartWeight = 3; // Give main chart more weight
+            const mainChartWeight = 3; // Give main chart 3x weight for 3:1 ratio with indicators
             const indicatorWeight = 1;
             const totalWeight = mainChartWeight + (numValidIndicators * indicatorWeight);
 
@@ -383,12 +407,14 @@ async function updateChart() {
         const maxDate = new Date(window.currentXAxisRange[1]);
 
         if (minDate.getFullYear() < 2000 || maxDate.getFullYear() < 2000) {
+            const minDateStr = isNaN(minDate.getTime()) ? 'Invalid Date' : minDate.toISOString();
+            const maxDateStr = isNaN(maxDate.getTime()) ? 'Invalid Date' : maxDate.toISOString();
             console.warn('🚨 CHART OLD ALARM: Applying very old X-axis range to chart!', {
                 symbol: symbol,
                 xAxisMin: window.currentXAxisRange[0],
                 xAxisMax: window.currentXAxisRange[1],
-                minDate: minDate.toISOString(),
-                maxDate: maxDate.toISOString(),
+                minDate: minDateStr,
+                maxDate: maxDateStr,
                 minYear: minDate.getFullYear(),
                 maxYear: maxDate.getFullYear(),
                 action: 'Chart is displaying data from very old dates - please investigate'
@@ -432,6 +458,16 @@ async function updateChart() {
         console.log('[DEBUG chartUpdater] Indicator Traces Data (first 5 y-values shown):', JSON.parse(JSON.stringify(indicatorTraces.map(t => ({name: t.name, yaxis: t.yaxis, x_length: t.x?.length, y_length: t.y?.length, y_sample: t.y?.slice(0,5) })))));
     }
 
+    // DEBUG: Log chart container height and layout height
+    const chartElement = document.getElementById('chart');
+    if (chartElement) {
+        const computedStyle = window.getComputedStyle(chartElement);
+        console.log('[DEBUG chartUpdater] Chart element computed height:', computedStyle.height);
+        console.log('[DEBUG chartUpdater] Chart element client height:', chartElement.clientHeight);
+        console.log('[DEBUG chartUpdater] Chart element offset height:', chartElement.offsetHeight);
+    }
+    console.log('[DEBUG chartUpdater] currentLayout.height before Plotly.react:', currentLayout.height);
+
     const allTraces = [newTrace, ...indicatorTraces];
     currentLayout.shapes = currentLayout.shapes || [];
     try {
@@ -450,6 +486,11 @@ async function updateChart() {
             const refs = getPlotlyRefsFromSubplotName(adjustedSubplotName);
             
             if (refs && refs.xref && refs.yref) { // Only add shape if valid refs were found
+                // Get line properties from drawing properties or use defaults
+                const lineColor = drawing.properties?.line_color || DEFAULT_DRAWING_COLOR;
+                const lineWidth = drawing.properties?.line_width || 2;
+                const lineStyle = drawing.properties?.line_style || 'solid';
+
                 const shape = {
                     backendId: drawing.id,
                     type: drawing.type, // e.g., 'line'
@@ -459,7 +500,12 @@ async function updateChart() {
                     y0: drawing.start_price,
                     x1: new Date(drawing.end_time * 1000),
                     y1: drawing.end_price,
-                    line: { color: DEFAULT_DRAWING_COLOR, width: 2, layer: 'above' }, // DEFAULT_DRAWING_COLOR from config.js
+                    line: {
+                        color: lineColor,
+                        width: lineWidth,
+                        dash: lineStyle,
+                        layer: 'above'
+                    },
                     editable: false, // Will be managed by updateShapeVisuals
                     name: `drawing-${drawing.id}` // Optional, for easier debugging
                 };
@@ -767,10 +813,8 @@ async function updateChart() {
     } catch (error) { console.error('Error fetching or processing trend drawings:', error); }
     */
 
-    const chartDiv = document.getElementById('chart');
-    if (chartDiv) {
-        currentLayout.height = chartDiv.clientHeight;
-    }
+    // Note: Removed fixed height setting to allow grid rowheights to work properly
+    // The grid's rowheights configuration will handle height distribution
 
     Plotly.react('chart', allTraces, currentLayout, config); // Assumes config is global
 

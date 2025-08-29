@@ -50,11 +50,21 @@ function saveSettings() {
         settings.streamDeltaTime = 0; // Default if slider not found
     }
 
+    console.log('[DEBUG settingsManager] Saving settings for', currentSymbol, ':', JSON.stringify(settings, null, 2));
+
     fetch('/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
-    }).catch(err => console.error("Error saving settings:", err));
+    })
+    .then(response => {
+        if (response.ok) {
+            console.log('[DEBUG settingsManager] Settings saved successfully for', currentSymbol);
+        } else {
+            console.error('[DEBUG settingsManager] Failed to save settings for', currentSymbol, 'Status:', response.status);
+        }
+    })
+    .catch(err => console.error("Error saving settings:", err));
 }
 
 async function populateDropdowns() {
@@ -136,6 +146,9 @@ async function loadSettings() {
         const response = await fetch(`/settings?symbol=${currentSymbol}`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const settings = await response.json();
+
+        console.log('[DEBUG settingsManager] Loaded settings for', currentSymbol, ':', JSON.stringify(settings, null, 2));
+
         if (settings.resolution && window.resolutionSelect.options.length > 0) window.resolutionSelect.value = settings.resolution;
         if (settings.range && window.rangeSelect.options.length > 0) window.rangeSelect.value = settings.range;
 
@@ -149,16 +162,28 @@ async function loadSettings() {
             const maxDate = new Date(settings.xAxisMax < 1e10 ? settings.xAxisMax * 1000 : settings.xAxisMax);
 
             if (minDate.getFullYear() < 2000 || maxDate.getFullYear() < 2000) {
+                const minDateStr = isNaN(minDate.getTime()) ? 'Invalid Date' : minDate.toISOString();
+                const maxDateStr = isNaN(maxDate.getTime()) ? 'Invalid Date' : maxDate.toISOString();
                 console.warn('🚨 OLD ALARM DETECTED: X-Axis settings contain very old dates!', {
                     symbol: currentSymbol,
                     xAxisMin: settings.xAxisMin,
                     xAxisMax: settings.xAxisMax,
-                    minDate: minDate.toISOString(),
-                    maxDate: maxDate.toISOString(),
+                    minDate: minDateStr,
+                    maxDate: maxDateStr,
                     minYear: minDate.getFullYear(),
                     maxYear: maxDate.getFullYear(),
-                    action: 'Please investigate why these old axis settings are being saved'
+                    action: 'Auto-scaling chart to fix corrupted timestamps'
                 });
+
+                // Auto-scale immediately to fix the corrupted timestamps
+                setTimeout(() => {
+                    if (typeof window.applyAutoscale === 'function') {
+                        console.log('🚨 OLD ALARM: Triggering automatic autoscale to fix corrupted timestamps');
+                        window.applyAutoscale();
+                    } else {
+                        console.warn('🚨 OLD ALARM: window.applyAutoscale function not available for auto-fix');
+                    }
+                }, 100); // Small delay to ensure chart is fully loaded
             }
 
             // If the timestamp appears to be in seconds (reasonable date range),
@@ -175,8 +200,14 @@ async function loadSettings() {
             }
 
             window.currentXAxisRange = [minTimestamp, maxTimestamp];
-            window.xAxisMinDisplay.textContent = new Date(minTimestamp).toLocaleString();
-            window.xAxisMaxDisplay.textContent = new Date(maxTimestamp).toLocaleString();
+            console.log('[DEBUG settingsManager] Set window.currentXAxisRange to:', window.currentXAxisRange);
+
+            const minDateDisplay = new Date(minTimestamp);
+            const maxDateDisplay = new Date(maxTimestamp);
+            window.xAxisMinDisplay.textContent = isNaN(minDateDisplay.getTime()) ? 'Invalid Date' : minDateDisplay.toLocaleString();
+            window.xAxisMaxDisplay.textContent = isNaN(maxDateDisplay.getTime()) ? 'Invalid Date' : maxDateDisplay.toLocaleString();
+
+            console.log('[DEBUG settingsManager] X-axis display updated - Min:', window.xAxisMinDisplay.textContent, 'Max:', window.xAxisMaxDisplay.textContent);
         } else {
             window.currentXAxisRange = null;
             window.xAxisMinDisplay.textContent = 'Auto';

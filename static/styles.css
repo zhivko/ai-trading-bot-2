@@ -84,7 +84,6 @@ body {
 }
 
 #chart {
-    height: 600px;
     border: 1px solid #ddd;
     border-radius: 4px;
 }
@@ -210,5 +209,23 @@ body {
     /* Hide hover-related classes */
     .js-plotly-plot [class*="hover"] {
         display: none !important;
+    }
+
+    /* Ensure modebar is visible on mobile */
+    .js-plotly-plot .modebar {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+
+    .js-plotly-plot .modebar-btn {
+        display: inline-block !important;
+        visibility: visible !important;
+    }
+
+    /* Make modebar buttons larger on mobile for easier touch */
+    .js-plotly-plot .modebar-btn {
+        min-width: 32px !important;
+        min-height: 32px !important;
     }
 }
