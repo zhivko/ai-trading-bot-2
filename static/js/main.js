@@ -59,7 +59,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log("[main.js] Symbol changed. Clearing ranges, deselecting shape.");
         updateSelectedShapeInfoPanel(null);
         if (window.gd) removeRealtimePriceLine(window.gd); // removeRealtimePriceLine from liveData.js
-        setLastSelectedSymbol(window.symbolSelect.value);
+
+        // Redirect to symbol page
+        const selectedSymbol = window.symbolSelect.value;
+        if (selectedSymbol) {
+            const symbolUrl = `/${selectedSymbol}`;
+            console.log(`[main.js] Redirecting to: ${symbolUrl}`);
+            window.location.href = symbolUrl;
+        }
+
+        setLastSelectedSymbol(selectedSymbol);
         loadSettings();
     }); // Replaced .onchange with addEventListener('change',...)
     window.resolutionSelect.addEventListener('change', () => {
@@ -74,28 +83,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     }); // Replaced .onchange with addEventListener('change',...)
     window.rangeSelect.addEventListener('change', () => {
         const rangeDropdownValue = window.rangeSelect.value;
-        const now = Math.floor(Date.now() / 1000);
+        const now = Date.now(); // Keep in milliseconds
         let fromTs;
         switch(rangeDropdownValue) {
-            case '1h': fromTs = now - 3600; break;
-            case '8h': fromTs = now - 8 * 3600; break;
-            case '24h': fromTs = now - 86400; break;
-            case '3d': fromTs = now - 3 * 86400; break;
-            case '7d': fromTs = now - 7 * 86400; break;
-            case '30d': fromTs = now - 30 * 86400; break;
-            case '3m': fromTs = now - 90 * 86400; break;
-            case '6m': fromTs = now - 180 * 86400; break;
-            case '1y': fromTs = now - 365 * 86400; break;
-            case '3y': fromTs = now - 3 * 365 * 86400; break;
-            default: fromTs = now - 30 * 86400;
+            case '1h': fromTs = now - 3600 * 1000; break;
+            case '8h': fromTs = now - 8 * 3600 * 1000; break;
+            case '24h': fromTs = now - 86400 * 1000; break;
+            case '3d': fromTs = now - 3 * 86400 * 1000; break;
+            case '7d': fromTs = now - 7 * 86400 * 1000; break;
+            case '30d': fromTs = now - 30 * 86400 * 1000; break;
+            case '3m': fromTs = now - 90 * 86400 * 1000; break;
+            case '6m': fromTs = now - 180 * 86400 * 1000; break;
+            case '1y': fromTs = now - 365 * 86400 * 1000; break;
+            case '3y': fromTs = now - 3 * 365 * 86400 * 1000; break;
+            default: fromTs = now - 30 * 86400 * 1000;
         }
         const toTs = now;
 
-        window.currentXAxisRange = [fromTs * 1000, toTs * 1000]; // Set the range in milliseconds
-        window.xAxisMinDisplay.textContent = new Date(fromTs * 1000).toLocaleString();
-        window.xAxisMaxDisplay.textContent = new Date(toTs * 1000).toLocaleString();
-        
-        window.yAxisMinDisplay.textContent = 'Auto'; 
+        window.currentXAxisRange = [fromTs, toTs]; // Keep in milliseconds
+        window.xAxisMinDisplay.textContent = new Date(fromTs).toLocaleString();
+        window.xAxisMaxDisplay.textContent = new Date(toTs).toLocaleString();
+
+        window.yAxisMinDisplay.textContent = 'Auto';
         window.yAxisMaxDisplay.textContent = 'Auto';
         window.activeShapeForPotentialDeletion = null;
         updateSelectedShapeInfoPanel(null);
@@ -240,6 +249,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.symbolSelect.value = lastSelectedSymbol;
     }
 
+    // Check for requested symbol from URL path (e.g., /BTCUSDT) after dropdown is populated
+    const urlPath = window.location.pathname;
+    if (urlPath && urlPath !== '/' && urlPath.length > 1) {
+        const requestedSymbol = urlPath.substring(1).toUpperCase();
+        console.log(`[main.js] Requested symbol from URL: ${requestedSymbol}`);
+
+        // Wait a bit for dropdown to be fully populated, then set the symbol
+        setTimeout(() => {
+            if (window.symbolSelect.querySelector(`option[value="${requestedSymbol}"]`)) {
+                window.symbolSelect.value = requestedSymbol;
+                console.log(`[main.js] Set symbol from URL: ${requestedSymbol}`);
+            } else {
+                console.warn(`[main.js] Requested symbol ${requestedSymbol} not found in dropdown`);
+            }
+        }, 100);
+    }
+
     // Now that dropdowns are populated (and symbolSelect.value should be set by populate or default),
     // initialize chart interactions and then load settings.
     if (window.gd) initializeChartInteractions(); // From chartInteractions.js, ensure gd is available
@@ -292,33 +318,52 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
    // --- X-AXIS AUTOSCALE ---
    let xMin = Infinity, xMax = -Infinity;
    let xDataFound = false;
+   console.log("Autoscale: Starting X-axis calculation...");
 
-   fullData.forEach(trace => {
+   fullData.forEach((trace, index) => {
+       console.log(`Autoscale: Checking trace ${index}, type: ${trace.type}, name: ${trace.name}, has x: ${!!trace.x}, x length: ${trace.x ? trace.x.length : 0}`);
        if (trace.x && trace.x.length > 0) {  // Check if x-values are present
-           trace.x.forEach(ts => {
+           console.log(`Autoscale: Processing trace ${index} x-values:`, trace.x.slice(0, 3), "... (showing first 3)");
+           trace.x.forEach((ts, tsIndex) => {
                const timestamp = (ts instanceof Date) ? ts.getTime() : new Date(ts).getTime();
                if (!isNaN(timestamp)) {
-                   if (timestamp < xMin) xMin = timestamp;
-                   if (timestamp > xMax) xMax = timestamp;
+                   if (timestamp < xMin) {
+                       xMin = timestamp;
+                       console.log(`Autoscale: New xMin found at trace ${index}, index ${tsIndex}: ${new Date(timestamp).toISOString()}`);
+                   }
+                   if (timestamp > xMax) {
+                       xMax = timestamp;
+                       console.log(`Autoscale: New xMax found at trace ${index}, index ${tsIndex}: ${new Date(timestamp).toISOString()}`);
+                   }
                    xDataFound = true;
+               } else {
+                   console.warn(`Autoscale: Invalid timestamp at trace ${index}, index ${tsIndex}:`, ts);
                }
            });
        }
    });
 
+   console.log(`Autoscale: X-axis calculation complete. xDataFound: ${xDataFound}, xMin: ${xMin} (${new Date(xMin).toISOString()}), xMax: ${xMax} (${new Date(xMax).toISOString()})`);
+
    if (xDataFound) {
        let xPadding;
        if (xMin === xMax) {
            xPadding = 60 * 60 * 1000; // 1 hour in milliseconds
+           console.log("Autoscale: xMin equals xMax, using 1 hour padding");
        } else {
            xPadding = (xMax - xMin) * 0.05; // 5% padding
+           console.log(`Autoscale: Calculated 5% padding: ${(xMax - xMin) * 0.05}ms`);
            if (xPadding < 60000 && (xMax - xMin) > 0) {
                xPadding = 60000;
+               console.log("Autoscale: Padding was too small, setting minimum 1 minute padding");
            }
        }
-       layoutUpdate['xaxis.range[0]'] = new Date(xMin - xPadding).toISOString();
-       layoutUpdate['xaxis.range[1]'] = new Date(xMax + xPadding).toISOString();
+       const finalXMin = xMin - xPadding;
+       const finalXMax = xMax + xPadding;
+       layoutUpdate['xaxis.range[0]'] = new Date(finalXMin).toISOString();
+       layoutUpdate['xaxis.range[1]'] = new Date(finalXMax).toISOString();
        layoutUpdate['xaxis.autorange'] = false;
+       console.log(`Autoscale: Final X-axis range: ${new Date(finalXMin).toISOString()} to ${new Date(finalXMax).toISOString()}`);
 
        // Apply to matching x-axes
        Object.keys(inputLayout).forEach(key => {

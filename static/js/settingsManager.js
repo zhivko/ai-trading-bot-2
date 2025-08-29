@@ -59,22 +59,32 @@ function saveSettings() {
 
 async function populateDropdowns() {
     try {
-        const response = await fetch('/initial_chart_config');
-        if (!response.ok) {
-             const errorBody = await response.text().catch(() => "Could not read error body");
-            throw new Error(`HTTP error! status: ${response.status} - ${errorBody}`);
+        // Get symbols from symbols_list endpoint
+        const symbolsResponse = await fetch('/symbols_list');
+        if (!symbolsResponse.ok) {
+            const errorBody = await symbolsResponse.text().catch(() => "Could not read error body");
+            throw new Error(`HTTP error! status: ${symbolsResponse.status} - ${errorBody}`);
         }
+        const symbols = await symbolsResponse.json();
 
-        const configData = await response.json();
+        // Get config data from initial_chart_config endpoint
+        const configResponse = await fetch('/initial_chart_config');
+        if (!configResponse.ok) {
+            const errorBody = await configResponse.text().catch(() => "Could not read error body");
+            throw new Error(`HTTP error! status: ${configResponse.status} - ${errorBody}`);
+        }
+        const configData = await configResponse.json();
 
+        // Populate symbols dropdown
         window.symbolSelect.innerHTML = '';
-        configData.symbols.forEach(symbol => {
+        symbols.forEach(symbol => {
             const option = document.createElement('option');
             option.value = symbol;
             option.textContent = symbol.replace('USDT', '/USDT');
             window.symbolSelect.appendChild(option);
         });
 
+        // Populate resolutions dropdown
         window.resolutionSelect.innerHTML = '';
         configData.resolutions.forEach(resolution => {
             const option = document.createElement('option');
@@ -83,6 +93,7 @@ async function populateDropdowns() {
             window.resolutionSelect.appendChild(option);
         });
 
+        // Populate ranges dropdown
         window.rangeSelect.innerHTML = '';
         configData.ranges.forEach(range => {
             const option = document.createElement('option');
@@ -93,7 +104,17 @@ async function populateDropdowns() {
 
     } catch (error) {
         console.error('Error populating dropdowns:', error);
-        if (window.symbolSelect.options.length === 0) window.symbolSelect.innerHTML = '<option value="BTCUSDT">BTC/USDT</option>';
+        // Fallback: populate with known symbols
+        if (window.symbolSelect.options.length === 0) {
+            const fallbackSymbols = ["BTCUSDT", "XMRUSDT", "ETHUSDT", "SOLUSDT", "SUIUSDT", "PAXGUSDT", "BNBUSDT", "ADAUSDT"];
+            window.symbolSelect.innerHTML = '';
+            fallbackSymbols.forEach(symbol => {
+                const option = document.createElement('option');
+                option.value = symbol;
+                option.textContent = symbol.replace('USDT', '/USDT');
+                window.symbolSelect.appendChild(option);
+            });
+        }
         if (window.resolutionSelect.options.length === 0) window.resolutionSelect.innerHTML = '<option value="1d">1 Day</option>';
         if (window.rangeSelect.options.length === 0) window.rangeSelect.innerHTML = '<option value="30d">30d</option>';
     }
@@ -119,9 +140,43 @@ async function loadSettings() {
         if (settings.range && window.rangeSelect.options.length > 0) window.rangeSelect.value = settings.range;
 
         if (settings.xAxisMin !== null && settings.xAxisMax !== null && typeof settings.xAxisMin !== 'undefined') {
-            window.currentXAxisRange = [settings.xAxisMin, settings.xAxisMax];
-            window.xAxisMinDisplay.textContent = new Date(settings.xAxisMin).toLocaleString();
-            window.xAxisMaxDisplay.textContent = new Date(settings.xAxisMax).toLocaleString();
+            // Check if timestamps are in seconds or milliseconds
+            let minTimestamp = settings.xAxisMin;
+            let maxTimestamp = settings.xAxisMax;
+
+            // Check for old alarm dates (before year 2000)
+            const minDate = new Date(settings.xAxisMin < 1e10 ? settings.xAxisMin * 1000 : settings.xAxisMin);
+            const maxDate = new Date(settings.xAxisMax < 1e10 ? settings.xAxisMax * 1000 : settings.xAxisMax);
+
+            if (minDate.getFullYear() < 2000 || maxDate.getFullYear() < 2000) {
+                console.warn('🚨 OLD ALARM DETECTED: X-Axis settings contain very old dates!', {
+                    symbol: currentSymbol,
+                    xAxisMin: settings.xAxisMin,
+                    xAxisMax: settings.xAxisMax,
+                    minDate: minDate.toISOString(),
+                    maxDate: maxDate.toISOString(),
+                    minYear: minDate.getFullYear(),
+                    maxYear: maxDate.getFullYear(),
+                    action: 'Please investigate why these old axis settings are being saved'
+                });
+            }
+
+            // If the timestamp appears to be in seconds (reasonable date range),
+            // convert to milliseconds for JavaScript Date
+            // If it's already in milliseconds (large numbers), use as-is
+            if (settings.xAxisMin < 1e10) { // Less than 10 billion (reasonable for seconds since 1970)
+                minTimestamp = settings.xAxisMin * 1000;
+                maxTimestamp = settings.xAxisMax * 1000;
+            }
+            // Handle legacy timestamps that were incorrectly saved
+            else if (settings.xAxisMin < 1e12 && new Date(settings.xAxisMin).getFullYear() < 2000) {
+                minTimestamp = Math.floor(settings.xAxisMin / 1000);
+                maxTimestamp = Math.floor(settings.xAxisMax / 1000);
+            }
+
+            window.currentXAxisRange = [minTimestamp, maxTimestamp];
+            window.xAxisMinDisplay.textContent = new Date(minTimestamp).toLocaleString();
+            window.xAxisMaxDisplay.textContent = new Date(maxTimestamp).toLocaleString();
         } else {
             window.currentXAxisRange = null;
             window.xAxisMinDisplay.textContent = 'Auto';
@@ -129,14 +184,29 @@ async function loadSettings() {
         }
 
        if (settings.yAxisMin !== null && settings.yAxisMax !== null && typeof settings.yAxisMin !== 'undefined') {
-            window.currentYAxisRange = [settings.yAxisMin, settings.yAxisMax];
-            window.yAxisMinDisplay.textContent = settings.yAxisMin.toFixed(2);
-            window.yAxisMaxDisplay.textContent = settings.yAxisMax.toFixed(2);
-        } else {
-            window.currentYAxisRange = null;
-            window.yAxisMinDisplay.textContent = 'Auto';
-            window.yAxisMaxDisplay.textContent = 'Auto';
-        }
+             // Check for unusual Y-axis ranges that might indicate old/problematic settings
+             const yMin = parseFloat(settings.yAxisMin);
+             const yMax = parseFloat(settings.yAxisMax);
+
+             // Log warning for very small ranges or unusual values that might indicate old settings
+             if ((yMax - yMin) < 0.1 || yMin < 0 || yMax > 100) {
+                 console.warn('🚨 POTENTIAL OLD ALARM DETECTED: Y-Axis settings have unusual values!', {
+                     symbol: currentSymbol,
+                     yAxisMin: settings.yAxisMin,
+                     yAxisMax: settings.yAxisMax,
+                     range: yMax - yMin,
+                     action: 'Please verify if these Y-axis values are correct'
+                 });
+             }
+
+             window.currentYAxisRange = [settings.yAxisMin, settings.yAxisMax];
+             window.yAxisMinDisplay.textContent = settings.yAxisMin.toFixed(2);
+             window.yAxisMaxDisplay.textContent = settings.yAxisMax.toFixed(2);
+         } else {
+             window.currentYAxisRange = null;
+             window.yAxisMinDisplay.textContent = 'Auto';
+             window.yAxisMaxDisplay.textContent = 'Auto';
+         }
 
         const allIndicatorCheckboxes = document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]');
         allIndicatorCheckboxes.forEach(checkbox => checkbox.checked = false);

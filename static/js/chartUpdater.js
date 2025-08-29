@@ -105,6 +105,21 @@ async function updateChart() {
     // This will be used whether indicators are present or not.
     let mainPriceChartCalculatedRange;
     if (window.currentYAxisRange) {
+        // Check for unusual Y-axis ranges when applying to chart
+        const yMin = parseFloat(window.currentYAxisRange[0]);
+        const yMax = parseFloat(window.currentYAxisRange[1]);
+        const yRange = yMax - yMin;
+
+        if (yRange < 0.1 || yMin < 0 || yMax > 100) {
+            console.warn('🚨 CHART OLD ALARM: Applying unusual Y-axis range to chart!', {
+                symbol: symbol,
+                yAxisMin: window.currentYAxisRange[0],
+                yAxisMax: window.currentYAxisRange[1],
+                range: yRange,
+                action: 'Chart is displaying unusual Y-axis values - please verify'
+            });
+        }
+
         mainPriceChartCalculatedRange = window.currentYAxisRange;
     } else {
         if (jsonData.l && jsonData.l.length > 0 && jsonData.h && jsonData.h.length > 0) {
@@ -361,15 +376,37 @@ async function updateChart() {
     // Apply X-axis range and tick configuration to the designated primary X-axis
     const primaryXAxisLayoutKey = 'xaxis'; // Always use the main xaxis object
     if (window.currentXAxisRange) {
+        console.log('[chartUpdater] Using custom X-axis range from window.currentXAxisRange:', window.currentXAxisRange);
+
+        // Check for old alarm dates when applying to chart
+        const minDate = new Date(window.currentXAxisRange[0]);
+        const maxDate = new Date(window.currentXAxisRange[1]);
+
+        if (minDate.getFullYear() < 2000 || maxDate.getFullYear() < 2000) {
+            console.warn('🚨 CHART OLD ALARM: Applying very old X-axis range to chart!', {
+                symbol: symbol,
+                xAxisMin: window.currentXAxisRange[0],
+                xAxisMax: window.currentXAxisRange[1],
+                minDate: minDate.toISOString(),
+                maxDate: maxDate.toISOString(),
+                minYear: minDate.getFullYear(),
+                maxYear: maxDate.getFullYear(),
+                action: 'Chart is displaying data from very old dates - please investigate'
+            });
+        }
+
         currentLayout[primaryXAxisLayoutKey].range = [new Date(window.currentXAxisRange[0]), new Date(window.currentXAxisRange[1])];
         currentLayout[primaryXAxisLayoutKey].autorange = false;
         currentLayout[primaryXAxisLayoutKey].dtick = null;
         currentLayout[primaryXAxisLayoutKey].tickvals = null;
         currentLayout[primaryXAxisLayoutKey].ticktext = null;
         currentLayout[primaryXAxisLayoutKey].tickformat = '%Y-%m-%d<br>%H:%M';
+        console.log('[chartUpdater] Set X-axis range to:', currentLayout[primaryXAxisLayoutKey].range);
     } else { // Range selected from dropdown
+        console.log('[chartUpdater] Using dropdown range - fromTs:', fromTs, 'toTs:', toTs);
         currentLayout[primaryXAxisLayoutKey].range = [new Date(fromTs * 1000), new Date(toTs * 1000)];
         currentLayout[primaryXAxisLayoutKey].autorange = false;
+        console.log('[chartUpdater] Set X-axis range to:', currentLayout[primaryXAxisLayoutKey].range);
         switch(resolution) {
             case '1m': currentLayout[primaryXAxisLayoutKey].dtick = 60 * 1000; currentLayout[primaryXAxisLayoutKey].tickformat = '%Y-%m-%d<br>%H:%M'; break;
             case '5m': currentLayout[primaryXAxisLayoutKey].dtick = 5 * 60 * 1000; currentLayout[primaryXAxisLayoutKey].tickformat = '%Y-%m-%d<br>%H:%M'; break;
@@ -430,10 +467,11 @@ async function updateChart() {
                 // Add larger markers for mobile touch targets (only for user-drawn lines)
                 if (drawing.type === 'line' && !drawing.isSystemShape) {
                     shape.marker = {
-                        size: isMobileDevice() ? 12 : 6, // Larger markers on mobile
+                        size: isMobileDevice() ? 24 : 16, // Even larger markers for maximum visibility
                         color: DEFAULT_DRAWING_COLOR,
-                        symbol: 'circle',
-                        line: { width: 2, color: 'white' }
+                        symbol: 'diamond', // Diamond symbol is more distinctive than circle
+                        line: { width: 3, color: 'white' }, // Thicker white border
+                        opacity: 0.95 // Make markers more opaque for better visibility
                     };
                 }
                 console.log(`[DEBUG chartUpdater] Adding drawing ${drawing.id} to ${refs.xref}/${refs.yref}`);

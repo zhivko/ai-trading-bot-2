@@ -3,7 +3,7 @@ function updateSelectedShapeInfoPanel(activeShape) {
     if (!window.selectedShapeInfoDiv) return;
     if (activeShape && activeShape.id && typeof activeShape.index !== 'undefined') {
         window.selectedShapeInfoDiv.innerHTML = `
-            <p><strong>ID:</strong> ${activeShape.id}<button onclick="openShapePropertiesDialog('${activeShape.id}')">Edit Properties</button></p>
+            <p><strong>ID:</strong> ${activeShape.id}</p>
         `;
         window.activeShapeForPotentialDeletion = activeShape;
         
@@ -32,6 +32,28 @@ async function updateShapeVisuals() {
             newShape.line = {};
         }
 
+        // Ensure markers are present on line shapes
+        if (s.type === 'line' && s.backendId && !s.isSystemShape) {
+            // Add markers for user-drawn lines if not already present
+            if (!newShape.marker) {
+                newShape.marker = {
+                    size: isMobileDevice() ? 24 : 16,
+                    color: DEFAULT_DRAWING_COLOR,
+                    symbol: 'diamond',
+                    line: { width: 3, color: 'white' },
+                    opacity: 0.95
+                };
+            } else {
+                // Ensure marker properties are complete
+                newShape.marker = { ...newShape.marker };
+                if (newShape.marker.size === undefined) newShape.marker.size = isMobileDevice() ? 24 : 16;
+                if (newShape.marker.color === undefined) newShape.marker.color = DEFAULT_DRAWING_COLOR;
+                if (newShape.marker.symbol === undefined) newShape.marker.symbol = 'diamond';
+                if (!newShape.marker.line) newShape.marker.line = { width: 3, color: 'white' };
+                if (newShape.marker.opacity === undefined) newShape.marker.opacity = 0.95;
+            }
+        }
+
         if (s.backendId) {
             const isSelected = window.activeShapeForPotentialDeletion && s.backendId === window.activeShapeForPotentialDeletion.id;
             const isHovered = s.backendId === window.hoveredShapeBackendId;
@@ -47,7 +69,7 @@ async function updateShapeVisuals() {
                     newShape.line.color = DEFAULT_DRAWING_COLOR;
                 }
                 // Removed problematic onmousedown handler that was interfering with drag functionality
-                // Double-click functionality is now handled by chartInteractions.js
+                // Shape properties functionality has been completely removed
             }
         }
         return newShape;
@@ -84,160 +106,3 @@ function logEventToPanel(message, type = 'INFO') {
     window.eventOutput.scrollTop = 0; // Scroll to top to see the latest (prepended) message
 }
 
-let currentShapeId = null; // To store the ID of the shape currently being edited
-
-async function openShapePropertiesDialog(shapeId) {
-    console.log(`[DEBUG] openShapePropertiesDialog called with shapeId: ${shapeId}`);
-    currentShapeId = shapeId;
-    console.log("Opening dialog for shape ID:", shapeId);
-    const dialog = document.getElementById('shape-properties-dialog');
-    const backdrop = document.getElementById('shape-properties-backdrop');
-
-// Make function globally available
-    window.openShapePropertiesDialog = openShapePropertiesDialog;
-
-    if (!dialog) {
-        console.error("Shape properties dialog element not found");
-        return;
-    }
-
-    console.log(`[DEBUG] Found dialog, setting shape ID display to: ${shapeId}`);
-    document.getElementById('shape-id-display').textContent = shapeId;
-
-    // Show backdrop and dialog
-    if (backdrop) {
-        backdrop.style.display = 'block';
-    }
-    dialog.style.display = 'block';
-    console.log('[DEBUG] Dialog and backdrop displayed');
-    
-    // Helper function to populate form fields
-    const populateFormFields = (props) => {
-        console.log('[DEBUG] Populating form fields with:', props);
-        document.getElementById('buy-on-cross').checked = props.buyOnCross || false;
-        document.getElementById('sell-on-cross').checked = props.sellOnCross || false;
-        document.getElementById('send-email-on-cross').checked = props.sendEmailOnCross || false;
-        document.getElementById('amount').value = props.amount || '';
-        document.getElementById('email-sent').checked = props.email_sent || false;
-        
-        // Handle email_date - display formatted date or "Not sent yet"
-        if (props.email_date) {
-            const emailDate = new Date(props.email_date);
-            document.getElementById('email-date-display').textContent = emailDate.toLocaleString();
-            console.log(`[DEBUG] Set email date to: ${emailDate.toLocaleString()}`);
-        } else {
-            document.getElementById('email-date-display').textContent = 'Not sent yet';
-            console.log('[DEBUG] Email date not set');
-        }
-    };
-
-    // Try to fetch shape properties from Redis first
-    try {
-        const symbolSelect = document.getElementById('symbol-select');
-        const symbol = symbolSelect ? symbolSelect.value : 'default_symbol';
-        console.log(`[DEBUG] Fetching shape properties for symbol: ${symbol}, shapeId: ${currentShapeId}`);
-        const response = await fetch(`/get_shape_properties/${symbol}/${currentShapeId}`);
-        
-        if (response.ok) {
-            console.log('[DEBUG] Successfully fetched shape properties from Redis');
-            const respJson = await response.json();
-            const props = respJson.properties;
-            populateFormFields(props);
-            return;
-        } else {
-            console.warn(`[DEBUG] Failed to fetch shape properties: ${response.status}`);
-        }
-        // If fetch fails, fall through to local state
-    } catch (error) {
-        console.error("Error fetching shape properties:", error);
-    }
-
-    // Fallback to local state if available
-    if (window.activeShapeForPotentialDeletion && window.activeShapeForPotentialDeletion.id === shapeId) {
-        console.log('[DEBUG] Using local state for shape properties');
-        const props = window.activeShapeForPotentialDeletion.properties || {};
-        populateFormFields(props);
-    } else {
-        // Initialize with default values if no properties found
-        console.log('[DEBUG] Using default values for shape properties');
-        populateFormFields({
-            buyOnCross: false,
-            sellOnCross: false,
-            sendEmailOnCross: false,
-            amount: '',
-            email_sent: false,
-            email_date: null
-        });
-    }
-}
-
-
-function closeShapePropertiesDialog() {
-    const dialog = document.getElementById('shape-properties-dialog');
-    const backdrop = document.getElementById('shape-properties-backdrop');
-    if (dialog) dialog.style.display = 'none';
-    if (backdrop) backdrop.style.display = 'none';
-}
-
-// Make functions globally available
-window.closeShapePropertiesDialog = closeShapePropertiesDialog;
-
-async function saveShapeProperties() {
-    if (!currentShapeId) {
-        console.error("No shape ID selected for saving properties.");
-        return;
-    }
-
-    // Sync with dropdown selection
-    const symbolSelect = document.getElementById('symbol-select');
-    if (!symbolSelect || !symbolSelect.value) {
-        console.error("No symbol selected - please select a symbol from the dropdown first.");
-        alert("Please select a symbol from the dropdown first");
-        return;
-    }
-    const symbol = symbolSelect.value;
-
-    const properties = {
-        buyOnCross: document.getElementById('buy-on-cross').checked,
-        sellOnCross: document.getElementById('sell-on-cross').checked,
-        sendEmailOnCross: document.getElementById('send-email-on-cross').checked,
-        amount: parseFloat(document.getElementById('amount').value) || 0,
-        email_sent: document.getElementById('email-sent').checked
-    };
-
-    try {
-        // Validate symbol before making request
-        if (!symbol) {
-            throw new Error("Symbol is required but not set in application state");
-        }
-        const response = await fetch(`/save_shape_properties/${symbol}/${currentShapeId}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(properties),
-        });
-
-        const result = await response.json();
-        if (response.ok) {
-            console.log("Shape properties saved successfully:", result);
-            logEventToPanel(`Properties for shape ${currentShapeId} saved.`, 'SUCCESS');
-            closeShapePropertiesDialog();
-            // Update the active shape properties in memory
-            if (window.activeShapeForPotentialDeletion && window.activeShapeForPotentialDeletion.id === currentShapeId) {
-                window.activeShapeForPotentialDeletion.properties = properties;
-            }
-        } else {
-            console.error("Failed to save shape properties:", result);
-            logEventToPanel(`Failed to save properties for shape ${currentShapeId}: ${result.message}`, 'ERROR');
-            alert(`Error saving properties: ${result.message}`);
-        }
-    } catch (error) {
-        console.error("Network error while saving shape properties:", error);
-        logEventToPanel(`Network error saving properties for shape ${currentShapeId}: ${error.message}`, 'ERROR');
-        alert("Network error while saving properties. See console for details.");
-    }
-}
-
-// Make function globally available
-window.saveShapeProperties = saveShapeProperties;

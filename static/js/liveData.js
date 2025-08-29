@@ -145,8 +145,10 @@ function handleRealtimeKline(klineData) {
         return;
     }
 
-    if (!gd.data || !gd.data.length || !gd.data[0].x || gd.data[0].x.length === 0) {
-        console.warn('WebSocket: Chart data not fully initialized, cannot apply real-time update.');
+    // Lenient initialization check - just ensure chart exists and has basic structure
+    // The chart update process may temporarily have inconsistent data during updates
+    if (!gd.data) {
+        console.warn('WebSocket: Chart data structure not available, cannot apply real-time update.');
         return;
     }
 
@@ -157,12 +159,48 @@ function handleRealtimeKline(klineData) {
         return;
     }
 
-    const trace = gd.data[0];
+    // Find the candlestick trace (price data) - it should be the main price chart
+    let priceTraceIndex = -1;
+    let trace = null;
+
+    try {
+        // Debug: Log all available traces
+        console.log('WebSocket: Available traces:', gd.data.map((t, i) => ({ index: i, type: t.type, name: t.name })));
+
+        // First try to find by exact symbol match
+        priceTraceIndex = gd.data.findIndex(trace => trace.type === 'candlestick' && trace.name === window.symbolSelect.value);
+
+        // If not found, try to find any candlestick trace
+        if (priceTraceIndex === -1) {
+            priceTraceIndex = gd.data.findIndex(trace => trace.type === 'candlestick');
+            if (priceTraceIndex !== -1) {
+                console.log('WebSocket: Found candlestick trace by type only at index', priceTraceIndex);
+            }
+        }
+
+        if (priceTraceIndex === -1) {
+            console.warn('WebSocket: Could not find candlestick trace for price data. Symbol:', window.symbolSelect.value);
+            return;
+        }
+
+        trace = gd.data[priceTraceIndex];
+        console.log('WebSocket: Using trace at index', priceTraceIndex, 'with name:', trace.name);
+    } catch (e) {
+        console.warn('WebSocket: Error accessing chart data, skipping update:', e.message);
+        return;
+    }
+
     const liveUpdateTimeSec = Number(klineData.time);
     const livePrice = parseFloat(klineData.price !== undefined ? klineData.price : klineData.close);
 
     if (isNaN(livePrice) || isNaN(liveUpdateTimeSec)) {
         console.warn("WebSocket: Invalid price or time in live data", klineData);
+        return;
+    }
+
+    // Additional safety check for trace data
+    if (!trace || !trace.x || trace.x.length === 0) {
+        console.warn('WebSocket: Trace data not ready, skipping update');
         return;
     }
 
@@ -189,11 +227,11 @@ function handleRealtimeKline(klineData) {
         };
         updateOrAddRealtimePriceLine(gd, livePrice, candleStartTimeMsForLine, candleEndTimeMsForLine, false);
         // console.log('[handleRealtimeKline] Update candle - gd.layout.annotations before react:', JSON.parse(JSON.stringify(gd.layout.annotations)));
-        Plotly.extendTraces(gd, newCandleData, [0], MAX_LIVE_CANDLES); // MAX_LIVE_CANDLES from config.js
+        Plotly.extendTraces(gd, newCandleData, [priceTraceIndex], MAX_LIVE_CANDLES); // MAX_LIVE_CANDLES from config.js
         Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations }); // Include annotations
         // console.log('[handleRealtimeKline] New candle - After relayout, gd.layout.annotations:', JSON.parse(JSON.stringify(gd.layout.annotations)));
     } else if (currentPeriodStartSec === lastCandleOpenTimeSec) {
-        const candleTrace = gd.data[0];
+        const candleTrace = gd.data[priceTraceIndex];
         candleTrace.high[lastCandleIndex] = Math.max(candleTrace.high[lastCandleIndex], livePrice);
         candleTrace.low[lastCandleIndex] = Math.min(candleTrace.low[lastCandleIndex], livePrice);
         candleTrace.close[lastCandleIndex] = livePrice;

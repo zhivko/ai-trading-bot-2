@@ -1,5 +1,5 @@
 window.newHoveredShapeId = null;
-// Removed lastClickTime and lastClickedShapeId as they're now handled by long press detection
+// Removed lastClickTime and lastClickedShapeId - long press functionality has been disabled
 
 function updateOrAddCrosshairVLine(gd, xDataValue, doRelayout = true) {
     if (!gd || !gd.layout || !gd.layout.xaxis || !xDataValue) {
@@ -40,7 +40,13 @@ function updateOrAddCrosshairVLine(gd, xDataValue, doRelayout = true) {
 function colorTheLine(eventParam)
 {
         // console.groupCollapsed('[NativeMousemove] Event Processing');
-        console.log('[colorTheLine] Current dragmode:', window.gd ? window.gd.layout.dragmode : 'N/A');
+        // console.log('[colorTheLine] Current dragmode:', window.gd ? window.gd.layout.dragmode : 'N/A');
+
+        // Skip if a shape is currently being dragged
+        if (window.isDraggingShape) {
+            // console.log('[colorTheLine] Skipping because shape is being dragged');
+            return;
+        }
 
         // Use the passed event or fall back to global event
         const currentEvent = eventParam || event;
@@ -73,13 +79,13 @@ function colorTheLine(eventParam)
             currentEvent.clientX !== 0 && currentEvent.clientY !== 0) {
             mouseX_div = currentEvent.clientX - rect.left;
             mouseY_div = currentEvent.clientY - rect.top;
-            console.log(`[colorTheLine] Using event coordinates: clientX=${currentEvent.clientX}, clientY=${currentEvent.clientY}`);
+            // console.log(`[colorTheLine] Using event coordinates: clientX=${currentEvent.clientX}, clientY=${currentEvent.clientY}`);
         } else if (currentEvent && currentEvent.touches && currentEvent.touches.length > 0) {
             // Handle touch events
             const touch = currentEvent.touches[0] || currentEvent.changedTouches[0];
             mouseX_div = touch.clientX - rect.left;
             mouseY_div = touch.clientY - rect.top;
-            console.log(`[colorTheLine] Using touch coordinates: clientX=${touch.clientX}, clientY=${touch.clientY}`);
+            // console.log(`[colorTheLine] Using touch coordinates: clientX=${touch.clientX}, clientY=${touch.clientY}`);
         } else {
             // Fallback: try to get mouse position from window.event or other methods
             const globalEvent = window.event;
@@ -87,7 +93,7 @@ function colorTheLine(eventParam)
                 globalEvent.clientX !== 0 && globalEvent.clientY !== 0) {
                 mouseX_div = globalEvent.clientX - rect.left;
                 mouseY_div = globalEvent.clientY - rect.top;
-                console.log(`[colorTheLine] Using global event coordinates: clientX=${globalEvent.clientX}, clientY=${globalEvent.clientY}`);
+                // console.log(`[colorTheLine] Using global event coordinates: clientX=${globalEvent.clientX}, clientY=${globalEvent.clientY}`);
             } else {
                 // Try to get mouse position from document.elementFromPoint or other methods
                 try {
@@ -97,7 +103,7 @@ function colorTheLine(eventParam)
                     if (elementsAtCenter && elementsAtCenter.length > 0) {
                         mouseX_div = rect.width / 2;
                         mouseY_div = rect.height / 2;
-                        console.log(`[colorTheLine] Using center coordinates as fallback: x=${mouseX_div}, y=${mouseY_div}`);
+                        // console.log(`[colorTheLine] Using center coordinates as fallback: x=${mouseX_div}, y=${mouseY_div}`);
                     } else {
                         throw new Error("No elements found at center");
                     }
@@ -105,16 +111,16 @@ function colorTheLine(eventParam)
                     // Last resort: assume center of chart for testing
                     mouseX_div = rect.width / 2;
                     mouseY_div = rect.height / 2;
-                    console.log(`[colorTheLine] Using fallback center coordinates: x=${mouseX_div}, y=${mouseY_div}, error: ${e.message}`);
+                    // console.log(`[colorTheLine] Using fallback center coordinates: x=${mouseX_div}, y=${mouseY_div}, error: ${e.message}`);
                 }
             }
         }
 
-        console.log(`[colorTheLine] Chart div rect: left=${rect.left}, top=${rect.top}, width=${rect.width}, height=${rect.height}`);
-        console.log(`[colorTheLine] Mouse relative to div: x=${mouseX_div}, y=${mouseY_div}`);
+        // console.log(`[colorTheLine] Chart div rect: left=${rect.left}, top=${rect.top}, width=${rect.width}, height=${rect.height}`);
+        // console.log(`[colorTheLine] Mouse relative to div: x=${mouseX_div}, y=${mouseY_div}`);
 
         if (!window.gd._fullLayout || typeof window.gd._fullLayout.height === 'undefined' || !window.gd._fullLayout.yaxis || typeof window.gd._fullLayout.yaxis._length === 'undefined') {
-            console.log("[colorTheLine] Chart layout not ready, skipping hover detection");
+            // console.log("[colorTheLine] Chart layout not ready, skipping hover detection");
             return;
         }
 
@@ -124,9 +130,9 @@ function colorTheLine(eventParam)
         const mouseX_paper = mouseX_div;
         const mouseY_paper = mouseY_div;
 
-        console.log(`[colorTheLine] Chart dimensions: width=${window.gd._fullLayout.width}, height=${window.gd._fullLayout.height}`);
-        console.log(`[colorTheLine] Plot margins: l=${plotMargin.l}, r=${plotMargin.r}, t=${plotMargin.t}, b=${plotMargin.b}`);
-        console.log(`[colorTheLine] Mouse in paper coordinates: x=${mouseX_paper}, y=${mouseY_paper}`);
+        // console.log(`[colorTheLine] Chart dimensions: width=${window.gd._fullLayout.width}, height=${window.gd._fullLayout.height}`);
+        // console.log(`[colorTheLine] Plot margins: l=${plotMargin.l}, r=${plotMargin.r}, t=${plotMargin.t}, b=${plotMargin.b}`);
+        // console.log(`[colorTheLine] Mouse in paper coordinates: x=${mouseX_paper}, y=${mouseY_paper}`);
 
         // Check if mouse is within the chart's plotting area (with some tolerance for edge cases)
         const tolerance = 10; // Allow 10px tolerance for edge cases
@@ -135,10 +141,10 @@ function colorTheLine(eventParam)
                                mouseY_paper < -tolerance ||
                                mouseY_paper > window.gd._fullLayout.height + tolerance;
 
-        console.log(`[colorTheLine] Bounds check: mouseX=${mouseX_paper}, mouseY=${mouseY_paper}, width=${window.gd._fullLayout.width}, height=${window.gd._fullLayout.height}, tolerance=${tolerance}, isOutside=${isOutsideBounds}`);
+        // console.log(`[colorTheLine] Bounds check: mouseX=${mouseX_paper}, mouseY=${mouseY_paper}, width=${window.gd._fullLayout.width}, height=${window.gd._fullLayout.height}, tolerance=${tolerance}, isOutside=${isOutsideBounds}`);
 
         if (isOutsideBounds) {
-            console.log("[colorTheLine] Mouse is outside the chart's plotting area. Ignoring.");
+            // console.log("[colorTheLine] Mouse is outside the chart's plotting area. Ignoring.");
             if (window.hoveredShapeBackendId !== null) {
                 window.hoveredShapeBackendId = null;
                 debouncedUpdateShapeVisuals();
@@ -165,10 +171,10 @@ function colorTheLine(eventParam)
         }
 
         const currentShapes = window.gd.layout.shapes || [];
-        console.log(`[colorTheLine] Checking ${currentShapes.length} shapes for hover detection`);
+        // console.log(`[colorTheLine] Checking ${currentShapes.length} shapes for hover detection`);
         for (let i = 0; i < currentShapes.length; i++) {
             const shape = currentShapes[i];
-            console.log(`[colorTheLine] Shape ${i}: type=${shape.type}, backendId=${shape.backendId}, isSystemShape=${shape.isSystemShape}`);
+            // console.log(`[colorTheLine] Shape ${i}: type=${shape.type}, backendId=${shape.backendId}, isSystemShape=${shape.isSystemShape}`);
             if (shape.type === 'line' && shape.backendId && !shape.isSystemShape) { // Ignore system shapes
                 const xrefKeyForFilter = getAxisLayoutKey(shape.xref, 'xaxis'); // Assumes getAxisLayoutKey is global
                 const yrefKeyForFilter = getAxisLayoutKey(shape.yref, 'yaxis');
@@ -221,27 +227,27 @@ function colorTheLine(eventParam)
                     continue;
                 }
                 const distSq = distToSegmentSquared({ x: mouseX_paper, y: mouseY_paper }, p0, p1); // From utils.js
-                console.log(`[colorTheLine] Shape ${i} (ID: ${shape.backendId}) - DistSq: ${distSq.toFixed(2)}, Threshold: ${HOVER_THRESHOLD_PIXELS_SQ}, Mouse: (${mouseX_paper.toFixed(2)}, ${mouseY_paper.toFixed(2)}), Shape endpoints: (${p0.x.toFixed(2)}, ${p0.y.toFixed(2)}) to (${p1.x.toFixed(2)}, ${p1.y.toFixed(2)})`);
+                //console.log(`[colorTheLine] Shape ${i} (ID: ${shape.backendId}) - DistSq: ${distSq.toFixed(2)}, Threshold: ${HOVER_THRESHOLD_PIXELS_SQ}, Mouse: (${mouseX_paper.toFixed(2)}, ${mouseY_paper.toFixed(2)}), Shape endpoints: (${p0.x.toFixed(2)}, ${p0.y.toFixed(2)}) to (${p1.x.toFixed(2)}, ${p1.y.toFixed(2)})`);
                 if (distSq < HOVER_THRESHOLD_PIXELS_SQ && distSq < minDistanceSq) {
                     minDistanceSq = distSq;
                     window.newHoveredShapeId = shape.backendId;
-                    console.log(`[colorTheLine] Shape ${i} (ID: ${shape.backendId}) is now the closest hovered shape!`);
+                    //console.log(`[colorTheLine] Shape ${i} (ID: ${shape.backendId}) is now the closest hovered shape!`);
                 }
                 //console.groupEnd(); // End group for this shape
             }
         }
 
-        console.log(`[colorTheLine] Final: hoveredShapeBackendId=${window.hoveredShapeBackendId}, newHoveredShapeId=${window.newHoveredShapeId}`);
+        // console.log(`[colorTheLine] Final: hoveredShapeBackendId=${window.hoveredShapeBackendId}, newHoveredShapeId=${window.newHoveredShapeId}`);
         if (window.hoveredShapeBackendId !== window.newHoveredShapeId) {
             window.hoveredShapeBackendId = window.newHoveredShapeId;
-            console.log(`[colorTheLine] Updated hoveredShapeBackendId to: ${window.hoveredShapeBackendId}`);
+            // console.log(`[colorTheLine] Updated hoveredShapeBackendId to: ${window.hoveredShapeBackendId}`);
             if(window.hoveredShapeBackendId) findAndupdateSelectedShapeInfoPanel(window.hoveredShapeBackendId)
             debouncedUpdateShapeVisuals();
         }
 
         // Only clear shape ID if we're sure no shape should be hovered (mouse outside chart area)
         if (isOutsideBounds && window.hoveredShapeBackendId !== null) {
-            console.log(`[colorTheLine] Mouse outside bounds, clearing hovered shape`);
+            // console.log(`[colorTheLine] Mouse outside bounds, clearing hovered shape`);
             window.hoveredShapeBackendId = null;
             debouncedUpdateShapeVisuals();
         }

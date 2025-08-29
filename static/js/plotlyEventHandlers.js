@@ -50,6 +50,7 @@ function initializePlotlyEventHandlers(gd) {
     console.log('[DEBUG] Plotly event handlers initialized');
 
     let currentDragMode = gd.layout.dragmode || 'pan';
+    let previousDragMode = gd.layout.dragmode || 'pan'; // Store previous mode for restoration
     let isDragging = false;
     let shapeWasMoved = false;
     
@@ -115,10 +116,11 @@ function initializePlotlyEventHandlers(gd) {
             // Add larger markers for mobile touch targets (only for user-drawn lines)
             if (newlyAddedShapeInLayout.type === 'line' && !newlyAddedShapeInLayout.isSystemShape) {
                 newlyAddedShapeInLayout.marker = {
-                    size: isMobileDevice() ? 12 : 6, // Larger markers on mobile
+                    size: isMobileDevice() ? 24 : 16, // Even larger markers for maximum visibility
                     color: DEFAULT_DRAWING_COLOR,
-                    symbol: 'circle',
-                    line: { width: 2, color: 'white' }
+                    symbol: 'diamond', // Diamond symbol is more distinctive than circle
+                    line: { width: 3, color: 'white' }, // Thicker white border
+                    opacity: 0.95 // Make markers more opaque for better visibility
                 };
             }
 
@@ -154,31 +156,35 @@ function initializePlotlyEventHandlers(gd) {
         if (window.d3) {
             d3.selectAll('g[drag-helper="true"]').remove();
         }
-        console.log('[plotly_relayouting] event fired - drag helpers cleaned', eventData);
+
+        // Analyze the eventData to distinguish drag types
+        const eventKeys = Object.keys(eventData);
+        const hasShapeChanges = eventKeys.some(key => key.startsWith('shapes['));
+        const hasAxisRangeChanges = eventKeys.some(key => key.includes('axis.range'));
+
+        // Only set dragging flag for actual shape interactions
+        if (hasShapeChanges) {
+            console.log('[DRAGGING] Shape dragging detected - switching to drawline mode');
+            window.isDraggingShape = true;
+
+            // Store current mode before switching
+            previousDragMode = gd.layout.dragmode;
+
+            // Switch to drawline mode when dragging shapes
+            if (gd.layout.dragmode !== 'drawline') {
+                Plotly.relayout(gd, { dragmode: 'drawline' });
+                console.log('[DRAGGING] Switched to drawline mode for shape editing');
+            }
+        } else {
+            // For axis range changes or unknown events, don't set dragging flag
+            window.isDraggingShape = false;
+        }
     });
 
-
-    // Long press detection variables
-    let longPressTimer = null;
-    let longPressShapeId = null;
-    let isLongPress = false;
-    const LONG_PRESS_DURATION = 800; // 800ms for long press
 
     // Handle Plotly click events for better coordinate handling
     gd.on('plotly_click', function(plotlyEventData) {
         console.log('[DEBUG] PLOTLY_CLICK EVENT FIRED! Event data:', plotlyEventData);
-
-        // Clear any pending long press timer
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
-        }
-
-        // If this was a long press, don't process as a regular click
-        if (isLongPress) {
-            isLongPress = false;
-            return;
-        }
 
         // Plotly provides better coordinate handling
         if (plotlyEventData.points && plotlyEventData.points.length > 0) {
@@ -212,51 +218,6 @@ function initializePlotlyEventHandlers(gd) {
         }
     });
 
-    // Handle mouse down for long press detection
-    gd.on('plotly_hover', function(plotlyEventData) {
-        // Clear any existing timer
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-        }
-
-        if (plotlyEventData.points && plotlyEventData.points.length > 0) {
-            // Check if hovering over a shape
-            const currentShapes = gd.layout.shapes || [];
-            for (let i = 0; i < currentShapes.length; i++) {
-                const shape = currentShapes[i];
-                if (shape.type === 'line' && shape.backendId && !shape.isSystemShape) {
-                    longPressShapeId = shape.backendId;
-
-                    // Start long press timer
-                    longPressTimer = setTimeout(() => {
-                        console.log(`[DEBUG] LONG PRESS detected on shape: ${longPressShapeId}`);
-                        isLongPress = true;
-
-                        if (typeof window.openShapePropertiesDialog === 'function') {
-                            console.log(`[DEBUG] Opening shape properties dialog for: ${longPressShapeId}`);
-                            window.openShapePropertiesDialog(longPressShapeId);
-                        } else {
-                            console.warn('[DEBUG] openShapePropertiesDialog function not found');
-                        }
-
-                        longPressTimer = null;
-                        longPressShapeId = null;
-                    }, LONG_PRESS_DURATION);
-
-                    break;
-                }
-            }
-        }
-    });
-
-    // Handle mouse leave to cancel long press
-    gd.on('plotly_unhover', function() {
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
-            longPressShapeId = null;
-        }
-    });
 
     gd.on('plotly_relayout', async function(eventData) {
         // Check if dragmode changed to 'drawline'
@@ -362,10 +323,11 @@ function initializePlotlyEventHandlers(gd) {
                 // Add larger markers for mobile touch targets (only for user-drawn lines)
                 if (shapeInLayout.type === 'line' && !shapeInLayout.isSystemShape) {
                     shapeInLayout.marker = {
-                        size: isMobileDevice() ? 12 : 6, // Larger markers on mobile
+                        size: isMobileDevice() ? 24 : 16, // Even larger markers for maximum visibility
                         color: DEFAULT_DRAWING_COLOR,
-                        symbol: 'circle',
-                        line: { width: 2, color: 'white' }
+                        symbol: 'diamond', // Diamond symbol is more distinctive than circle
+                        line: { width: 3, color: 'white' }, // Thicker white border
+                        opacity: 0.95 // Make markers more opaque for better visibility
                     };
                 }
 
@@ -408,9 +370,12 @@ function initializePlotlyEventHandlers(gd) {
             const currentLayoutShapes = gd.layout.shapes || [];
             const xRange = gd.layout.xaxis.range;
             if (xRange && xRange.length === 2) {
-                window.currentXAxisRange = [new Date(xRange[0]).getTime(), new Date(xRange[1]).getTime()];
-                window.xAxisMinDisplay.textContent = new Date(window.currentXAxisRange[0]).toLocaleString();
-                window.xAxisMaxDisplay.textContent = new Date(window.currentXAxisRange[1]).toLocaleString();
+                // Keep in milliseconds - Plotly already provides proper Date objects/timestamps
+                const minTimestamp = (xRange[0] instanceof Date) ? xRange[0].getTime() : new Date(xRange[0]).getTime();
+                const maxTimestamp = (xRange[1] instanceof Date) ? xRange[1].getTime() : new Date(xRange[1]).getTime();
+                window.currentXAxisRange = [minTimestamp, maxTimestamp];
+                window.xAxisMinDisplay.textContent = new Date(minTimestamp).toLocaleString();
+                window.xAxisMaxDisplay.textContent = new Date(maxTimestamp).toLocaleString();
                 rangesChangedByEvent = true;
                 userModifiedRanges = true;
             }
@@ -447,6 +412,18 @@ function initializePlotlyEventHandlers(gd) {
                 console.log('[plotly_relayout] Debounced chart update due to axis range change.');
                 updateChart(); // updateChart from chartUpdater.js
             }, FETCH_DEBOUNCE_DELAY); // FETCH_DEBOUNCE_DELAY from config.js
+        }
+
+        // Reset dragging flag and restore previous drag mode after relayout completes
+        if (window.isDraggingShape) {
+            window.isDraggingShape = false;
+            // Restore previous drag mode
+            if (gd.layout.dragmode !== previousDragMode) {
+                Plotly.relayout(gd, { dragmode: previousDragMode });
+                console.log(`[DRAGGING] Shape dragging completed - restored to ${previousDragMode} mode`);
+            } else {
+                console.log('[DRAGGING] Shape dragging completed');
+            }
         }
     });
 
