@@ -26392,3 +26392,111 @@ redis.exceptions.TimeoutError: Timeout connecting to server
 2025-08-29 12:07:06,691 - __main__ - INFO - AppTradingView.py:3359 - {'marginMode': 'ISOLATED_MARGIN', 'updatedTime': '1746603355000', 'unifiedMarginStatus': 5, 'dcpStatus': 'OFF', 'timeWindow': 0, 'smpGroup': 0, 'isMasterTrader': False, 'spotHedgingStatus': 'ON'}
 2025-08-29 12:07:06,691 - __main__ - INFO - AppTradingView.py:3370 - Account Type: uta2.0
 2025-08-29 12:07:06,691 - __main__ - INFO - AppTradingView.py:3382 - Local address: 192.168.1.52
+2025-08-29 12:07:09,943 - AppTradingView - INFO - AppTradingView.py:216 - Application startup...
+2025-08-29 12:07:09,948 - AppTradingView - INFO - AppTradingView.py:523 - Successfully connected to Redis
+2025-08-29 12:07:09,950 - AppTradingView - INFO - AppTradingView.py:230 - Background task (fetch_and_publish_klines) started.
+2025-08-29 12:07:09,950 - AppTradingView - INFO - AppTradingView.py:2617 - Starting fetch_and_publish_klines background task
+2025-08-29 12:07:10,894 - AppTradingView - INFO - AppTradingView.py:3337 - GET /get_last_symbol request received.
+2025-08-29 12:07:10,897 - AppTradingView - INFO - AppTradingView.py:3345 - Got last selected symbol for user klemenzivkovic@gmail.com: SOLUSDT
+2025-08-29 12:07:11,078 - AppTradingView - INFO - AppTradingView.py:1110 - GET /settings for SOLUSDT: Retrieved from Redis: {'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'streamDeltaTime': 0, 'useLocalOllama': False, 'localOllamaModelName': '', 'showAgentTrades': False, 'symbol': 'SOLUSDT', 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1'}
+2025-08-29 12:07:11,257 - AppTradingView - INFO - AppTradingView.py:966 - /history request: symbol=SOLUSDT, resolution=1d, from_ts=1732066272, to_ts=1758115441
+2025-08-29 12:07:11,257 - AppTradingView - INFO - AppTradingView.py:985 - Time range: from_ts=1732066272 (2024-11-20 01:31:12 UTC), to_ts=1756462031 (2025-08-29 10:07:11 UTC)
+2025-08-29 12:07:11,257 - AppTradingView - INFO - AppTradingView.py:988 - Fetching cached klines for PAXGUSDT with from_ts: 1732066272 and to_ts: 1756462031
+2025-08-29 12:07:11,258 - AppTradingView - INFO - AppTradingView.py:688 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1732066272, 1756462031]
+2025-08-29 12:07:11,267 - AppTradingView - INFO - AppTradingView.py:727 - Found 282 cached klines for SOLUSDT 1d between 1732066272 and 1756462031
+2025-08-29 12:07:11,267 - AppTradingView - INFO - AppTradingView.py:1001 - Cache does not fully cover requested range. Requested: 1732066272-1756462031, Cached: 1732147200-1756425600. Will fetch from Bybit to fill gaps.
+2025-08-29 12:07:11,267 - AppTradingView - INFO - AppTradingView.py:1006 - Before Bybit Fetch - From_TS: 1732066272 (2024-11-20 01:31:12 UTC), To_TS: 1756462031 (2025-08-29 10:07:11 UTC)
+2025-08-29 12:07:11,267 - AppTradingView - INFO - AppTradingView.py:1007 - Before Bybit Fetch - Clamped from_ts: 1732066272 (2024-11-20 01:31:12 UTC), to_ts: 1756462031 (2025-08-29 10:07:11 UTC)
+2025-08-29 12:07:11,267 - AppTradingView - INFO - AppTradingView.py:1008 - After Lookback Calc - Effective kline fetch range for Bybit: 1732066272 to 1756462031
+2025-08-29 12:07:11,267 - AppTradingView - INFO - AppTradingView.py:1013 - KLINES: Attempting to fetch from Bybit for PAXGUSDT with from_ts: 1732066272 and to_ts: 1756462031
+2025-08-29 12:07:11,267 - AppTradingView - INFO - AppTradingView.py:1014 - Attempting to fetch from Bybit for SOLUSDT 1d range 1732066272 to 1756462031
+2025-08-29 12:07:11,443 - AppTradingView - INFO - AppTradingView.py:1017 - Fetched 282 klines from Bybit. Caching them.
+2025-08-29 12:07:11,447 - AppTradingView - INFO - AppTradingView.py:1137 - POST /settings: RAW data received from client for symbol 'SOLUSDT': {'symbol': 'SOLUSDT', 'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1', 'useLocalOllama': False, 'localOllamaModelName': '', 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'showAgentTrades': False, 'streamDeltaTime': 0}
+2025-08-29 12:07:11,454 - AppTradingView - INFO - AppTradingView.py:1168 - POST /settings for SOLUSDT and email klemenzivkovic@gmail.com: current_symbol_settings compiled for Redis save: {'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'streamDeltaTime': 0, 'useLocalOllama': False, 'localOllamaModelName': '', 'showAgentTrades': False, 'symbol': 'SOLUSDT', 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1'}
+2025-08-29 12:07:11,454 - AppTradingView - INFO - AppTradingView.py:1170 - POST /settings for SOLUSDT: Client sent streamDeltaTime: 0. Value to be saved in Redis for streamDeltaTime: 0
+2025-08-29 12:07:11,455 - AppTradingView - INFO - AppTradingView.py:1173 - POST /settings for SOLUSDT and email klemenzivkovic@gmail.com: Settings updated in Redis for SOLUSDT: {'resolution': '1d', 'range': '3m', 'xAxisMin': 1732066272706, 'xAxisMax': 1758115441447, 'yAxisMin': 68.2722899216736, 'yAxisMax': 312.02989278335656, 'activeIndicators': ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], 'liveDataEnabled': False, 'streamDeltaTime': 0, 'useLocalOllama': False, 'localOllamaModelName': '', 'showAgentTrades': False, 'symbol': 'SOLUSDT', 'replayFrom': '', 'replayTo': '', 'replaySpeed': '1'}
+2025-08-29 12:07:11,456 - AppTradingView - INFO - AppTradingView.py:688 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1732066272, 1756462031]
+2025-08-29 12:07:11,458 - AppTradingView - INFO - AppTradingView.py:727 - Found 282 cached klines for SOLUSDT 1d between 1732066272 and 1756462031
+2025-08-29 12:07:11,459 - AppTradingView - INFO - AppTradingView.py:1059 - BYBIT: Fetch Completed with data returned from (1732147200) and higher
+2025-08-29 12:07:11,459 - AppTradingView - INFO - AppTradingView.py:1064 - Returning 282 klines for /history request. Requested range: from_ts=1732066272 (2024-11-20 01:31:12+00:00 UTC) to to_ts=1756462031 (2025-08-29 10:07:11+00:00 UTC). Actual data range: min_ts=1732147200 (2024-11-21 00:00:00+00:00 UTC) to max_ts=1756425600 (2025-08-29 00:00:00+00:00 UTC).
+2025-08-29 12:07:11,818 - AppTradingView - INFO - AppTradingView.py:1776 - /indicatorHistory request: symbol=SOLUSDT, resolution=1d, from_ts=1732066272, to_ts=1758115441, requested_ids=['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10'], simulation=False
+2025-08-29 12:07:11,819 - AppTradingView - INFO - AppTradingView.py:1781 - Time range: from_ts=1732066272 (2024-11-20 01:31:12 UTC), to_ts=1758115441 (2025-09-17 13:24:01 UTC)
+2025-08-29 12:07:11,819 - AppTradingView - INFO - AppTradingView.py:1833 - Mode (sim=False): Original request from_ts=1732066272, to_ts=1758115441. Max lookback: 130, Candles needed: 131. Effective kline fetch range for calculation: 1720747872 to 1758115441
+2025-08-29 12:07:11,819 - AppTradingView - INFO - AppTradingView.py:688 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1720747872, 1756462031]
+2025-08-29 12:07:11,821 - AppTradingView - INFO - AppTradingView.py:727 - Found 413 cached klines for SOLUSDT 1d between 1720747872 and 1756462031
+2025-08-29 12:07:12,014 - AppTradingView - INFO - AppTradingView.py:688 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1720747872, 1756462031]
+2025-08-29 12:07:12,194 - AppTradingView - INFO - AppTradingView.py:727 - Found 413 cached klines for SOLUSDT 1d between 1720747872 and 1756462031
+2025-08-29 12:07:12,195 - AppTradingView - INFO - AppTradingView.py:468 - Found 267 cached Open Interest entries for SOLUSDT 1d between 1720747872 and 1756462031
+2025-08-29 12:07:12,384 - AppTradingView - INFO - AppTradingView.py:2683 - WebSocket connection accepted for live data: SOLUSDT
+2025-08-29 12:07:12,384 - AppTradingView - INFO - AppTradingView.py:2696 - Live stream for SOLUSDT: Attempting to GET settings from Redis key: 'settings:SOLUSDT'
+2025-08-29 12:07:12,385 - AppTradingView - INFO - AppTradingView.py:2699 - Live stream for SOLUSDT: Found settings_json in Redis: {"resolution": "1h", "range": "7d", "xAxisMin": 1752703582177, "xAxisMax": 1753308382177, "yAxisMin": 159.96332440149882, "yAxisMax": 206.52632440149884, "activeIndicators": ["macd", "rsi", "stochrsi_9_3", "stochrsi_14_3", "stochrsi_40_4", "stochrsi_60_10"], "liveDataEnabled": true, "streamDeltaTime": 1, "useLocalOllama": false, "localOllamaModelName": "", "symbol": "SOLUSDT", "replayFrom": "", "replayTo": "", "replaySpeed": "1", "showAgentTrades": false}
+2025-08-29 12:07:12,385 - AppTradingView - INFO - AppTradingView.py:2702 - Live stream for SOLUSDT: Retrieved 'streamDeltaTime' from symbol_settings: 1 (type: <class 'int'>)
+2025-08-29 12:07:12,385 - AppTradingView - INFO - AppTradingView.py:2704 - Live stream for SOLUSDT: Using stream_delta_seconds = 1
+2025-08-29 12:07:12,386 - pybit._websocket_stream - INFO - _websocket_stream.py:151 - WebSocket Unified V5 attempting connection...
+2025-08-29 12:07:13,414 - websocket - INFO - _logging.py:89 - Websocket connected
+2025-08-29 12:07:13,414 - pybit._websocket_stream - INFO - _websocket_stream.py:187 - WebSocket Unified V5 connected
+2025-08-29 12:07:13,415 - AppTradingView - INFO - AppTradingView.py:2789 - Subscribing Bybit WebSocket to:  
+2025-08-29 12:07:13,416 - AppTradingView - INFO - AppTradingView.py:468 - Found 267 cached Open Interest entries for SOLUSDT 1d between 1720747872 and 1756462031
+2025-08-29 12:07:13,423 - AppTradingView - INFO - AppTradingView.py:1887 - Prepared DataFrame for SOLUSDT 1d with 413 rows for calculation range 1720747872 to 1756462031.
+2025-08-29 12:07:14,180 - AppTradingView - INFO - AppTradingView.py:308 - Client authenticated and authorized via mTLS. Subject: <Name(C=SI,ST=Slovenija,OU=individuals,2.5.4.42=Klemen+2.5.4.4=Živkovič+2.5.4.5=2461096912042+CN=Klemen Živkovič)>
+2025-08-29 12:07:14,181 - AppTradingView - INFO - AppTradingView.py:2940 - GET /get_order_history/SOLUSDT request received.
+2025-08-29 12:07:14,360 - AppTradingView - INFO - AppTradingView.py:3024 - Returning 0 order history records from Redis for klemenzivkovic@gmail.com and symbol SOLUSDT
+2025-08-29 12:07:14,360 - AppTradingView - INFO - AppTradingView.py:3025 - []
+2025-08-29 12:07:14,543 - AppTradingView - INFO - AppTradingView.py:3212 - GET /get_buy_signals/SOLUSDT request: res=1d, from=2024-11-20 01:31:12 UTC, to=2025-09-17 13:24:01 UTC
+2025-08-29 12:07:14,543 - AppTradingView - INFO - AppTradingView.py:688 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1710466272, 1758115441]
+2025-08-29 12:07:14,547 - AppTradingView - INFO - AppTradingView.py:727 - Found 532 cached klines for SOLUSDT 1d between 1710466272 and 1758115441
+2025-08-29 12:07:14,548 - AppTradingView - INFO - AppTradingView.py:3229 - Cache miss or insufficient lookback for SOLUSDT. Fetching from Bybit.
+2025-08-29 12:07:14,748 - AppTradingView - INFO - AppTradingView.py:688 - Querying sorted set 'zset:kline:SOLUSDT:1d' for range [1710466272, 1758115441]
+2025-08-29 12:07:14,752 - AppTradingView - INFO - AppTradingView.py:727 - Found 532 cached klines for SOLUSDT 1d between 1710466272 and 1758115441
+2025-08-29 12:07:14,758 - AppTradingView - INFO - AppTradingView.py:3094 - Starting find_buy_signals with enhanced logging for diagnosis
+2025-08-29 12:07:14,760 - AppTradingView - INFO - AppTradingView.py:3103 - Enhanced logging for date range: 2025-08-12 00:00:00+00:00 to 2025-08-14 00:00:00+00:00
+2025-08-29 12:07:14,761 - AppTradingView - INFO - AppTradingView.py:3126 - Total bars in DataFrame: 333
+2025-08-29 12:07:14,761 - AppTradingView - INFO - AppTradingView.py:3127 - cross_3_5 occurrences: 43
+2025-08-29 12:07:14,762 - AppTradingView - INFO - AppTradingView.py:3128 - cross_3_10 occurrences: 19
+2025-08-29 12:07:14,762 - AppTradingView - INFO - AppTradingView.py:3129 - cross_3_20 occurrences: 14
+2025-08-29 12:07:14,762 - AppTradingView - INFO - AppTradingView.py:3130 - stoch_cross occurrences: 13
+2025-08-29 12:07:14,762 - AppTradingView - INFO - AppTradingView.py:3131 - downtrend occurrences: 89
+2025-08-29 12:07:14,762 - AppTradingView - INFO - AppTradingView.py:3132 - oversold occurrences: 4
+2025-08-29 12:07:14,768 - AppTradingView - INFO - AppTradingView.py:3137 - Saved DataFrame with indicators and conditions to: buy_signals_debug_df_20241001_to_20250829.csv
+2025-08-29 12:07:14,868 - AppTradingView - INFO - AppTradingView.py:3158 - Bar 315 at 2025-08-12 00:00:00+00:00:
+2025-08-29 12:07:14,869 - AppTradingView - INFO - AppTradingView.py:3159 -   RSI_SMA_3=56.99, RSI_SMA_5=56.23, RSI_SMA_10=51.77, RSI_SMA_20=52.73
+2025-08-29 12:07:14,869 - AppTradingView - INFO - AppTradingView.py:3161 -   STOCHRSIk=49.40, STOCHRSId=46.33
+2025-08-29 12:07:14,869 - AppTradingView - INFO - AppTradingView.py:3163 -   EMA_21=175.56, EMA_50=169.83, EMA_200=164.31, close=191.81
+2025-08-29 12:07:14,869 - AppTradingView - INFO - AppTradingView.py:3165 -   Conditions: cross_3_5=False, cross_3_10=False, cross_3_20=False, stoch_cross=True
+2025-08-29 12:07:14,869 - AppTradingView - INFO - AppTradingView.py:3169 -   States: downtrend=False, oversold=False
+2025-08-29 12:07:14,869 - AppTradingView - INFO - AppTradingView.py:3170 -   Window (10 bars): has_all_events=True, has_downtrend=False, has_oversold=False
+2025-08-29 12:07:14,869 - AppTradingView - INFO - AppTradingView.py:3172 -   Window event counts: cross_3_5=1, cross_3_10=1, cross_3_20=1, stoch_cross=1
+2025-08-29 12:07:14,870 - AppTradingView - INFO - AppTradingView.py:3158 - Bar 316 at 2025-08-13 00:00:00+00:00:
+2025-08-29 12:07:14,870 - AppTradingView - INFO - AppTradingView.py:3159 -   RSI_SMA_3=59.66, RSI_SMA_5=58.62, RSI_SMA_10=54.13, RSI_SMA_20=53.06
+2025-08-29 12:07:14,870 - AppTradingView - INFO - AppTradingView.py:3161 -   STOCHRSIk=54.10, STOCHRSId=46.41
+2025-08-29 12:07:14,870 - AppTradingView - INFO - AppTradingView.py:3163 -   EMA_21=177.93, EMA_50=171.07, EMA_200=164.68, close=201.56
+2025-08-29 12:07:14,871 - AppTradingView - INFO - AppTradingView.py:3165 -   Conditions: cross_3_5=False, cross_3_10=False, cross_3_20=False, stoch_cross=False
+2025-08-29 12:07:14,871 - AppTradingView - INFO - AppTradingView.py:3169 -   States: downtrend=False, oversold=False
+2025-08-29 12:07:14,871 - AppTradingView - INFO - AppTradingView.py:3170 -   Window (10 bars): has_all_events=True, has_downtrend=False, has_oversold=False
+2025-08-29 12:07:14,871 - AppTradingView - INFO - AppTradingView.py:3172 -   Window event counts: cross_3_5=1, cross_3_10=1, cross_3_20=1, stoch_cross=1
+2025-08-29 12:07:14,871 - AppTradingView - INFO - AppTradingView.py:3158 - Bar 317 at 2025-08-14 00:00:00+00:00:
+2025-08-29 12:07:14,871 - AppTradingView - INFO - AppTradingView.py:3159 -   RSI_SMA_3=62.26, RSI_SMA_5=59.23, RSI_SMA_10=55.20, RSI_SMA_20=52.96
+2025-08-29 12:07:14,871 - AppTradingView - INFO - AppTradingView.py:3161 -   STOCHRSIk=56.53, STOCHRSId=47.00
+2025-08-29 12:07:14,871 - AppTradingView - INFO - AppTradingView.py:3163 -   EMA_21=179.25, EMA_50=171.91, EMA_200=164.95, close=192.44
+2025-08-29 12:07:14,871 - AppTradingView - INFO - AppTradingView.py:3165 -   Conditions: cross_3_5=False, cross_3_10=False, cross_3_20=False, stoch_cross=False
+2025-08-29 12:07:14,872 - AppTradingView - INFO - AppTradingView.py:3169 -   States: downtrend=False, oversold=False
+2025-08-29 12:07:14,872 - AppTradingView - INFO - AppTradingView.py:3170 -   Window (10 bars): has_all_events=True, has_downtrend=False, has_oversold=False
+2025-08-29 12:07:14,872 - AppTradingView - INFO - AppTradingView.py:3172 -   Window event counts: cross_3_5=1, cross_3_10=1, cross_3_20=1, stoch_cross=1
+2025-08-29 12:07:14,873 - AppTradingView - INFO - AppTradingView.py:3200 - Total buy signals detected: 1
+2025-08-29 12:07:21,695 - AppTradingView - INFO - AppTradingView.py:1428 - PUT /update_drawing/SOLUSDT/c508a40f-0929-49dd-9815-14a7de5174c7 request received
+2025-08-29 12:07:21,695 - AppTradingView - INFO - AppTradingView.py:1281 - Drawing c508a40f-0929-49dd-9815-14a7de5174c7 updated.
+2025-08-29 12:07:21,695 - AppTradingView - INFO - AppTradingView.py:1435 - PUT /update_drawing/SOLUSDT/c508a40f-0929-49dd-9815-14a7de5174c7 request completed successfully
+2025-08-29 12:07:38,429 - AppTradingView - INFO - AppTradingView.py:1346 - GET /get_shape_properties/SOLUSDT/270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 request received
+2025-08-29 12:07:38,430 - AppTradingView - INFO - AppTradingView.py:1372 - No properties found for drawing 270b8fd5-a9d1-4108-b0c2-c5fb02ef1421, returning empty dict
+2025-08-29 12:07:42,363 - AppTradingView - INFO - AppTradingView.py:1346 - GET /get_shape_properties/SOLUSDT/270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 request received
+2025-08-29 12:07:42,364 - AppTradingView - INFO - AppTradingView.py:1372 - No properties found for drawing 270b8fd5-a9d1-4108-b0c2-c5fb02ef1421, returning empty dict
+2025-08-29 12:07:44,843 - AppTradingView - INFO - AppTradingView.py:1346 - GET /get_shape_properties/SOLUSDT/c508a40f-0929-49dd-9815-14a7de5174c7 request received
+2025-08-29 12:07:49,346 - AppTradingView - INFO - AppTradingView.py:1428 - PUT /update_drawing/SOLUSDT/c508a40f-0929-49dd-9815-14a7de5174c7 request received
+2025-08-29 12:07:49,347 - AppTradingView - INFO - AppTradingView.py:1281 - Drawing c508a40f-0929-49dd-9815-14a7de5174c7 updated.
+2025-08-29 12:07:49,347 - AppTradingView - INFO - AppTradingView.py:1435 - PUT /update_drawing/SOLUSDT/c508a40f-0929-49dd-9815-14a7de5174c7 request completed successfully
+2025-08-29 12:07:52,450 - AppTradingView - INFO - AppTradingView.py:1346 - GET /get_shape_properties/SOLUSDT/c508a40f-0929-49dd-9815-14a7de5174c7 request received
+2025-08-29 12:07:56,470 - AppTradingView - INFO - AppTradingView.py:1346 - GET /get_shape_properties/SOLUSDT/270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 request received
+2025-08-29 12:07:56,471 - AppTradingView - INFO - AppTradingView.py:1372 - No properties found for drawing 270b8fd5-a9d1-4108-b0c2-c5fb02ef1421, returning empty dict
+2025-08-29 12:08:00,390 - AppTradingView - INFO - AppTradingView.py:1291 - POST /save_shape_properties/SOLUSDT/270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 request received with properties: {'buyOnCross': False, 'sellOnCross': False, 'sendEmailOnCross': True, 'amount': 0, 'email_sent': False}
+2025-08-29 12:08:00,391 - AppTradingView - INFO - AppTradingView.py:1281 - Drawing 270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 updated.
+2025-08-29 12:08:00,391 - AppTradingView - INFO - AppTradingView.py:1340 - Shape 270b8fd5-a9d1-4108-b0c2-c5fb02ef1421 properties updated successfully.
