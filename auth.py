@@ -78,6 +78,7 @@ class BybitCredentials:
 
 # Load credentials
 creds = BybitCredentials.from_file(AUTH_CREDS_FILE)
+logger.info(f"Google OAuth credentials loaded: CLIENT_ID present: {bool(creds.GOOGLE_CLIENT_ID)}, CLIENT_SECRET present: {bool(creds.GOOGLE_CLIENT_SECRET)}")
 
 async def get_session(request: Request) -> dict:
     """Dependency to retrieve the session."""

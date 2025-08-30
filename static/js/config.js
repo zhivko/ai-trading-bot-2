@@ -14,21 +14,35 @@ const BUY_EVENT_MARKER_SYMBOL = 'triangle-up';
 const SELL_EVENT_MARKER_SYMBOL = 'triangle-down';
 const REALTIME_PRICE_TEXT_ANNOTATION_NAME = 'realtimePriceTextAnnotation';
 
-// Function to detect mobile devices
+// Function to detect mobile devices using modern browser APIs
 function isMobileDevice() {
-    // Check user agent for mobile devices
+    // Log client resolution information
+    console.log('Client Resolution Info:');
+    console.log('  window.innerWidth:', window.innerWidth);
+    console.log('  window.innerHeight:', window.innerHeight);
+    console.log('  screen.width:', screen.width);
+    console.log('  screen.height:', screen.height);
+    console.log('  screen.availWidth:', screen.availWidth);
+    console.log('  screen.availHeight:', screen.availHeight);
+    console.log('  devicePixelRatio:', window.devicePixelRatio);
+    console.log('  navigator.userAgent:', navigator.userAgent);
+
+    // Use the modern User-Agent Client Hints API if available
+    if (navigator.userAgentData && typeof navigator.userAgentData.mobile === 'boolean') {
+        console.log('  navigator.userAgentData.mobile:', navigator.userAgentData.mobile);
+        return navigator.userAgentData.mobile;
+    }
+
+    // Fallback: Check for coarse pointer (typical of touch devices)
+    if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
+        console.log('  pointer coarse detected: true');
+        return true;
+    }
+
+    // Final fallback: Check user agent for mobile devices (legacy method)
     const userAgentMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-    // Check screen dimensions (with fallback for when window is not fully loaded)
-    const screenMobile = (window.innerWidth && window.innerWidth <= 768) ||
-                        (window.innerHeight && window.innerHeight <= 1024) ||
-                        (screen.width && screen.width <= 768) ||
-                        (screen.height && screen.height <= 1024);
-
-    // Check for touch capability
-    const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-
-    return userAgentMobile || screenMobile || hasTouch;
+    console.log('  userAgent mobile pattern match:', userAgentMobile);
+    return userAgentMobile;
 }
 
 const layout = {

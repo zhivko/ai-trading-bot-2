@@ -13,7 +13,7 @@ body {
 .chart-container {
     flex: 1;
     padding: 20px;
-    overflow: hidden;
+    overflow: visible;
 }
 
 .sidebar {

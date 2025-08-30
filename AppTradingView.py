@@ -6,7 +6,12 @@ import socket
 import asyncio
 import uvicorn
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
+import json
+from google_auth_oauthlib.flow import Flow
+from google.oauth2 import id_token
+from google.auth.transport.requests import Request as google_requests
+from urllib.parse import quote_plus
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -125,19 +130,46 @@ async def chart_page(request: Request):
     client_host = request.client.host if request.client else "Unknown"
     authenticated = False
 
-    if (os.environ.get('COMPUTERNAME') == "MAŠINA"):
+    computer_name = os.environ.get('COMPUTERNAME')
+    if computer_name == "MAŠINA":
         authenticated = True
         request.session["authenticated"] = True
         request.session["email"] = "vid.zivkovic@gmail.com"
-    elif(os.environ.get('COMPUTERNAME') == "ASUSAMD"):
+    elif computer_name == "ASUSAMD":
         authenticated = True
         request.session["authenticated"] = True
         request.session["email"] = "klemenzivkovic@gmail.com"
     else:
-        # Authentication logic would go here
-        authenticated = True  # Simplified for refactoring
+        # For mobile devices or unknown computers - require proper authentication
+        # For now, we'll deny access until proper auth is implemented
+        logger.warning(f"Unauthorized access attempt from {client_host} (COMPUTERNAME: {computer_name})")
+        authenticated = False
+        # Clear any existing session data
+        request.session.clear()
 
-    response = templates.TemplateResponse("index.html", {"request": request, "authenticated": authenticated})
+    logger.info(f"Chart page request from {client_host}. Current session state: authenticated={request.session.get('authenticated')}, email={request.session.get('email')}")
+    if request.session.get('email') is None:
+        logger.info(f"No email in session for {client_host}, redirecting to Google OAuth")
+        #try:
+        #    require_valid_certificate(request)
+        #    authenticated = True
+        #    request.session["authenticated"] = True
+        #    logger.info(f"Client authenticated via certificate. Serving chart page to {client_host}.")
+        #    return templates.TemplateResponse("index.html", {"request": request, "authenticated": authenticated}) # type: ignore
+
+        #except HTTPException as cert_exception:
+            # Certificate is invalid, initiate Google Auth flow
+        #    logger.warning(f"Client certificate missing or invalid. Initiating Google Auth flow for {client_host}. Error: {cert_exception.detail}")
+
+        # Build Google OAuth URL
+        google_auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={creds.GOOGLE_CLIENT_ID}&redirect_uri={quote_plus('https://crypto.zhivko.eu/OAuthCallback')}&response_type=code&scope=openid%20profile%20email&response_mode=query"
+
+        # Redirect to Google for authentication
+        return RedirectResponse(google_auth_url, status_code=302)
+    else:
+        logger.info(f"Email found in session for {client_host}: {request.session.get('email')}")
+
+    response = templates.TemplateResponse("index.html", {"request": request, "authenticated": True}) # type: ignore
     return response
 
 # Chart endpoints
@@ -179,15 +211,103 @@ app.get("/indicatorHistory")(indicator_history_endpoint)
 app.websocket("/stream/live/{symbol}")(stream_live_data_websocket_endpoint)
 app.get("/stream/{symbol}/{resolution}")(stream_klines)
 
-# OAuth callback endpoint
+# Logout endpoint
+@app.get("/logout")
+async def logout(request: Request):
+    """Clear the user session and redirect to home."""
+    logger.info(f"Logout request from {request.client.host if request.client else 'Unknown'}. Clearing session.")
+    request.session.clear()
+    logger.info("Session cleared.")
+    return RedirectResponse("/", status_code=302)
+
 @app.get("/OAuthCallback")
 async def oauth_callback(request: Request, code: str):
-    """Handles the OAuth 2.0 callback from Google."""
-    logger.info(f"OAuthCallback: Received callback from Google with code: {code[:50]}...")
+    """
+    Handles the OAuth 2.0 callback from Google.
+    This is where Google redirects the user after they authenticate.
+    """
+    logger.info(f"OAuthCallback: Received callback from Google with code: {code[:50]}...") # Truncate code for logging
 
-    # OAuth implementation would go here
-    # For now, redirect to main chart
-    return RedirectResponse("/", status_code=302)
+    GOOGLE_CLIENT_ID = creds.GOOGLE_CLIENT_ID
+    GOOGLE_CLIENT_SECRET = creds.GOOGLE_CLIENT_SECRET
+
+    try:
+        client_secrets_file = 'c:/git/VidWebServer/client_secret_655872926127-9fihq5a2rdsiakqltvmt6urj7saanhhd.apps.googleusercontent.com.json'
+        # Load client secrets from file
+        with open(client_secrets_file, 'r') as f:
+            client_config = json.load(f)
+
+        web_config = client_config.get('web', {})
+        scopes = client_config.get('web', {}).get('scopes')
+        if not scopes:
+            logger.warning(f"No scopes found in client_secret.json at {client_secrets_file}. Check file structure.")
+            scopes = ['https://www.googleapis.com/auth/userinfo.email','openid','https://www.googleapis.com/auth/userinfo.profile'] # Use default scopes if not found in file
+        client_id = web_config.get('client_id')
+        client_secret = web_config.get('client_secret')
+        if not client_id or not client_secret:
+            logger.error(f"Client ID or secret not found in {client_secrets_file}")
+            raise HTTPException(status_code=500, detail="Client ID or secret not found in client_secret.json")
+
+
+
+        if not client_id or not client_secret:
+            logger.error(f"Client ID or secret not found in {client_secrets_file}")
+            raise HTTPException(status_code=500, detail="Client ID or secret not found in client_secret.json")
+
+        # 1. Configure the OAuth 2.0 flow
+        flow = Flow.from_client_secrets_file(
+            client_secrets_file=client_secrets_file,  # Replace with the path to your client_secret.json file
+            scopes = scopes,
+            redirect_uri='https://crypto.zhivko.eu/OAuthCallback')
+        
+        # 2. Exchange the authorization code for credentials
+        flow.fetch_token(code=code)
+        credentials = flow.credentials
+
+        # 3. Verify the ID token
+        id_token_jwt = credentials.id_token
+
+        if id_token_jwt is None:
+            raise ValueError("ID token is missing in the credentials.")
+
+        try:
+            id_info = id_token.verify_token(id_token_jwt, google_requests(), GOOGLE_CLIENT_ID)
+        except ValueError as e:
+           logger.error(f"OAuthCallback: Invalid ID token: {e}")
+           raise HTTPException(status_code=400, detail=f"Invalid ID token: {e}")
+
+        # 4. Check the token's claims
+        if id_info['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
+            raise ValueError("Wrong issuer.")
+
+        # print(id_info)
+        # return RedirectResponse("/", status_code=302) # Redirect to the main chart
+        user_id = id_info['sub'] # The unique user ID
+        user_email = id_info['email']
+        logger.info(f"OAuthCallback: Successfully verified Google ID token for user {user_id} (email: {user_email})")
+
+        logger.info(f"OAuthCallback: Before setting session - authenticated={request.session.get('authenticated')}, email={request.session.get('email')}")
+        request.session["authenticated"] = True
+        request.session["email"] = user_email  # Store the user's email in the session
+        logger.info(f"Login user in by google account. Session variable set: session[\"authenticated\"] = True, session[\"email\"] = {user_email}")
+        logger.info(f"OAuthCallback: After setting session - authenticated={request.session.get('authenticated')}, email={request.session.get('email')}")
+
+
+        # 2. [Placeholder] Create or update user in your database
+        # You would typically check if the user_id exists, if not, create a new user.
+        # For now, just log the user information.
+        logger.info(f"OAuthCallback: [Placeholder] Creating or updating user in database for user_id: {user_id}, email: {user_email}")
+
+        # 3. [Placeholder] Establish a session for the user
+        # This is a placeholder.  In a real app, you'd set a cookie or use some other session management.
+        logger.info(f"OAuthCallback: [Placeholder] Establishing session for user_id: {user_id} and email: {user_email}")
+
+        return RedirectResponse("/", status_code=302) # Redirect to the main chart
+
+    except Exception as e:
+        logger.error(f"OAuthCallback: Error processing Google login: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to process Google login: {e}")
+
 
 # Symbol-specific chart page endpoint (must be last to avoid conflicts with API routes)
 @app.get("/{symbol}")
@@ -199,12 +319,13 @@ async def symbol_chart_page(symbol: str, request: Request):
                   "save_shape_properties", "get_shape_properties", "AI", "AI_Local_OLLAMA_Models", "indicators",
                   "get_agent_trades", "get_order_history", "get_buy_signals", "settings", "set_last_symbol",
                   "get_last_symbol", "stream", "indicatorHistory", "OAuthCallback"]:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Not found")
 
     client_host = request.client.host if request.client else "Unknown"
-    authenticated = False
 
+
+    authenticated = False
+    '''
     if (os.environ.get('COMPUTERNAME') == "MAŠINA"):
         authenticated = True
         request.session["authenticated"] = True
@@ -218,10 +339,32 @@ async def symbol_chart_page(symbol: str, request: Request):
         authenticated = True  # Simplified for refactoring
 
     logger.info(f"Symbol page request: {symbol} from {client_host}")
+    '''
+
+    logger.info(f"Symbol chart page request for {symbol} from {client_host}. Current session state: authenticated={request.session.get('authenticated')}, email={request.session.get('email')}")
+    if request.session.get('email') is None:
+        logger.info(f"No email in session for {symbol} request from {client_host}, redirecting to Google OAuth")
+        #try:
+        #    require_valid_certificate(request)
+        #    authenticated = True
+        #    request.session["authenticated"] = True
+        #    logger.info(f"Client authenticated via certificate. Serving chart page to {client_host}.")
+        #    return templates.TemplateResponse("index.html", {"request": request, "authenticated": authenticated}) # type: ignore
+
+        #except HTTPException as cert_exception:
+            # Certificate is invalid, initiate Google Auth flow
+        #    logger.warning(f"Client certificate missing or invalid. Initiating Google Auth flow for {client_host}. Error: {cert_exception.detail}")
+
+        # Build Google OAuth URL
+        google_auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={creds.GOOGLE_CLIENT_ID}&redirect_uri={quote_plus('https://crypto.zhivko.eu/OAuthCallback')}&response_type=code&scope=openid%20profile%20email&response_mode=query"
+
+        # Redirect to Google for authentication
+        return RedirectResponse(google_auth_url, status_code=302)
+    else:
+        logger.info(f"Email found in session for {symbol} request from {client_host}: {request.session.get('email')}")
 
     # Set the symbol in session for the frontend to use
     request.session["requested_symbol"] = symbol
-
     response = templates.TemplateResponse("index.html", {"request": request, "authenticated": authenticated})
     return response
 

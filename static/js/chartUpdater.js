@@ -219,75 +219,91 @@ async function updateChart() {
             const baseGlobalYAxis = JSON.parse(JSON.stringify(layout.yaxis));
             const baseGlobalXAxis = JSON.parse(JSON.stringify(layout.xaxis)); // Base for all x-axes
             
-            // Setup layout.grid
-            const numTotalPlots = 1 + numValidIndicators;
-            const mainChartWeight = 3; // Give main chart 3x weight for 3:1 ratio with indicators
-            const indicatorWeight = 1;
-            const totalWeight = mainChartWeight + (numValidIndicators * indicatorWeight);
+            // Optimized space usage with 3:1 ratio - ensure full height utilization
+            // Calculate from bottom up to eliminate any remaining blank space
+            const totalUnits = 3 + numValidIndicators; // Price gets 3 units, each indicator gets 1 unit
+            const unitHeight = 1.0 / totalUnits; // Each unit's height
 
-            const mainChartRelativeHeight = mainChartWeight / totalWeight;
-            const heightPerIndicator = indicatorWeight / totalWeight;
+            const priceChartHeight = 3 * unitHeight; // Price chart gets 3 units
+            const labelGap = isMobileDevice() ? 0.04 : 0.04; // Increased gap: 6% mobile, 12% desktop
+            const availableForIndicators = 1.0 - priceChartHeight - labelGap;
+            const gapBetweenIndicators = 0.02; // 2% gap between indicators
+            const totalIndicatorSpace = availableForIndicators - (numValidIndicators - 1) * gapBetweenIndicators;
+            const indicatorHeight = totalIndicatorSpace / numValidIndicators; // Redistribute remaining space
 
-            let rowHeights = [mainChartRelativeHeight];
-            if (numValidIndicators > 0) {
-                for (let i = 0; i < numValidIndicators; i++) {
-                    rowHeights.push(heightPerIndicator);
-                }
+            const priceChartDomain = [1.0 - priceChartHeight, 1.0]; // Price chart at top
+            const indicatorsStartAt = 1.0 - priceChartHeight - labelGap; // Indicators start below labels
+
+            // Create grid with manual row heights - must match domain calculations exactly
+            let rowHeights = [priceChartHeight]; // Price chart height (calculated, not hardcoded)
+            for (let i = 0; i < numValidIndicators; i++) {
+                rowHeights.push(indicatorHeight);
+                if (i < numValidIndicators - 1) rowHeights.push(gapBetweenIndicators);
             }
 
             currentLayout.grid = {
-                rows: numTotalPlots,
+                rows: rowHeights.length,
                 columns: 1,
                 pattern: 'independent',
                 roworder: 'top to bottom',
-                rowheights: rowHeights,
-                ygap: 0.08
+                rowheights: rowHeights
             };
             
-            // Clean up any numbered yaxisN/xaxisN that are not part of the grid
+            // Clean up any numbered yaxisN that are not part of the grid
             Object.keys(currentLayout).forEach(key => {
-                if ((key.startsWith('yaxis') && key !== 'yaxis' && parseInt(key.substring(5)) > numTotalPlots) ||
-                    (key.startsWith('xaxis') && key !== 'xaxis' && parseInt(key.substring(5)) > numTotalPlots)) {
+                if (key.startsWith('yaxis') && key !== 'yaxis' && parseInt(key.substring(5)) > numTotalPlots) {
+                    delete currentLayout[key];
+                }
+                // Clean up any numbered xaxisN (except xaxis itself)
+                if (key.startsWith('xaxis') && key !== 'xaxis') {
                     delete currentLayout[key];
                 }
             });
 
             // Configure main xaxis (for the first subplot)
-            currentLayout.xaxis.showticklabels = true; // Always show X axis labels on main chart
+            currentLayout.xaxis.showticklabels = true; // Show X axis labels on main chart
             currentLayout.xaxis.rangeslider = { visible: false }; // Ensure no rangeslider on main x-axis with grid
 
             // Configure main yaxis (for the first subplot)
             currentLayout.yaxis.title = { text: 'Price (USDT)', font: { size: 10 } };
             currentLayout.yaxis.range = mainPriceChartCalculatedRange;
             currentLayout.yaxis.autorange = false;
-            // domain for yaxis is handled by the grid
+            currentLayout.yaxis.domain = priceChartDomain; // Manual domain: [0.6, 1.0]
 
             validIndicatorData.forEach((indResult, i) => {
                 const indicatorId = indResult.id;
                 const data = indResult.data;
                 const yAxisNum = i + 2; // Indicators start from yaxis2
                 const yAxisTraceRef = `y${yAxisNum}`; // For trace.yaxis
-                const xAxisTraceRef = `x${yAxisNum}`; // For trace.xaxis
+                const xAxisTraceRef = 'x'; // All indicators share the same x-axis
                 const yAxisLayoutKey = `yaxis${yAxisNum}`; // For layout.yaxisN
-                const xAxisLayoutKey = `xaxis${yAxisNum}`; // For layout.xaxisN
+
+                // Optimized domain calculation for indicators - ensure last indicator reaches exactly 0.0
+                const indicatorIndex = yAxisNum - 2; // 0-based index for indicators
+                const isLastIndicator = indicatorIndex === numValidIndicators - 1;
+
+                // Declare variables outside if/else blocks to avoid scoping issues
+                let domainStart, domainEnd;
+                const higherStartPadding = 0.2 * indicatorHeight;
+
+                // Calculate domain with gaps between indicators
+                domainStart = (numValidIndicators - 1 - indicatorIndex) * (indicatorHeight + gapBetweenIndicators);
+                domainEnd = domainStart + indicatorHeight;
+                // Apply higher start padding for first indicator
+                if (indicatorIndex === 0) {
+                    domainStart += higherStartPadding;
+                }
 
                 currentLayout[yAxisLayoutKey] = {
                     ...JSON.parse(JSON.stringify(baseGlobalYAxis)), // Start with base
                     title: { text: indicatorId.toUpperCase(), font: { size: 10 } },
                     autorange: true,
-                    fixedrange: false // Allow zoom on indicator y-axes
-                    // domain is handled by grid
+                    fixedrange: false, // Allow zoom on indicator y-axes
+                    domain: [domainStart, domainEnd] // Explicitly set domain based on grid rowheights
                 };
 
-                currentLayout[xAxisLayoutKey] = {
-                    ...JSON.parse(JSON.stringify(baseGlobalXAxis)), // Start with base
-                    anchor: yAxisTraceRef, // Anchor to the trace's y-axis ref
-                    matches: 'x',          // Match the main 'x' axis
-                    showticklabels: (i === numValidIndicators - 1), // Only the last indicator shows x-axis labels
-                    rangeslider: { visible: false }
-                };
 
-                newActiveIndicatorsState.push({ id: indicatorId, yAxisRef: yAxisTraceRef, xAxisRef: xAxisTraceRef });
+                newActiveIndicatorsState.push({ id: indicatorId, yAxisRef: yAxisTraceRef, xAxisRef: 'x' });
 
                 if (data.t && data.t.length > 0) {
                     const xValues = data.t.map(t => new Date(t * 1000));
