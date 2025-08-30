@@ -224,7 +224,7 @@ async function updateChart() {
             const totalUnits = 3 + numValidIndicators; // Price gets 3 units, each indicator gets 1 unit
             const unitHeight = 1.0 / totalUnits; // Each unit's height
 
-            const priceChartHeight = 3 * unitHeight; // Price chart gets 3 units
+            const priceChartHeight = 2 * unitHeight; // Price chart gets 3 units
             const labelGap = isMobileDevice() ? 0.04 : 0.04; // Increased gap: 6% mobile, 12% desktop
             const availableForIndicators = 1.0 - priceChartHeight - labelGap;
             const gapBetweenIndicators = 0.02; // 2% gap between indicators
