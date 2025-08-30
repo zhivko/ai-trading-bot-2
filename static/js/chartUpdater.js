@@ -318,7 +318,18 @@ async function updateChart() {
                     }
 
                     if (indicatorId === 'rsi' && data.rsi) {
-                        indicatorTraces.push({ x: xValues, y: data.rsi, type: 'scatter', mode: 'lines', name: 'RSI', yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, line: {color: 'purple'}, hoverinfo: isMobileDevice() ? 'skip' : 'all' });
+                        if(data.rsi) 
+                        {
+                            console.log('[DEBUG RSI] Keys:', Object.keys(data));
+                            // Plot raw RSI line
+                            indicatorTraces.push({ x: xValues, y: data.rsi, type: 'scatter', mode: 'lines', name: 'RSI', yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, line: {color: 'darkorange'}, hoverinfo: isMobileDevice() ? 'skip' : 'all' });
+                        }
+                        if(data.rsi_sma14) 
+                        {
+                            console.log('[DEBUG RSI_SMA14] Keys:', Object.keys(data));
+                            // Plot raw RSI line
+                            indicatorTraces.push({ x: xValues, y: data.rsi_sma14, type: 'scatter', mode: 'lines', name: 'RSI_SMA14', yaxis: yAxisTraceRef, xaxis: xAxisTraceRef, line: {color: 'dodgerblue'}, hoverinfo: isMobileDevice() ? 'skip' : 'all' });
+                        }
                     }
                     else if(indicatorId === 'jma') {
                         if(data.jma_up) {

@@ -8,10 +8,17 @@ from redis_utils import get_redis_connection
 from logging_config import logger
 
 async def settings_endpoint(request: Request):
+    from auth import require_authentication
     global DEFAULT_SYMBOL_SETTINGS
     redis = await get_redis_connection()
 
+    # Require authentication for settings access
+    require_authentication(request.session)
+
     email = request.session.get("email")
+    if not email:
+        return JSONResponse({"status": "error", "message": "User not authenticated"}, status_code=401)
+
     symbol = request.query_params.get("symbol")
     settings_key = f"settings:{email}:{symbol}"
 
@@ -19,8 +26,7 @@ async def settings_endpoint(request: Request):
         if not symbol:
             logger.warning("GET /settings: Symbol query parameter is missing.")
             return JSONResponse({"status": "error", "message": "Symbol query parameter is required"}, status_code=400)
-        symbol = request.query_params.get("symbol")
-        settings_key = f"settings:{email}:{symbol}"
+        # settings_key is already set above
 
         try:
             settings_json = await redis.get(settings_key)
@@ -65,11 +71,11 @@ async def settings_endpoint(request: Request):
                 return JSONResponse({"status": "error", "message": "Empty JSON"}, status_code=400)
 
             symbol_to_update = data.get('symbol')
-            settings_key = f"settings:{email}:{symbol_to_update}"
-
             if not symbol_to_update:
                 logger.warning("POST /settings: 'symbol' field missing in request data.")
                 return JSONResponse({"status": "error", "message": "'symbol' field is required in payload"}, status_code=400)
+
+            settings_key = f"settings:{email}:{symbol_to_update}"
 
             # Log the raw data received from the client immediately
             logger.info(f"POST /settings: RAW data received from client for symbol '{symbol_to_update}': {data}")

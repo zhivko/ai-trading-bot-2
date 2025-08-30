@@ -161,9 +161,10 @@ function initializePlotlyEventHandlers(gd) {
         const eventKeys = Object.keys(eventData);
         const hasShapeChanges = eventKeys.some(key => key.startsWith('shapes['));
         const hasAxisRangeChanges = eventKeys.some(key => key.includes('axis.range'));
+        const isDragModeChange = eventKeys.includes('dragmode');
 
-        // Only set dragging flag for actual shape interactions
-        if (hasShapeChanges) {
+        // Only set dragging flag for actual shape interactions, NOT dragmode changes
+        if (hasShapeChanges && !isDragModeChange) {
             console.log('[DRAGGING] Shape dragging detected - switching to drawline mode');
             window.isDraggingShape = true;
 
@@ -182,6 +183,10 @@ function initializePlotlyEventHandlers(gd) {
                 window.liveDataCheckbox.checked = false;
                 window.liveDataCheckbox.dispatchEvent(new Event('change'));
             }
+        } else if (isDragModeChange) {
+            // Handle dragmode changes separately - don't set dragging flag
+            console.log('[DRAGMODE] Dragmode changed to:', eventData.dragmode);
+            // Allow line coloring in draw mode by not setting isDraggingShape
         } else {
             // For axis range changes or unknown events, don't set dragging flag
             window.isDraggingShape = false;
@@ -451,6 +456,14 @@ function initializePlotlyEventHandlers(gd) {
             } else {
                 console.log('[DRAGGING] Shape dragging completed');
             }
+
+            // Re-trigger hover detection after drag completion to restore line coloring
+            setTimeout(() => {
+                if (window.colorTheLine) {
+                    window.colorTheLine();
+                    console.log('[DRAGGING] Re-triggered hover detection after drag completion');
+                }
+            }, 100); // Small delay to ensure relayout is complete
         }
     });
 

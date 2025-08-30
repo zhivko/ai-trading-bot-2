@@ -80,7 +80,9 @@ def _extract_results(df: pd.DataFrame, columns: List[str], original_time_index: 
             simple_col_name = "stoch_k"
         elif "stochrsid" in col.lower():
             simple_col_name = "stoch_d"
-        elif "rsi" in col.lower() and "stoch" not in col.lower():
+        elif "_sma14" in col.lower() and "rsi" in col.lower():
+            simple_col_name = "rsi_sma14"
+        elif "rsi" in col.lower() and "stoch" not in col.lower() and "_sma" not in col.lower():
             simple_col_name = "rsi"
         elif "open_interest" in col.lower():
             simple_col_name = "open_interest"
@@ -164,12 +166,18 @@ def calculate_rsi(df_input: pd.DataFrame, period: int = 14) -> Dict[str, Any]:
     # DEBUG: Log SMA values
     logger.debug(f"[DEBUG RSI] SMA column created: {sma_col}")
     if len(df) > 0:
-        logger.debug(f"[DEBUG RSI] Sample SMA values: {df[sma_col].head(5).tolist()}")
-        logger.debug(f"[DEBUG RSI] SMA range: min={df[sma_col].min():.2f}, max={df[sma_col].max():.2f}")
+        logger.info(f"[DEBUG RSI] Sample SMA values: {df[sma_col].head(5).tolist()}")
+        logger.info(f"[DEBUG RSI] SMA range: min={df[sma_col].min():.2f}, max={df[sma_col].max():.2f}")
 
     # 3️⃣ Return both columns via _extract_results
+    logger.info(f"[DEBUG RSI] Columns before _extract_results: {df.columns.tolist()}")
+    logger.info(f"[DEBUG RSI] RSI column sample: {df[rsi_col].head(5).tolist()}")
+    logger.info(f"[DEBUG RSI] SMA column sample: {df[sma_col].head(5).tolist()}")
+    logger.info(f"[DEBUG RSI] SMA NaN count: {df[sma_col].isna().sum()}")
+
     result = _extract_results(df, [rsi_col, sma_col], original_time_index)
-    logger.debug(f"[DEBUG RSI] Final result length: {len(result.get('t', []))}")
+    logger.info(f"[DEBUG RSI] Final result keys: {list(result.keys())}")
+    logger.info(f"[DEBUG RSI] Final result length: {len(result.get('t', []))}")
     return result
 
 def calculate_stoch_rsi(df_input: pd.DataFrame, rsi_period: int, stoch_period: int, k_period: int, d_period: int) -> Dict[str, Any]:
@@ -376,6 +384,7 @@ def format_indicator_data_for_llm_as_dict(indicator_id: str, indicator_config_de
     column_names_map = {
         "macd": "MACD", "signal": "Signal", "histogram": "Histogram",
         "rsi": "RSI",
+        "rsi_sma14": "RSI SMA14",
         "open_interest": "OpenInterest",
         "jma": "JMA",  # Add JMA
         "stoch_k": "StochK", "stoch_d": "StochD"
