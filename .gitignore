@@ -16,7 +16,5 @@ CERs/*.*
 *.csv
 data/*.*
 .gemini
-/.log
-/logs/*.*
 .env
 *.log
