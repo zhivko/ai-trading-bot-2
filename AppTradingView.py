@@ -130,23 +130,6 @@ async def chart_page(request: Request):
     client_host = request.client.host if request.client else "Unknown"
     authenticated = False
 
-    computer_name = os.environ.get('COMPUTERNAME')
-    if computer_name == "MAŠINA":
-        authenticated = True
-        request.session["authenticated"] = True
-        request.session["email"] = "vid.zivkovic@gmail.com"
-    elif computer_name == "ASUSAMD":
-        authenticated = True
-        request.session["authenticated"] = True
-        request.session["email"] = "klemenzivkovic@gmail.com"
-    else:
-        # For mobile devices or unknown computers - require proper authentication
-        # For now, we'll deny access until proper auth is implemented
-        logger.warning(f"Unauthorized access attempt from {client_host} (COMPUTERNAME: {computer_name})")
-        authenticated = False
-        # Clear any existing session data
-        request.session.clear()
-
     logger.info(f"Chart page request from {client_host}. Current session state: authenticated={request.session.get('authenticated')}, email={request.session.get('email')}")
     if request.session.get('email') is None:
         logger.info(f"No email in session for {client_host}, redirecting to Google OAuth")
