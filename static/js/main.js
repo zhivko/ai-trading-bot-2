@@ -61,10 +61,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('[DEBUG] Starting Plotly chart initialization');
 
     // Initialize Plotly chart (empty initially)
-    const mobileOptimizedLayout = getMobileOptimizedLayout(); // Get mobile-optimized layout
-    console.log('[DEBUG] Mobile optimized layout:', mobileOptimizedLayout);
+    const initialLayout = {}; // Basic layout - full layout configuration handled in combinedData.js
+    console.log('[DEBUG] Initial layout:', initialLayout);
 
-    Plotly.newPlot('chart', [], mobileOptimizedLayout, config).then(function(gd) { // layout & config from config.js
+    Plotly.newPlot('chart', [], initialLayout, config).then(function(gd) { // layout & config from config.js
         console.log('[DEBUG] Plotly.newPlot completed successfully, gd:', gd);
         window.gd = gd; // Make Plotly graph div object global
 
@@ -169,9 +169,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log(`[main.js] Establishing new WebSocket connection for ${selectedSymbol}`);
 
         // Calculate time range for new symbol
-        const now = Date.now();
-        const fromTs = Math.floor((now - 30 * 86400 * 1000) / 1000); // 30 days ago
-        const toTs = Math.floor(now / 1000); // Current time
+        // Use historical data period (2022) since Redis only has data from that period
+        const historicalBaseTime = new Date('2022-12-15T00:00:00Z').getTime(); // Use a date in 2022
+        const fromTs = Math.floor((historicalBaseTime - 30 * 86400 * 1000) / 1000); // 30 days before our historical data
+        const toTs = Math.floor((historicalBaseTime + 30 * 86400 * 1000) / 1000); // 30 days after our historical data
+
+        console.log('[TIMESTAMP DEBUG] Initial time range calculation (using historical data period):', {
+            historicalBaseTime: historicalBaseTime,
+            historicalBaseDate: new Date(historicalBaseTime).toISOString(),
+            fromTs: fromTs,
+            toTs: toTs,
+            fromTsDate: new Date(fromTs * 1000).toISOString(),
+            toTsDate: new Date(toTs * 1000).toISOString(),
+            timezoneOffset: new Date().getTimezoneOffset(),
+            timezoneOffsetMinutes: new Date().getTimezoneOffset()
+        });
 
         // Now get the indicator values AFTER settings are loaded
         const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
@@ -246,9 +258,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateCombinedResolution(resolution);
 
             // Send new config with updated resolution
-            const now = Date.now();
-            const fromTs = Math.floor((now - 30 * 86400 * 1000) / 1000); // 30 days ago
-            const toTs = Math.floor(now / 1000); // Current time
+            // Use historical data period (2022) since Redis only has data from that period
+            const historicalBaseTime = new Date('2022-12-15T00:00:00Z').getTime();
+            const fromTs = Math.floor((historicalBaseTime - 30 * 86400 * 1000) / 1000); // 30 days before our historical data
+            const toTs = Math.floor((historicalBaseTime + 30 * 86400 * 1000) / 1000); // 30 days after our historical data
 
             // If WebSocket is open, send new config, otherwise establish new connection
             if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
@@ -263,9 +276,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateCombinedResolution(resolution);
 
             // Send new config with updated resolution
-            const now = Date.now();
-            let wsFromTs = new Date(now - 30 * 86400 * 1000).toISOString(); // 30 days ago
-            let wsToTs = new Date(now).toISOString(); // Current time
+            // Use historical data period (2022) since Redis only has data from that period
+            const historicalBaseTime = new Date('2022-12-15T00:00:00Z').getTime();
+            let wsFromTs = new Date(historicalBaseTime - 30 * 86400 * 1000).toISOString(); // 30 days before our historical data
+            let wsToTs = new Date(historicalBaseTime + 30 * 86400 * 1000).toISOString(); // 30 days after our historical data
 
             // If WebSocket is open, send new config, otherwise establish new connection
             if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
@@ -289,22 +303,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         const rangeDropdownValue = window.rangeSelect.value;
-        const now = Date.now(); // Keep in milliseconds
+        // Use historical data period (2022) since Redis only has data from that period
+        const historicalBaseTime = new Date('2022-12-15T00:00:00Z').getTime(); // Keep in milliseconds
         let fromTs;
         switch(rangeDropdownValue) {
-            case '1h': fromTs = now - 3600 * 1000; break;
-            case '8h': fromTs = now - 8 * 3600 * 1000; break;
-            case '24h': fromTs = now - 86400 * 1000; break;
-            case '3d': fromTs = now - 3 * 86400 * 1000; break;
-            case '7d': fromTs = now - 7 * 86400 * 1000; break;
-            case '30d': fromTs = now - 30 * 86400 * 1000; break;
-            case '3m': fromTs = now - 90 * 86400 * 1000; break;
-            case '6m': fromTs = now - 180 * 86400 * 1000; break;
-            case '1y': fromTs = now - 365 * 86400 * 1000; break;
-            case '3y': fromTs = now - 3 * 365 * 86400 * 1000; break;
-            default: fromTs = now - 30 * 86400 * 1000;
+            case '1h': fromTs = historicalBaseTime - 3600 * 1000; break;
+            case '8h': fromTs = historicalBaseTime - 8 * 3600 * 1000; break;
+            case '24h': fromTs = historicalBaseTime - 86400 * 1000; break;
+            case '3d': fromTs = historicalBaseTime - 3 * 86400 * 1000; break;
+            case '7d': fromTs = historicalBaseTime - 7 * 86400 * 1000; break;
+            case '30d': fromTs = historicalBaseTime - 30 * 86400 * 1000; break;
+            case '3m': fromTs = historicalBaseTime - 90 * 86400 * 1000; break;
+            case '6m': fromTs = historicalBaseTime - 180 * 86400 * 1000; break;
+            case '1y': fromTs = historicalBaseTime - 365 * 86400 * 1000; break;
+            case '3y': fromTs = historicalBaseTime - 3 * 365 * 86400 * 1000; break;
+            default: fromTs = historicalBaseTime - 30 * 86400 * 1000;
         }
-        const toTs = now;
+        const toTs = historicalBaseTime;
 
         window.currentXAxisRange = [fromTs, toTs]; // Keep in milliseconds
         window.xAxisMinDisplay.textContent = `First timestamp (UTC): ${new Date(fromTs).toISOString()}`;
@@ -377,9 +392,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
 
             // Calculate time range for live data
-            const now = Date.now();
-            let wsFromTs = new Date(now - 30 * 86400 * 1000).toISOString(); // 30 days ago
-            let wsToTs = new Date(now).toISOString(); // Current time
+            // Use historical data period (2022) since Redis only has data from that period
+            const historicalBaseTime = new Date('2022-12-15T00:00:00Z').getTime();
+            let wsFromTs = new Date(historicalBaseTime - 30 * 86400 * 1000).toISOString(); // 30 days before our historical data
+            let wsToTs = new Date(historicalBaseTime + 30 * 86400 * 1000).toISOString(); // 30 days after our historical data
 
             // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use saved X-axis range if available
             console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for live data WebSocket`);
@@ -396,6 +412,18 @@ document.addEventListener('DOMContentLoaded', async () => {
                 console.log(`[main.js] ⚠️ TIMESTAMP SYNC: No valid currentXAxisRange for live data, using calculated range`);
             }
 
+            console.log('[WEBSOCKET DEBUG] About to setup WebSocket with:', {
+                selectedSymbol,
+                activeIndicators,
+                resolution,
+                wsFromTs,
+                wsToTs,
+                wsFromTsType: typeof wsFromTs,
+                wsToTsType: typeof wsToTs,
+                wsFromTsDate: wsFromTs instanceof Date ? wsFromTs.toISOString() : (typeof wsFromTs === 'number' ? new Date(wsFromTs * 1000).toISOString() : 'N/A'),
+                wsToTsDate: wsToTs instanceof Date ? wsToTs.toISOString() : (typeof wsToTs === 'number' ? new Date(wsToTs * 1000).toISOString() : 'N/A')
+            });
+    
             setupCombinedWebSocket(selectedSymbol, activeIndicators, resolution, wsFromTs, wsToTs);
 
             if (window.gd) {
@@ -425,9 +453,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 // If WebSocket is open, send updated config with new indicators
                 if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
-                    const now = Date.now();
-                    let wsFromTs = new Date(now - 30 * 86400 * 1000).toISOString(); // 30 days ago
-                    let wsToTs = new Date(now).toISOString(); // Current time
+                    // Use historical data period (2022) since Redis only has data from that period
+                    const historicalBaseTime = new Date('2022-12-15T00:00:00Z').getTime();
+                    let wsFromTs = new Date(historicalBaseTime - 30 * 86400 * 1000).toISOString(); // 30 days before our historical data
+                    let wsToTs = new Date(historicalBaseTime + 30 * 86400 * 1000).toISOString(); // 30 days after our historical data
 
                     // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use saved X-axis range if available
                     console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for indicator change WebSocket`);
@@ -460,9 +489,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
 
             // Calculate time range for agent trades update
-            const now = Date.now();
-            let wsFromTs = new Date(now - 30 * 86400 * 1000).toISOString(); // 30 days ago
-            let wsToTs = new Date(now).toISOString(); // Current time
+            // Use historical data period (2022) since Redis only has data from that period
+            const historicalBaseTime = new Date('2022-12-15T00:00:00Z').getTime();
+            let wsFromTs = new Date(historicalBaseTime - 30 * 86400 * 1000).toISOString(); // 30 days before our historical data
+            let wsToTs = new Date(historicalBaseTime + 30 * 86400 * 1000).toISOString(); // 30 days after our historical data
 
             // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use saved X-axis range if available
             console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for agent trades WebSocket`);
@@ -517,7 +547,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 // Remove the shape from the chart
                 if (window.gd && window.gd.layout && window.gd.layout.shapes) {
-                    const shapes = window.gd.layout.shapes.filter(shape => shape.backendId !== drawingId);
+                    const shapes = window.gd.layout.shapes.filter(shape => shape.id !== drawingId);
                     Plotly.relayout(window.gd, { shapes: shapes });
                 }
 
@@ -649,37 +679,44 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Initialize combined WebSocket after settings are loaded
-    // Add a small delay to ensure programmatic setting of UI controls is complete
-    setTimeout(() => {
-        const selectedSymbol = window.symbolSelect.value;
-        const selectedResolution = window.resolutionSelect.value;
-        console.log(`[main.js] Initializing combined WebSocket with symbol: ${selectedSymbol}, resolution: ${selectedResolution}`);
+    const selectedSymbol = window.symbolSelect.value;
+    const selectedResolution = window.resolutionSelect.value;
+    console.log(`[main.js] Initializing combined WebSocket with symbol: ${selectedSymbol}, resolution: ${selectedResolution}`);
 
-        if (selectedSymbol && selectedResolution) {
-            const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
-            console.log(`[main.js] Active indicators:`, activeIndicators);
+    if (selectedSymbol && selectedResolution) {
+        const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+        console.log(`[main.js] Active indicators:`, activeIndicators);
 
-            // Use saved X-axis range if available, otherwise use default (30 days ago to now)
-            let fromTs, toTs;
-            if (window.currentXAxisRange && window.currentXAxisRange.length === 2) {
-                // Convert milliseconds to ISO timestamp strings
-                fromTs = new Date(window.currentXAxisRange[0]).toISOString();
-                toTs = new Date(window.currentXAxisRange[1]).toISOString();
-                console.log(`[main.js] Using saved X-axis range: from ${fromTs} to ${toTs}`);
-            } else {
-                const now = Date.now();
-                fromTs = new Date(now - 30 * 86400 * 1000).toISOString(); // 30 days ago
-                toTs = new Date(now).toISOString(); // Current time
-                console.log(`[main.js] Using default time range: from ${fromTs} to ${toTs}`);
-            }
-
-            setupCombinedWebSocket(selectedSymbol, activeIndicators, selectedResolution, fromTs, toTs);
-        } else {
-            console.warn(`[main.js] Cannot initialize WebSocket - symbol: ${selectedSymbol}, resolution: ${selectedResolution}`);
+        // Initialize chart subplots layout before WebSocket messages arrive
+        if (activeIndicators.length > 0 && window.gd) {
+            console.log('[main.js] Setting up chart subplots layout before WebSocket initialization');
+            const layout = createLayoutForIndicators(activeIndicators);
+            Plotly.relayout(window.gd, layout);
+            console.log('[main.js] Chart subplots layout initialized');
         }
-    }, 50); // Small delay to ensure UI updates are complete
+
+        // Use saved X-axis range if available, otherwise use default (30 days ago to now)
+        let fromTs, toTs;
+        if (window.currentXAxisRange && window.currentXAxisRange.length === 2) {
+            // Convert milliseconds to ISO timestamp strings
+            fromTs = new Date(window.currentXAxisRange[0]).toISOString();
+            toTs = new Date(window.currentXAxisRange[1]).toISOString();
+            console.log(`[main.js] Using saved X-axis range: from ${fromTs} to ${toTs}`);
+        } else {
+            // Use historical data period (2022) since Redis only has data from that period
+            const historicalBaseTime = new Date('2022-12-15T00:00:00Z').getTime();
+            fromTs = new Date(historicalBaseTime - 30 * 86400 * 1000).toISOString(); // 30 days before our historical data
+            toTs = new Date(historicalBaseTime + 30 * 86400 * 1000).toISOString(); // 30 days after our historical data
+            console.log(`[main.js] Using default historical time range: from ${fromTs} to ${toTs}`);
+        }
+
+        setupCombinedWebSocket(selectedSymbol, activeIndicators, selectedResolution, fromTs, toTs);
+    } else {
+        console.warn(`[main.js] Cannot initialize WebSocket - symbol: ${selectedSymbol}, resolution: ${selectedResolution}`);
+    }
 
     // Force dragmode to 'pan' at the very end of initialization to override any other settings
+    /*
     setTimeout(() => {
         if (window.gd) {
             console.log('[DEBUG] Forcing final dragmode to pan');
@@ -690,6 +727,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         }
     }, 1000);
+    */
 
     // Handle browser back/forward navigation
     window.addEventListener('popstate', (event) => {
@@ -737,9 +775,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Establish new connection
             const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
             const resolution = window.resolutionSelect.value;
-            const now = Date.now();
-            let wsFromTs = new Date(now - 30 * 86400 * 1000).toISOString();
-            let wsToTs = new Date(now).toISOString();
+            // Use historical data period (2022) since Redis only has data from that period
+            const historicalBaseTime = new Date('2022-12-15T00:00:00Z').getTime();
+            let wsFromTs = new Date(historicalBaseTime - 30 * 86400 * 1000).toISOString();
+            let wsToTs = new Date(historicalBaseTime + 30 * 86400 * 1000).toISOString();
 
             // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use saved X-axis range if available
             console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for browser navigation WebSocket`);
@@ -770,38 +809,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, 250);
     window.addEventListener('resize', debouncedPlotlyResize);
 });
-
-async function loadDrawingsAndRedraw(symbol) { // Keep this global for now, or move to api.js and call from there
-    console.log(`Fetching and redrawing drawings for ${symbol}...`);
-
-    // Re-initialize combined WebSocket to reload data with drawings
-    const resolution = window.resolutionSelect.value;
-    const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
-    if (symbol && resolution) {
-        // Calculate time range for drawings reload
-        const now = Date.now();
-        let wsFromTs = new Date(now - 30 * 86400 * 1000).toISOString(); // 30 days ago
-        let wsToTs = new Date(now).toISOString(); // Current time
-
-        // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use saved X-axis range if available
-        console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for drawings reload WebSocket`);
-        console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange:`, window.currentXAxisRange);
-        if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
-            wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
-            wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
-            console.log(`[main.js] ✅ TIMESTAMP SYNC: Using saved X-axis range for drawings reload WebSocket:`, {
-                savedRange: window.currentXAxisRange,
-                wsFromTs: wsFromTs,
-                wsToTs: wsToTs
-            });
-        } else {
-            console.log(`[main.js] ⚠️ TIMESTAMP SYNC: No valid currentXAxisRange for drawings reload, using calculated range`);
-        }
-
-        setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
-    }
-}
-
 
 /**
  * Applies autoscaling to the chart, focusing on historical data
@@ -877,10 +884,28 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
        }
        const finalXMin = xMin - xPadding;
        const finalXMax = xMax + xPadding;
-       layoutUpdate['xaxis.range[0]'] = new Date(finalXMin).toISOString();
-       layoutUpdate['xaxis.range[1]'] = new Date(finalXMax).toISOString();
+
+       // Validate that the calculated dates are valid before converting to ISO strings
+       if (!isFinite(finalXMin) || !isFinite(finalXMax)) {
+           console.error("Autoscale: Invalid X-axis range calculated - xMin:", xMin, "xMax:", xMax, "xPadding:", xPadding);
+           console.error("Autoscale: Skipping X-axis autoscale due to invalid date range");
+           return; // Exit early to prevent the error
+       }
+
+       const minDate = new Date(finalXMin);
+       const maxDate = new Date(finalXMax);
+
+       // Additional validation for date objects
+       if (isNaN(minDate.getTime()) || isNaN(maxDate.getTime())) {
+           console.error("Autoscale: Invalid Date objects created - finalXMin:", finalXMin, "finalXMax:", finalXMax);
+           console.error("Autoscale: Skipping X-axis autoscale due to invalid date objects");
+           return; // Exit early to prevent the error
+       }
+
+       layoutUpdate['xaxis.range[0]'] = minDate.toISOString();
+       layoutUpdate['xaxis.range[1]'] = maxDate.toISOString();
        layoutUpdate['xaxis.autorange'] = false;
-       console.log(`Autoscale: Final X-axis range: ${new Date(finalXMin).toISOString()} to ${new Date(finalXMax).toISOString()}`);
+       console.log(`Autoscale: Final X-axis range: ${minDate.toISOString()} to ${maxDate.toISOString()}`);
 
        // Apply to matching x-axes
        Object.keys(inputLayout).forEach(key => {
@@ -967,8 +992,18 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
             yPadding = (priceChartYMax - priceChartYMin) * 0.05; // 5% padding
         }
 
-        layoutUpdate['yaxis.range[0]'] = priceChartYMin - yPadding;
-        layoutUpdate['yaxis.range[1]'] = priceChartYMax + yPadding;
+        const finalYMin = priceChartYMin - yPadding;
+        const finalYMax = priceChartYMax + yPadding;
+
+        // Validate that the calculated Y-axis values are finite
+        if (!isFinite(finalYMin) || !isFinite(finalYMax)) {
+            console.error("Autoscale: Invalid Y-axis range calculated - priceChartYMin:", priceChartYMin, "priceChartYMax:", priceChartYMax, "yPadding:", yPadding);
+            console.error("Autoscale: Skipping Y-axis autoscale due to invalid range");
+            return; // Exit early to prevent the error
+        }
+
+        layoutUpdate['yaxis.range[0]'] = finalYMin;
+        layoutUpdate['yaxis.range[1]'] = finalYMax;
         layoutUpdate['yaxis.autorange'] = false;
     } else {
         // If no data is found, force a default range. This prevents errors.
@@ -1002,12 +1037,22 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
                 // Update global variables (store in milliseconds as expected by the system)
                 window.currentXAxisRange = [newXMin, newXMax];
 
-                // Update display elements
+                // Update display elements with validation
                 if (window.xAxisMinDisplay) {
-                    window.xAxisMinDisplay.textContent = `First timestamp (UTC): ${new Date(newXMin).toISOString()}`;
+                    try {
+                        window.xAxisMinDisplay.textContent = `First timestamp (UTC): ${new Date(newXMin).toISOString()}`;
+                    } catch (e) {
+                        console.error("Autoscale: Error formatting xAxisMinDisplay:", e);
+                        window.xAxisMinDisplay.textContent = `First timestamp: ${newXMin}`;
+                    }
                 }
                 if (window.xAxisMaxDisplay) {
-                    window.xAxisMaxDisplay.textContent = `Last timestamp (UTC): ${new Date(newXMax).toISOString()}`;
+                    try {
+                        window.xAxisMaxDisplay.textContent = `Last timestamp (UTC): ${new Date(newXMax).toISOString()}`;
+                    } catch (e) {
+                        console.error("Autoscale: Error formatting xAxisMaxDisplay:", e);
+                        window.xAxisMaxDisplay.textContent = `Last timestamp: ${newXMax}`;
+                    }
                 }
 
                 console.log("Autoscale: Updated currentXAxisRange:", window.currentXAxisRange);

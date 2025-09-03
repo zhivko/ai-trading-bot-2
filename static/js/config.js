@@ -48,40 +48,6 @@ function isMobileDevice() {
     return userAgentMobile;
 }
 
-const layout = {
-    hovermode: isMobileDevice() ? false : 'x unified', // Disable hover popups on mobile devices
-    hoverdistance: isMobileDevice() ? 0 : 20, // Set hover distance to 0 on mobile to prevent accidental hovers
-    title: {
-        text: ''
-    },
-   xaxis: {
-        title: {
-            text: ""
-        },
-        rangeslider: { visible: false },
-        type: 'date',
-        tickformat: '%Y-%m-%d<br>%H:%M',
-        showgrid: false,
-        gridcolor: '#e5e7eb',
-        linecolor: '#6b7280',
-        automargin: false,
-        tickvals: [],
-        ticktext: [],
-        autorange: false
-    },
-    yaxis: {
-        title: {
-            text: 'Price (USDT)',
-            font: { size: 10 }
-        },
-        side: 'left',
-        fixedrange: false,
-        autorange: false
-    },
-    dragmode: 'pan',
-    showlegend: false
-    // margin: { l: 40, r: 10, b: 20, t: 10, pad: 0 }
-};
 
 const config = {
     responsive: true,
@@ -101,8 +67,16 @@ const config = {
                     Plotly.relayout(gd, {'xaxis.autorange': true, 'yaxis.autorange': true}); // Fallback
                 }
             }
+        },
+        {
+            name: 'Draw Line', // Tooltip for the button
+            icon: Plotly.Icons.drawline, // Use Plotly's standard drawline icon
+            click: function(gd) {
+                // Switch to drawline mode
+                Plotly.relayout(gd, { dragmode: 'drawline' });
+                console.log('Switched to drawline mode');
+            }
         }
-        // Removed other buttons to keep all default Plotly tools enabled
     ],
     displaylogo: false, // Hide Plotly logo to save space
     showTips: false, // Disable tips that might interfere on mobile
@@ -151,18 +125,6 @@ function forceHideHoverElements() {
     }
 }
 
-// Function to get mobile-optimized layout
-function getMobileOptimizedLayout() {
-    const baseLayout = { ...layout }; // Clone the base layout
-
-    if (isMobileDevice()) {
-        baseLayout.hovermode = false;
-        baseLayout.hoverdistance = 0;
-        console.log('Mobile-optimized layout applied');
-    }
-
-    return baseLayout;
-}
 
 // Make them available globally for other scripts, or consider a module system later
 window.REALTIME_PRICE_LINE_NAME = REALTIME_PRICE_LINE_NAME;
@@ -176,9 +138,7 @@ window.BUY_EVENT_MARKER_SYMBOL = BUY_EVENT_MARKER_SYMBOL;
 window.SELL_EVENT_MARKER_SYMBOL = SELL_EVENT_MARKER_SYMBOL;
 window.isMobileDevice = isMobileDevice;
 window.disableMobileHover = disableMobileHover;
-window.getMobileOptimizedLayout = getMobileOptimizedLayout;
 window.forceHideHoverElements = forceHideHoverElements;
 
-// Make config and layout globally available
+// Make config globally available
 window.config = config;
-window.layout = layout;

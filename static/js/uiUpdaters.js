@@ -1,13 +1,28 @@
 function updateSelectedShapeInfoPanel(activeShape) {
     // Assumes selectedShapeInfoDiv is globally available or passed as an argument
     if (!window.selectedShapeInfoDiv) return;
-    if (activeShape && activeShape.id && typeof activeShape.index !== 'undefined') {
-        window.selectedShapeInfoDiv.innerHTML = `
-            <p><strong>ID:</strong> ${activeShape.id}</p>
-        `;
+
+    const selectedCount = window.getSelectedShapeCount();
+    const selectedIds = window.getSelectedShapeIds();
+
+    if (selectedCount > 0) {
+        let infoHtml = `<p><strong>${selectedCount} shape${selectedCount > 1 ? 's' : ''} selected</strong></p>`;
+
+        if (selectedCount === 1 && activeShape && activeShape.id) {
+            infoHtml += `<p><strong>ID:</strong> ${activeShape.id}</p>`;
+        } else if (selectedCount > 1) {
+            infoHtml += '<p><strong>IDs:</strong></p><ul>';
+            selectedIds.forEach(id => {
+                const isLastSelected = id === window.lastSelectedShapeId;
+                infoHtml += `<li${isLastSelected ? ' style="font-weight: bold; color: #00FF00;"' : ''}>${id}${isLastSelected ? ' (last selected)' : ''}</li>`;
+            });
+            infoHtml += '</ul>';
+        }
+
+        window.selectedShapeInfoDiv.innerHTML = infoHtml;
         window.activeShapeForPotentialDeletion = activeShape;
-        
-        // Show the "Delete line" and "Edit line" buttons when a shape is selected
+
+        // Show the "Delete line" and "Edit line" buttons when shapes are selected
         if (window.deleteShapeBtn) {
             window.deleteShapeBtn.style.display = 'inline-block';
         }
@@ -16,7 +31,7 @@ function updateSelectedShapeInfoPanel(activeShape) {
         }
     } else {
         window.selectedShapeInfoDiv.innerHTML = '<p>No shape selected.</p>';
-        
+
         // Hide the "Delete line" and "Edit line" buttons when no shape is selected
         if (window.deleteShapeBtn) {
             window.deleteShapeBtn.style.display = 'none';
@@ -39,7 +54,7 @@ async function updateShapeVisuals() {
         }
 
         // Ensure markers are present on line shapes
-        if (s.type === 'line' && s.backendId && !s.isSystemShape) {
+        if (s.type === 'line' && s.id && !s.isSystemShape) {
             // Add markers for user-drawn lines if not already present
             if (!newShape.marker) {
                 newShape.marker = {
@@ -60,19 +75,29 @@ async function updateShapeVisuals() {
             }
         }
 
-        if (s.backendId) {
-            const isSelected = window.activeShapeForPotentialDeletion && s.backendId === window.activeShapeForPotentialDeletion.id;
-            const isHovered = s.backendId === window.hoveredShapeBackendId;
+        if (s.id) {
+            const isSelected = window.isShapeSelected(s.id);
+            const isHovered = s.id === window.hoveredShapeBackendId;
+            const isLastSelected = s.id === window.lastSelectedShapeId;
 
             newShape.editable = isSelected;
             if (newShape.line) {
                 // Priority: Selected > Hovered > Default
                 if (isSelected) {
-                    newShape.line.color = SELECTED_DRAWING_COLOR;
+                    // Use a different shade for the last selected shape in multi-selection
+                    if (window.getSelectedShapeCount() > 1 && isLastSelected) {
+                        newShape.line.color = '#00FF00'; // Bright green for last selected
+                        newShape.line.width = 3; // Thicker line for last selected
+                    } else {
+                        newShape.line.color = SELECTED_DRAWING_COLOR;
+                        newShape.line.width = 2.5; // Slightly thicker for selected
+                    }
                 } else if (isHovered) {
                     newShape.line.color = HOVER_DRAWING_COLOR;
+                    newShape.line.width = 2; // Normal width for hover
                 } else {
                     newShape.line.color = DEFAULT_DRAWING_COLOR;
+                    newShape.line.width = 2; // Normal width for default
                 }
                 // Removed problematic onmousedown handler that was interfering with drag functionality
                 // Shape properties functionality has been completely removed

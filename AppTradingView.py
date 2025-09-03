@@ -8,6 +8,7 @@ import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 import json
+from datetime import datetime
 from google_auth_oauthlib.flow import Flow
 from google.oauth2 import id_token
 from google.auth.transport.requests import Request as google_requests
@@ -62,16 +63,28 @@ from websocket_handlers import stream_live_data_websocket_endpoint, stream_kline
 # Lifespan manager for startup and shutdown events
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI):
+    # Clean up old log file BEFORE any logging
+    try:
+        log_file_path = os.path.join(PROJECT_ROOT, "logs", "trading_view.log")
+        if os.path.exists(log_file_path):
+            os.remove(log_file_path)
+            print("🗑️ Deleted old trading_view.log file")  # Use print instead of logger
+    except Exception as e:
+        print(f"Could not delete old log file: {e}")  # Use print instead of logger
+
     logger.info("Application startup...")
+
     try:
         await init_redis()
         # Store the task in the application state so it can be accessed during shutdown
+        logger.info("🔧 STARTING BACKGROUND TASK: Creating fetch_and_publish_klines task...")
         app_instance.state.fetch_klines_task = asyncio.create_task(fetch_and_publish_klines())
-        logger.info("Background task (fetch_and_publish_klines) started.")
+        # logger.info("✅ BACKGROUND TASK STARTED: fetch_and_publish_klines task created and running")
+        # logger.info(f"📊 TASK STATUS: {app_instance.state.fetch_klines_task}")
 
         # Start email alert monitoring service
         app_instance.state.email_alert_task = asyncio.create_task(alert_service.monitor_alerts())
-        logger.info("Email alert monitoring service started.")
+        # logger.info("Email alert monitoring service started.")
     except Exception as e:
         logger.error(f"Failed to initialize Redis or start background tasks: {e}", exc_info=True)
         app_instance.state.fetch_klines_task = None
@@ -80,19 +93,20 @@ async def lifespan(app_instance: FastAPI):
     logger.info("Application shutdown...")
     fetch_klines_task = getattr(app_instance.state, 'fetch_klines_task', None)
     if fetch_klines_task:
-        logger.info("Cancelling fetch_and_publish_klines task...")
+        # logger.info("🛑 CANCELLING BACKGROUND TASK: fetch_and_publish_klines...")
+        # logger.info(f"📊 TASK STATUS BEFORE CANCEL: Done={fetch_klines_task.done()}, Cancelled={fetch_klines_task.cancelled()}")
         fetch_klines_task.cancel()
         try:
             await fetch_klines_task
-            logger.info(f"fetch_klines_task status: Done={fetch_klines_task.done()}, Cancelled={fetch_klines_task.cancelled()}, Exception={fetch_klines_task.exception()}")
+            logger.info(f"✅ TASK CANCELLED: fetch_klines_task status: Done={fetch_klines_task.done()}, Cancelled={fetch_klines_task.cancelled()}, Exception={fetch_klines_task.exception()}")
         except asyncio.CancelledError:
-            logger.info("fetch_and_publish_klines task successfully cancelled.")
+            logger.info("✅ TASK SUCCESSFULLY CANCELLED: fetch_and_publish_klines task cancelled cleanly")
         except Exception as e:
-            logger.error(f"Error during fetch_and_publish_klines task shutdown: {e}", exc_info=True)
+            logger.error(f"💥 ERROR DURING TASK SHUTDOWN: fetch_and_publish_klines: {e}", exc_info=True)
 
     email_alert_task = getattr(app_instance.state, 'email_alert_task', None)
     if email_alert_task:
-        logger.info("Cancelling email alert monitoring task...")
+        # logger.info("Cancelling email alert monitoring task...")
         email_alert_task.cancel()
         try:
             await email_alert_task
@@ -194,6 +208,36 @@ app.get("/indicatorHistory")(indicator_history_endpoint)
 app.websocket("/stream/live/{symbol}")(stream_live_data_websocket_endpoint)
 app.get("/stream/{symbol}/{resolution}")(stream_klines)
 app.websocket("/data/{symbol}")(stream_combined_data_websocket_endpoint)
+
+# Health check endpoint for background tasks
+@app.get("/health/background-tasks")
+async def background_tasks_health():
+    """Check the status of background tasks."""
+    fetch_task = getattr(app.state, 'fetch_klines_task', None)
+    email_task = getattr(app.state, 'email_alert_task', None)
+
+    health_status = {
+        "timestamp": datetime.now().isoformat(),
+        "background_tasks": {
+            "fetch_klines_task": {
+                "exists": fetch_task is not None,
+                "running": fetch_task is not None and not fetch_task.done(),
+                "done": fetch_task.done() if fetch_task else None,
+                "cancelled": fetch_task.cancelled() if fetch_task else None,
+                "exception": str(fetch_task.exception()) if fetch_task and fetch_task.exception() else None
+            },
+            "email_alert_task": {
+                "exists": email_task is not None,
+                "running": email_task is not None and not email_task.done(),
+                "done": email_task.done() if email_task else None,
+                "cancelled": email_task.cancelled() if email_task else None,
+                "exception": str(email_task.exception()) if email_task and email_task.exception() else None
+            }
+        }
+    }
+
+    logger.info(f"📊 BACKGROUND TASK HEALTH CHECK: {health_status}")
+    return health_status
 
 # Logout endpoint
 @app.get("/logout")

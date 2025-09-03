@@ -39,9 +39,9 @@ function updateOrAddCrosshairVLine(gd, xDataValue, doRelayout = true) {
 
 function colorTheLine(eventParam)
 {
-        // console.log('[DEBUG] colorTheLine called with event:', eventParam ? 'event provided' : 'no event');
-        // console.groupCollapsed('[NativeMousemove] Event Processing');
-        // console.log('[colorTheLine] Current dragmode:', window.gd ? window.gd.layout.dragmode : 'N/A');
+        console.log('[DEBUG] colorTheLine called with event:', eventParam ? 'event provided' : 'no event');
+        console.groupCollapsed('[NativeMousemove] Event Processing');
+        console.log('[colorTheLine] Current dragmode:', window.gd ? window.gd.layout.dragmode : 'N/A');
 
         // Skip if a shape is currently being dragged
         if (window.isDraggingShape) {
@@ -117,8 +117,8 @@ function colorTheLine(eventParam)
             }
         }
 
-        // console.log(`[colorTheLine] Chart div rect: left=${rect.left}, top=${rect.top}, width=${rect.width}, height=${rect.height}`);
-        // console.log(`[colorTheLine] Mouse relative to div: x=${mouseX_div}, y=${mouseY_div}`);
+        console.log(`[colorTheLine] Chart div rect: left=${rect.left}, top=${rect.top}, width=${rect.width}, height=${rect.height}`);
+        console.log(`[colorTheLine] Mouse relative to div: x=${mouseX_div}, y=${mouseY_div}`);
 
         if (!window.gd._fullLayout || typeof window.gd._fullLayout.height === 'undefined' || !window.gd._fullLayout.yaxis || typeof window.gd._fullLayout.yaxis._length === 'undefined') {
             // console.log("[colorTheLine] Chart layout not ready, skipping hover detection");
@@ -162,9 +162,9 @@ function colorTheLine(eventParam)
 
         const hoveredSubplotRefs = getSubplotRefsAtPaperCoords(mouseX_paper, mouseY_paper, window.gd._fullLayout);
         if (hoveredSubplotRefs) {
-            //console.log(`[NativeMousemove] Hover detected in subplot: xref=${hoveredSubplotRefs.xref}, yref=${hoveredSubplotRefs.yref}`);
+            console.log(`[NativeMousemove] Hover detected in subplot: xref=${hoveredSubplotRefs.xref}, yref=${hoveredSubplotRefs.yref}`);
         } else {
-            //console.log(`[NativeMousemove] Hover detected outside any known subplot area.`);
+            console.log(`[NativeMousemove] Hover detected outside any known subplot area.`);
             if (window.hoveredShapeBackendId !== null) {
                 window.hoveredShapeBackendId = null;
                 debouncedUpdateShapeVisuals();
@@ -172,11 +172,11 @@ function colorTheLine(eventParam)
         }
 
         const currentShapes = window.gd.layout.shapes || [];
-        // console.log(`[colorTheLine] Checking ${currentShapes.length} shapes for hover detection`);
+        console.log(`[colorTheLine] Checking ${currentShapes.length} shapes for hover detection`);
         for (let i = 0; i < currentShapes.length; i++) {
             const shape = currentShapes[i];
-            // console.log(`[colorTheLine] Shape ${i}: type=${shape.type}, backendId=${shape.backendId}, isSystemShape=${shape.isSystemShape}`);
-            if (shape.type === 'line' && shape.backendId && !shape.isSystemShape) { // Ignore system shapes
+            console.log(`[colorTheLine] Shape ${i}: type=${shape.type}, id=${shape.id}, isSystemShape=${shape.isSystemShape}`);
+            if (shape.type === 'line' && shape.id && !shape.isSystemShape) { // Ignore system shapes
                 const xrefKeyForFilter = getAxisLayoutKey(shape.xref, 'xaxis'); // Assumes getAxisLayoutKey is global
                 const yrefKeyForFilter = getAxisLayoutKey(shape.yref, 'yaxis');
                 const shapeXaxisForFilter = window.gd._fullLayout[xrefKeyForFilter];
@@ -186,7 +186,7 @@ function colorTheLine(eventParam)
 
                 if (hoveredSubplotRefs) {
                     if (shapeXaxisForFilter._id !== hoveredSubplotRefs.xref || shapeYaxisForFilter._id !== hoveredSubplotRefs.yref) {
-                        //console.log(`[NativeMousemove DEBUG] Skipping shape ${i} (ID: ${shape.backendId}, shape_xref: ${shape.xref}, shape_yref: ${shape.yref}) because its axes (_id: ${shapeXaxisForFilter._id}, ${shapeYaxisForFilter._id}) don't match hovered subplot axes (hover_xref: ${hoveredSubplotRefs.xref}, hover_yref: ${hoveredSubplotRefs.yref}).`);
+                        //console.log(`[NativeMousemove DEBUG] Skipping shape ${i} (ID: ${shape.id}, shape_xref: ${shape.xref}, shape_yref: ${shape.yref}) because its axes (_id: ${shapeXaxisForFilter._id}, ${shapeYaxisForFilter._id}) don't match hovered subplot axes (hover_xref: ${hoveredSubplotRefs.xref}, hover_yref: ${hoveredSubplotRefs.yref}).`);
                         continue;
                     }
                 } else {
@@ -199,12 +199,12 @@ function colorTheLine(eventParam)
                 const shapeYaxis = window.gd._fullLayout[yrefKey];
 
                 if (!shapeXaxis || !shapeYaxis || typeof shapeXaxis.d2p !== 'function' || typeof shapeYaxis.d2p !== 'function') {
-                    //console.warn(`[NativeMousemove DEBUG] Could not find valid axes for shape ${i} (ID: ${shape.backendId}) with xref=${shape.xref}, yref=${shape.yref}. Skipping hover test.`);
+                    //console.warn(`[NativeMousemove DEBUG] Could not find valid axes for shape ${i} (ID: ${shape.id}) with xref=${shape.xref}, yref=${shape.yref}. Skipping hover test.`);
                     continue;
                 }
 
                 /*
-                console.group(`[NativeMousemove DEBUG] Checking Shape ${i} (ID: ${shape.backendId})`);
+                console.group(`[NativeMousemove DEBUG] Checking Shape ${i} (ID: ${shape.id})`);
                 console.log(`Mouse Paper Coords: Px=${mouseX_paper.toFixed(2)}, Py=${mouseY_paper.toFixed(2)}`);
                 console.log(`Shape Data Coords: x0=${shape.x0}, y0=${shape.y0}, x1=${shape.x1}, y1=${shape.y1}`);
                 console.log(`Shape Axes: xref=${shapeXaxis._id}, yref=${shapeYaxis._id}`);
@@ -222,25 +222,25 @@ function colorTheLine(eventParam)
                 //console.log(`Shape Pixel Endpoints (Paper Relative): P0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}), P1=(${p1.x.toFixed(2)},${p1.y.toFixed(2)}). Mouse: (${mouseX_paper.toFixed(2)},${mouseY_paper.toFixed(2)})`);
 
                 if (isNaN(p0.x) || isNaN(p0.y) || isNaN(p1.x) || isNaN(p1.y) || !isFinite(p0.x) || !isFinite(p0.y) || !isFinite(p1.x) || !isFinite(p1.y)) {
-                    /*console.warn(`[NativeMousemove DEBUG] Shape ${i} (ID: ${shape.backendId}) had NaN/Infinite pixel coordinates. Skipping.`);
+                    /*console.warn(`[NativeMousemove DEBUG] Shape ${i} (ID: ${shape.id}) had NaN/Infinite pixel coordinates. Skipping.`);
                     console.groupEnd();
                     */
                     continue;
                 }
                 const distSq = distToSegmentSquared({ x: mouseX_paper, y: mouseY_paper }, p0, p1); // From utils.js
-                //console.log(`[colorTheLine] Shape ${i} (ID: ${shape.backendId}) - DistSq: ${distSq.toFixed(2)}, Threshold: ${HOVER_THRESHOLD_PIXELS_SQ}, Mouse: (${mouseX_paper.toFixed(2)}, ${mouseY_paper.toFixed(2)}), Shape endpoints: (${p0.x.toFixed(2)}, ${p0.y.toFixed(2)}) to (${p1.x.toFixed(2)}, ${p1.y.toFixed(2)})`);
+                console.log(`[colorTheLine] Shape ${i} (ID: ${shape.id}) - DistSq: ${distSq.toFixed(2)}, Threshold: ${HOVER_THRESHOLD_PIXELS_SQ}, Mouse: (${mouseX_paper.toFixed(2)}, ${mouseY_paper.toFixed(2)}), Shape endpoints: (${p0.x.toFixed(2)}, ${p0.y.toFixed(2)}) to (${p1.x.toFixed(2)}, ${p1.y.toFixed(2)})`);
                 if (distSq < HOVER_THRESHOLD_PIXELS_SQ && distSq < minDistanceSq) {
                     minDistanceSq = distSq;
-                    window.newHoveredShapeId = shape.backendId;
-                    //console.log(`[colorTheLine] Shape ${i} (ID: ${shape.backendId}) is now the closest hovered shape!`);
+                    window.newHoveredShapeId = shape.id;
+                    console.log(`[colorTheLine] Shape ${i} (ID: ${shape.id}) is now the closest hovered shape!`);
                 }
                 //console.groupEnd(); // End group for this shape
             }
         }
 
-        //console.log(`[DEBUG] colorTheLine Final: hoveredShapeBackendId=${window.hoveredShapeBackendId}, newHoveredShapeId=${window.newHoveredShapeId}`);
+        console.log(`[DEBUG] colorTheLine Final: hoveredShapeBackendId=${window.hoveredShapeBackendId}, newHoveredShapeId=${window.newHoveredShapeId}`);
         if (window.hoveredShapeBackendId !== window.newHoveredShapeId) {
-            //console.log(`[DEBUG] colorTheLine Updated hoveredShapeBackendId to: ${window.newHoveredShapeId}`);
+            console.log(`[DEBUG] colorTheLine Updated hoveredShapeBackendId to: ${window.newHoveredShapeId}`);
             window.hoveredShapeBackendId = window.newHoveredShapeId;
             if(window.hoveredShapeBackendId) findAndupdateSelectedShapeInfoPanel(window.hoveredShapeBackendId)
             debouncedUpdateShapeVisuals();
@@ -421,9 +421,109 @@ function removeCrosshairVLine(gd, doRelayout = true) {
     return removed;
 }
 
+function handleShapeClick(event) {
+    // Only handle clicks if we're not in drawing mode and not dragging
+    if (window.isDraggingShape || !window.gd) return;
+
+    // Check if click is on a shape by finding the closest shape to the click position
+    const rect = window.chartDiv.getBoundingClientRect();
+    const mouseX_div = event.clientX - rect.left;
+    const mouseY_div = event.clientY - rect.top;
+
+    if (!window.gd._fullLayout) return;
+
+    // Convert DOM coordinates to Plotly paper coordinates
+    const mouseX_paper = mouseX_div;
+    const mouseY_paper = mouseY_div;
+
+    // Find the closest shape to the click position
+    const currentShapes = window.gd.layout.shapes || [];
+    let closestShape = null;
+    let minDistance = Infinity;
+    const CLICK_THRESHOLD = 20; // pixels
+
+    for (let i = 0; i < currentShapes.length; i++) {
+        const shape = currentShapes[i];
+        if (shape.type === 'line' && shape.id && !shape.isSystemShape) {
+            const xrefKey = getAxisLayoutKey(shape.xref, 'xaxis');
+            const yrefKey = getAxisLayoutKey(shape.yref, 'yaxis');
+            const shapeXaxis = window.gd._fullLayout[xrefKey];
+            const shapeYaxis = window.gd._fullLayout[yrefKey];
+
+            if (!shapeXaxis || !shapeYaxis || typeof shapeXaxis.d2p !== 'function' || typeof shapeYaxis.d2p !== 'function') continue;
+
+            let shapeX0Val = (shapeXaxis.type === 'date') ? ((shape.x0 instanceof Date) ? shape.x0.getTime() : new Date(shape.x0).getTime()) : Number(shape.x0);
+            let shapeX1Val = (shapeXaxis.type === 'date') ? ((shape.x1 instanceof Date) ? shape.x1.getTime() : new Date(shape.x1).getTime()) : Number(shape.x1);
+
+            const p0y = shapeYaxis.d2p(shape.y0);
+            const p1y = shapeYaxis.d2p(shape.y1);
+            const p0x = shapeXaxis.d2p(shapeX0Val);
+            const p1x = shapeXaxis.d2p(shapeX1Val);
+
+            const p0 = { x: shapeXaxis._offset + p0x, y: shapeYaxis._offset + p0y };
+            const p1 = { x: shapeXaxis._offset + p1x, y: shapeYaxis._offset + p1y };
+
+            if (!isNaN(p0.x) && !isNaN(p0.y) && !isNaN(p1.x) && !isNaN(p1.y)) {
+                const distSq = distToSegmentSquared({ x: mouseX_paper, y: mouseY_paper }, p0, p1);
+                if (distSq < CLICK_THRESHOLD * CLICK_THRESHOLD && distSq < minDistance) {
+                    minDistance = distSq;
+                    closestShape = shape;
+                }
+            }
+        }
+    }
+
+    // Handle shape selection
+    if (closestShape) {
+        const isCtrlPressed = event.ctrlKey || event.metaKey; // Support both Ctrl (Windows/Linux) and Cmd (Mac)
+        const shapeId = closestShape.id;
+
+        if (isCtrlPressed) {
+            // Multi-select: toggle selection
+            if (window.isShapeSelected(closestShape.id)) {
+                window.deselectShape(closestShape.id);
+                console.log('Deselected shape:', closestShape.id);
+            } else {
+                window.selectShape(closestShape.id, true); // true for multi-select
+                console.log('Added shape to selection:', closestShape.id);
+            }
+        } else {
+            // Single select: clear previous selections and select this shape
+            if (!window.isShapeSelected(closestShape.id) || window.getSelectedShapeCount() > 1) {
+                window.selectShape(closestShape.id, false); // false for single select
+                console.log('Selected shape:', closestShape.id);
+            } else {
+                // Clicking on already selected shape - deselect it
+                window.deselectShape(closestShape.id);
+                console.log('Deselected shape:', closestShape.id);
+            }
+        }
+
+        // Update visual feedback
+        debouncedUpdateShapeVisuals();
+
+        // Update info panel
+        updateSelectedShapeInfoPanel(window.activeShapeForPotentialDeletion);
+
+        // Prevent event bubbling to avoid conflicts
+        event.stopPropagation();
+    } else {
+        // Clicked on empty space - deselect all shapes
+        if (window.getSelectedShapeCount() > 0) {
+            window.deselectAllShapes();
+            debouncedUpdateShapeVisuals();
+            updateSelectedShapeInfoPanel(null);
+            console.log('Deselected all shapes (clicked on empty space)');
+        }
+    }
+}
+
 function initializeChartInteractions() {
     // Double-click handling is now done by plotlyEventHandlers.js plotly_click event
     // addDoubleClickHandler(); // Disabled to prevent conflicts
+
+    // Add shape selection click handler
+    window.chartDiv.addEventListener('click', handleShapeClick, { capture: true, passive: true });
 
     // Throttle mousemove events to prevent excessive processing
     let mousemoveThrottleTimer = null;
@@ -544,6 +644,76 @@ function initializeChartInteractions() {
     document.addEventListener('keydown', async function(event) {
         if (!window.gd || !window.gd.layout) return;
 
+        // Handle Escape key to deselect all shapes
+        if (event.key === 'Escape') {
+            if (window.getSelectedShapeCount() > 0) {
+                event.preventDefault();
+                window.deselectAllShapes();
+                debouncedUpdateShapeVisuals();
+                updateSelectedShapeInfoPanel(null);
+                console.log('Deselected all shapes via Escape key');
+            }
+            return;
+        }
+
+        // Handle Ctrl+A to select all shapes
+        if (event.key === 'a' && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault();
+            const currentShapes = window.gd?.layout?.shapes || [];
+            const shapeIds = currentShapes
+                .filter(s => s.id && !s.isSystemShape)
+                .map(s => s.id);
+
+            if (shapeIds.length > 0) {
+                shapeIds.forEach(id => window.selectShape(id, true));
+                debouncedUpdateShapeVisuals();
+                updateSelectedShapeInfoPanel(window.activeShapeForPotentialDeletion);
+                console.log('Selected all shapes via Ctrl+A');
+            }
+            return;
+        }
+
+        // Handle arrow keys for navigation between selected shapes
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+            const selectedIds = window.getSelectedShapeIds();
+            if (selectedIds.length > 1) {
+                event.preventDefault();
+                const currentIndex = selectedIds.indexOf(window.lastSelectedShapeId);
+                let newIndex;
+
+                switch (event.key) {
+                    case 'ArrowUp':
+                    case 'ArrowLeft':
+                        newIndex = currentIndex > 0 ? currentIndex - 1 : selectedIds.length - 1;
+                        break;
+                    case 'ArrowDown':
+                    case 'ArrowRight':
+                        newIndex = currentIndex < selectedIds.length - 1 ? currentIndex + 1 : 0;
+                        break;
+                }
+
+                if (newIndex !== currentIndex) {
+                    window.lastSelectedShapeId = selectedIds[newIndex];
+                    // Update activeShapeForPotentialDeletion for the new last selected shape
+                        const currentShapes = window.gd?.layout?.shapes || [];
+                        const shape = currentShapes.find(s => s.id === window.lastSelectedShapeId);
+                        if (shape) {
+                            const shapeIndex = currentShapes.indexOf(shape);
+                            window.activeShapeForPotentialDeletion = {
+                                id: window.lastSelectedShapeId,
+                                index: shapeIndex,
+                                shape: shape
+                            };
+                        }
+                    debouncedUpdateShapeVisuals();
+                    updateSelectedShapeInfoPanel(window.activeShapeForPotentialDeletion);
+                    console.log('Navigated to shape:', window.lastSelectedShapeId);
+                }
+            }
+            return;
+        }
+
+        // Handle Delete/Backspace for shape deletion
         if (event.key === 'Delete' || event.key === 'Backspace') {
             const targetElement = event.target;
             if (targetElement.tagName === 'INPUT' || targetElement.tagName === 'TEXTAREA' || targetElement.isContentEditable) {
@@ -552,43 +722,72 @@ function initializeChartInteractions() {
                 }
             }
 
-            if (window.activeShapeForPotentialDeletion && window.activeShapeForPotentialDeletion.id) { // From state.js
-                console.log('Delete/Backspace key pressed. Attempting to delete active shape:', window.activeShapeForPotentialDeletion);
+            const selectedShapeIds = window.getSelectedShapeIds();
+            if (selectedShapeIds.length > 0) {
+                console.log('Delete/Backspace key pressed. Attempting to delete selected shapes:', selectedShapeIds);
                 event.preventDefault();
 
-                const { id: drawingId } = window.activeShapeForPotentialDeletion;
                 const symbol = window.symbolSelect.value; // From main.js
 
                 if (!symbol) {
-                    console.warn("Cannot delete drawing via key: No symbol selected.");
+                    console.warn("Cannot delete drawings via key: No symbol selected.");
                     return;
                 }
 
-                try {
-                    const response = await fetch(`/delete_drawing/${symbol}/${drawingId}`, { method: 'DELETE' });
-                    if (!response.ok) {
-                        const errorBody = await response.text().catch(() => "Could not read error body");
-                        throw new Error(`Failed to delete drawing ${drawingId} from backend: ${response.status} - ${errorBody}`);
+                // Delete all selected shapes
+                const deletePromises = selectedShapeIds.map(async (drawingId) => {
+                    try {
+                        const response = await fetch(`/delete_drawing/${symbol}/${drawingId}`, { method: 'DELETE' });
+                        if (!response.ok) {
+                            const errorBody = await response.text().catch(() => "Could not read error body");
+                            throw new Error(`Failed to delete drawing ${drawingId} from backend: ${response.status} - ${errorBody}`);
+                        }
+                        console.log(`Drawing ${drawingId} deleted successfully from backend via key press.`);
+                        return drawingId;
+                    } catch (error) {
+                        console.error(`Error deleting drawing ${drawingId} via key press:`, error);
+                        return null; // Return null for failed deletions
                     }
-                    console.log(`Drawing ${drawingId} deleted successfully from backend via key press.`);
+                });
 
-                    const currentShapes = window.gd.layout.shapes || [];
-                    const shapeToRemoveIndex = currentShapes.findIndex(s => s.backendId === drawingId);
-                    if (shapeToRemoveIndex !== -1) {
-                        currentShapes.splice(shapeToRemoveIndex, 1);
-                        Plotly.relayout(window.gd, { shapes: currentShapes }).catch(err => { console.error("Error relayouting after shape removal by keydown:", err); loadDrawingsAndRedraw(symbol); }); // loadDrawingsAndRedraw from main.js
-                    } else {
-                        loadDrawingsAndRedraw(symbol);
+                try {
+                    const results = await Promise.all(deletePromises);
+                    const successfulDeletions = results.filter(id => id !== null);
+
+                    if (successfulDeletions.length > 0) {
+                        // Remove successfully deleted shapes from the chart
+                        const currentShapes = window.gd.layout.shapes || [];
+                        const remainingShapes = currentShapes.filter(s => !successfulDeletions.includes(s.id));
+
+                        if (remainingShapes.length !== currentShapes.length) {
+                            Plotly.relayout(window.gd, { shapes: remainingShapes }).catch(err => {
+                                console.error("Error relayouting after shape removal by keydown:", err);
+                                loadDrawingsAndRedraw(symbol);
+                            });
+                        } else {
+                            loadDrawingsAndRedraw(symbol);
+                        }
+
+                        console.log(`Successfully deleted ${successfulDeletions.length} out of ${selectedShapeIds.length} shapes`);
                     }
-                    window.activeShapeForPotentialDeletion = null;
-                    updateSelectedShapeInfoPanel(null); // From uiUpdaters.js
-                    await updateShapeVisuals(); // From uiUpdaters.js
-                } catch (error) {
-                    console.error(`Error deleting drawing ${drawingId} via key press:`, error);
-                    alert(`Failed to delete drawing: ${error.message}`);
-                    window.activeShapeForPotentialDeletion = null;
+
+                    // Clear selection regardless of success/failure
+                    window.deselectAllShapes();
+                    debouncedUpdateShapeVisuals();
                     updateSelectedShapeInfoPanel(null);
-                    await updateShapeVisuals();
+
+                    // Show error message if some deletions failed
+                    const failedCount = selectedShapeIds.length - (results.filter(id => id !== null).length);
+                    if (failedCount > 0) {
+                        alert(`Failed to delete ${failedCount} out of ${selectedShapeIds.length} shapes. Check console for details.`);
+                    }
+
+                } catch (error) {
+                    console.error('Error during batch shape deletion:', error);
+                    alert(`Failed to delete shapes: ${error.message}`);
+                    window.deselectAllShapes();
+                    debouncedUpdateShapeVisuals();
+                    updateSelectedShapeInfoPanel(null);
                 }
             }
         }
@@ -614,14 +813,14 @@ function findAndupdateSelectedShapeInfoPanel(id) {
         let foundShape = null
         for (let i = 0; i < currentShapes.length; i++) {
             const shape = currentShapes[i];
-            if(shape.backendId === id) {
+            if(shape.id === id) {
             foundShape = shape;
             break;
             }
         }
 
         if(foundShape) {
-            const activeShape = { id: foundShape.backendId, index: currentShapes.indexOf(foundShape), shape: foundShape };
+            const activeShape = { id: foundShape.id, index: currentShapes.indexOf(foundShape), shape: foundShape };
             updateSelectedShapeInfoPanel(activeShape);
         } else {
             updateSelectedShapeInfoPanel(null)

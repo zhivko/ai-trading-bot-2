@@ -67,10 +67,16 @@ def get_stream_key(symbol: str, resolution: str) -> str:
 def get_sorted_set_oi_key(symbol: str, resolution: str) -> str:
     return f"zset:open_interest:{symbol}:{resolution}"
 
-def get_drawings_redis_key(symbol: str, request) -> str:
-    from auth import get_session
-    email = request.session.get("email")
-    return f"drawings:{email}:{symbol}"
+def get_drawings_redis_key(symbol: str, request=None, email=None) -> str:
+    if email:
+        return f"drawings:{email}:{symbol}"
+    elif request:
+        from auth import get_session
+        email = request.session.get("email")
+        return f"drawings:{email}:{symbol}"
+    else:
+        # Fallback for cases where neither request nor email is provided
+        return f"drawings:anonymous:{symbol}"
 
 async def get_oldest_cached_timestamp(symbol: str, resolution: str) -> Optional[int]:
     try:

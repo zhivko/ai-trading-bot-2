@@ -29,7 +29,7 @@ async def save_drawing(drawing_data: Dict[str, Any], request: Request) -> str:
     if symbol not in SUPPORTED_SYMBOLS:
         raise ValueError(f"Unsupported symbol: {symbol}")
     key = get_drawings_redis_key(symbol, request)
-    drawings_data_str = await redis.get(get_drawings_redis_key(symbol, request))
+    drawings_data_str = await redis.get(key)
     drawings = json.loads(drawings_data_str) if drawings_data_str else []
     drawing_with_id = {**drawing_data, "id": str(uuid.uuid4())}
     drawings.append(drawing_with_id)
@@ -37,14 +37,14 @@ async def save_drawing(drawing_data: Dict[str, Any], request: Request) -> str:
 
     return drawing_with_id["id"]
 
-async def get_drawings(symbol: str, request: Request, resolution: Optional[str] = None) -> List[Dict[str, Any]]:
+async def get_drawings(symbol: str, request: Request = None, resolution: Optional[str] = None, email: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Retrieves drawings for a given symbol from Redis.
     If a resolution is provided, it filters drawings to only include those
     matching the specified resolution.
     """
     redis = await get_redis_connection()
-    key = get_drawings_redis_key(symbol, request)
+    key = get_drawings_redis_key(symbol, request, email)
 
     drawings_data_str = await redis.get(key)
     all_drawings = json.loads(drawings_data_str) if drawings_data_str else []
@@ -60,9 +60,9 @@ async def get_drawings(symbol: str, request: Request, resolution: Optional[str] 
     logger.info(f"get_drawings for {symbol} with resolution '{resolution}': found {len(all_drawings)} total, returning {len(filtered_drawings)} filtered.")
     return filtered_drawings
 
-async def delete_drawing(symbol: str, drawing_id: str, request: Request) -> bool:
+async def delete_drawing(symbol: str, drawing_id: str, request: Request = None, email: Optional[str] = None) -> bool:
     redis = await get_redis_connection()
-    key = get_drawings_redis_key(symbol, request)
+    key = get_drawings_redis_key(symbol, request, email)
     drawings_data_str = await redis.get(key)
     if not drawings_data_str:
         return False
@@ -74,9 +74,9 @@ async def delete_drawing(symbol: str, drawing_id: str, request: Request) -> bool
     await redis.set(key, json.dumps(drawings))
     return True
 
-async def update_drawing(symbol: str, drawing_id: str, drawing_data: DrawingData, request: Request) -> bool:
+async def update_drawing(symbol: str, drawing_id: str, drawing_data: DrawingData, request: Request = None, email: Optional[str] = None) -> bool:
     redis = await get_redis_connection()
-    key = get_drawings_redis_key(symbol, request)
+    key = get_drawings_redis_key(symbol, request, email)
     drawings_data_str = await redis.get(key)
     if not drawings_data_str:
         return False

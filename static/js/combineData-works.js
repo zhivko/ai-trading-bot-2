@@ -228,11 +228,6 @@ function setupCombinedWebSocket(symbol, indicators = [], resolution = '1h', from
         console.log(`🔌 Combined WebSocket: Connection opened for ${symbol}`);
         console.log(`🔌 Combined WebSocket: Connected to: ${streamUrl}`);
         console.log(`🔌 Combined WebSocket: Ready to send config with indicators:`, combinedIndicators);
-
-        // CRITICAL FIX: Set up message handler IMMEDIATELY after connection opens
-        console.log('🔧 FIXING: Setting up message handler immediately after connection opens');
-        setupWebSocketMessageHandler();
-
         sendCombinedConfig();
     };
 
@@ -259,59 +254,46 @@ function setupCombinedWebSocket(symbol, indicators = [], resolution = '1h', from
 }
 
 function setupWebSocketMessageHandler() {
-    console.log('🔧 DEBUG: setupWebSocketMessageHandler called');
-
     if (!combinedWebSocket) {
         console.warn('Combined WebSocket: Cannot setup message handler - WebSocket not initialized');
         return;
     }
 
-    if (combinedWebSocket.readyState !== WebSocket.OPEN) {
-        console.warn('Combined WebSocket: Cannot setup message handler - WebSocket not open. Current state:', combinedWebSocket.readyState);
-        return;
-    }
-
-    console.log('✅ Combined WebSocket: Setting up message handler for WebSocket in OPEN state');
-
     combinedWebSocket.onmessage = (event) => {
         try {
-            console.log('📨 Combined WebSocket: Message received, length:', event.data.length);
-
             const message = JSON.parse(event.data);
-            console.log('📨 Combined WebSocket: Parsed message type:', message.type);
+            console.log('📨 Combined WebSocket: Received message:', message.type, message.symbol || '');
+            console.log('📨 Combined WebSocket: Message details:', {
+                type: message.type,
+                symbol: message.symbol,
+                dataLength: message.data ? message.data.length : 0,
+                hasIndicators: message.data && message.data[0] ? !!message.data[0].indicators : false
+            });
 
-            // Process message based on type
-            switch (message.type) {
-                case 'historical':
-                    console.log('📊 Processing historical data');
-                    handleHistoricalData(message);
-                    break;
-                case 'live':
-                    console.log('🔴 Processing live data');
-                    handleLiveData(message);
-                    break;
-                case 'drawings':
-                    console.log('🎨 Processing drawings data');
-                    handleDrawingsData(message);
-                    break;
-                default:
-                    console.warn('⚠️ Unknown message type:', message.type);
+            if (message.type === 'historical') {
+                console.log('📊 Processing historical data message');
+                handleHistoricalData(message);
+            } else if (message.type === 'live') {
+                console.log('🔴 Processing live data message');
+                handleLiveData(message);
+            } else if (message.type === 'drawings' || (message.type && message.type.trim() === 'drawings')) {
+                console.log('🎨 DRAWINGS: Processing drawings message with', message.data ? message.data.length : 0, 'drawings');
+                console.log('🎨 DRAWINGS: Full message:', message);
+                handleDrawingsData(message);
+            } else {
+                console.warn('🎨 DRAWINGS: Unknown message type:', message.type, '(expected: historical, live, or drawings)');
             }
-
-            console.log('✅ Message processing completed for type:', message.type);
         } catch (e) {
-            console.error('❌ Combined WebSocket: Error processing message:', e.message);
-            console.error('❌ Raw message data:', event.data.substring(0, 200));
+            console.error("❌ Combined WebSocket: Error parsing message:", e, "Raw data:", event.data);
         }
     };
 
-    console.log('✅ Combined WebSocket: Message handler successfully set up and attached to WebSocket');
     console.log('🎨 DRAWINGS: WebSocket message handler set up after subplots initialization');
 }
 
 function sendCombinedConfig() {
     if (!combinedWebSocket || combinedWebSocket.readyState !== WebSocket.OPEN) {
-        console.warn('Combined WebSocket: Cannot send config - connection not open');
+        // console.warn('Combined WebSocket: Cannot send config - connection not open');
         return;
     }
 
@@ -324,14 +306,14 @@ function sendCombinedConfig() {
         to_ts: combinedToTs      // Now ISO timestamp string
     };
 
-    console.log('Combined WebSocket: Sending config:', config);
-    console.log('Combined WebSocket: WebSocket readyState:', combinedWebSocket.readyState);
-    console.log('Combined WebSocket: Config timestamps - from_ts:', combinedFromTs, 'to_ts:', combinedToTs);
-    console.log('[TIMESTAMP DEBUG] combinedData.js - WebSocket config timestamps:');
-    console.log('  combinedFromTs:', combinedFromTs, '(ISO timestamp string)');
-    console.log('  combinedToTs:', combinedToTs, '(ISO timestamp string)');
-    console.log('  from_ts in config:', config.from_ts);
-    console.log('  to_ts in config:', config.to_ts);
+    // console.log('Combined WebSocket: Sending config:', config);
+    // console.log('Combined WebSocket: WebSocket readyState:', combinedWebSocket.readyState);
+    // console.log('Combined WebSocket: Config timestamps - from_ts:', combinedFromTs, 'to_ts:', combinedToTs);
+    // console.log('[TIMESTAMP DEBUG] combinedData.js - WebSocket config timestamps:');
+    // console.log('  combinedFromTs:', combinedFromTs, '(ISO timestamp string)');
+    // console.log('  combinedToTs:', combinedToTs, '(ISO timestamp string)');
+    // console.log('  from_ts in config:', config.from_ts);
+    // console.log('  to_ts in config:', config.to_ts);
 
     // Detailed timestamp logging for server comparison
     const fromDate = new Date(combinedFromTs);
@@ -362,13 +344,13 @@ function sendCombinedConfig() {
         rangeHours: rangeHours.toFixed(1),
         timestamp: new Date().toISOString()
     };
-    console.log('💾 Stored server range for client comparison. Use window.compareClientServerRanges() to compare.');
+    // console.log('💾 Stored server range for client comparison. Use window.compareClientServerRanges() to compare.');
 
     try {
         combinedWebSocket.send(JSON.stringify(config));
-        console.log('Combined WebSocket: Config sent successfully');
+        // console.log('Combined WebSocket: Config sent successfully');
     } catch (error) {
-        console.error('Combined WebSocket: Error sending config:', error);
+        // console.error('Combined WebSocket: Error sending config:', error);
     }
 }
 
@@ -384,12 +366,6 @@ function handleHistoricalData(message) {
         firstDataPoint: message.data ? message.data[0] : null,
         lastDataPoint: message.data ? message.data[message.data.length - 1] : null
     });
-
-    // Check if chart is ready
-    const chartElement = document.getElementById('chart');
-    console.log('🔍 DEBUG: Chart element exists:', !!chartElement);
-    console.log('🔍 DEBUG: Window.gd exists:', !!window.gd);
-    console.log('🔍 DEBUG: Window.gd.data exists:', !!(window.gd && window.gd.data));
 
     // DEBUG: Log timestamp ranges in the received data
     if (message.data && message.data.length > 0) {
@@ -407,12 +383,12 @@ function handleHistoricalData(message) {
     }
 
     if (!message.data || !Array.isArray(message.data)) {
-        console.warn('Combined WebSocket: Invalid historical data format');
+        // console.warn('Combined WebSocket: Invalid historical data format');
         return;
     }
 
     if (message.data.length === 0) {
-        console.warn('Combined WebSocket: Received empty historical data array');
+        // console.warn('Combined WebSocket: Received empty historical data array');
         return;
     }
 
@@ -422,7 +398,7 @@ function handleHistoricalData(message) {
         accumulatedHistoricalData = [];
         isAccumulatingHistorical = true;
         historicalDataSymbol = message.symbol;
-        console.log(`Combined WebSocket: Starting new historical data accumulation for ${message.symbol}`);
+        // console.log(`Combined WebSocket: Starting new historical data accumulation for ${message.symbol}`);
     }
 
     // Add this batch to accumulated data
@@ -444,31 +420,6 @@ function handleHistoricalData(message) {
 
     // Set a timeout to process accumulated data after a delay (assuming all batches received)
     window.historicalDataTimeout = setTimeout(() => {
-        // Check if chart is fully ready before processing (element, Plotly gd, and full layout exist)
-        const chartElement = document.getElementById('chart');
-        if (!chartElement || !window.gd || !window.gd._fullLayout) {
-            console.log('📊 Combined WebSocket: Chart not fully ready (element, gd, or _fullLayout missing), retrying with requestAnimationFrame');
-            // Retry using requestAnimationFrame for better determinism
-            requestAnimationFrame(() => {
-                console.log(`📊 Combined WebSocket: Processing accumulated historical data: ${accumulatedHistoricalData.length} points for ${historicalDataSymbol}`);
-                console.log('🔍 DEBUG: About to call updateChartWithHistoricalData with:', {
-                    dataPoints: accumulatedHistoricalData.length,
-                    symbol: historicalDataSymbol,
-                    firstTimestamp: accumulatedHistoricalData[0]?.time,
-                    lastTimestamp: accumulatedHistoricalData[accumulatedHistoricalData.length - 1]?.time
-                });
-
-                // Process accumulated historical data and update chart
-                updateChartWithHistoricalData(accumulatedHistoricalData, historicalDataSymbol);
-
-                // Reset accumulation state
-                accumulatedHistoricalData = [];
-                isAccumulatingHistorical = false;
-                historicalDataSymbol = '';
-            });
-            return;
-        }
-
         console.log(`📊 Combined WebSocket: Processing accumulated historical data: ${accumulatedHistoricalData.length} points for ${historicalDataSymbol}`);
         console.log('🔍 DEBUG: About to call updateChartWithHistoricalData with:', {
             dataPoints: accumulatedHistoricalData.length,
@@ -488,26 +439,19 @@ function handleHistoricalData(message) {
 }
 
 function handleLiveData(message) {
-    console.log(`🔴 Combined WebSocket: Received live data for ${message.symbol}`);
-    console.log('🔴 Live data details:', message.data);
+    // console.log(`Combined WebSocket: Received live data for ${message.symbol}`);
 
     if (!message.data) {
-        console.warn('🔴 Combined WebSocket: Invalid live data format - no data field');
+        // console.warn('Combined WebSocket: Invalid live data format');
         return;
     }
-
-    // Check if chart is ready
-    const gd = document.getElementById('chart');
-    console.log('🔴 DEBUG: Chart element exists for live data:', !!gd);
-    console.log('🔴 DEBUG: Window.gd exists for live data:', !!window.gd);
-    console.log('🔴 DEBUG: Window.gd.data exists for live data:', !!(window.gd && window.gd.data));
 
     // Process live data and update chart
     updateChartWithLiveData(message.data, message.symbol);
 }
 
 function handleDrawingsData(message) {
-    // console.log(`Combined WebSocket: Received drawings data for ${message.symbol}`);
+    console.log(`Combined WebSocket: Received drawings data for ${message.symbol}`);
 
     if (!message.data || !Array.isArray(message.data)) {
         console.warn('Combined WebSocket: Invalid drawings data format');
@@ -519,7 +463,7 @@ function handleDrawingsData(message) {
         return;
     }
 
-    // console.log('🎨 DRAWINGS: Processing', message.data.length, 'drawings:', message.data);
+    console.log('🎨 DRAWINGS: Processing', message.data.length, 'drawings:', message.data);
 
     // Process and add drawings to the chart
     addDrawingsToChart(message.data, message.symbol);
@@ -539,16 +483,16 @@ function addDrawingsToChart(drawings, symbol) {
         window.gd.layout.shapes = [];
     }
 
-    // console.log('🎨 DRAWINGS: Current shapes before adding:', window.gd.layout.shapes.length);
+    console.log('🎨 DRAWINGS: Current shapes before adding:', window.gd.layout.shapes.length);
 
     // Process each drawing
     drawings.forEach((drawing, index) => {
         try {
-            // console.log(`Combined WebSocket: Processing drawing ${index + 1}/${drawings.length}:`, drawing);
+            console.log(`Combined WebSocket: Processing drawing ${index + 1}/${drawings.length}:`, drawing);
 
             // Convert drawing data to Plotly shape format
             const shape = convertDrawingToShape(drawing);
-            // console.log(`Combined WebSocket: Converted to shape:`, shape);
+            console.log(`Combined WebSocket: Converted to shape:`, shape);
 
             if (shape) {
                 // Check if shape already exists (by id)
@@ -660,7 +604,6 @@ function convertDrawingToShape(drawing) {
                 width: drawing.properties?.width || 2,
                 dash: drawing.properties?.dash || 'solid'
             };
-            /*
             console.log('🎨 DRAWINGS: Created line shape:', {
                 x0: shape.x0,
                 y0: shape.y0,
@@ -669,7 +612,6 @@ function convertDrawingToShape(drawing) {
                 yref: shape.yref,
                 line: shape.line
             });
-            */
         } else if (drawing.type === 'rectangle' || drawing.type === 'box') {
             // For rectangles, we need to determine min/max coordinates
             const x0 = new Date(Math.min(drawing.start_time, drawing.end_time) * 1000);
@@ -703,18 +645,16 @@ function convertDrawingToShape(drawing) {
                 width: drawing.properties?.width || 2,
                 dash: drawing.properties?.dash || 'dash'
             };
-            /*
             console.log('🎨 DRAWINGS: Created horizontal line shape:', {
                 ...shape,
                 yref: shape.yref
             });
-            */
         } else {
             console.warn(`Combined WebSocket: Unsupported drawing type: ${drawing.type}`);
             return null;
         }
 
-        // console.log('🎨 DRAWINGS: Final shape created:', shape);
+        console.log('🎨 DRAWINGS: Final shape created:', shape);
         return shape;
     } catch (error) {
         console.error('Combined WebSocket: Error converting drawing to shape:', error, drawing);
@@ -725,9 +665,6 @@ function convertDrawingToShape(drawing) {
 function updateChartWithHistoricalData(dataPoints, symbol) {
     console.log('📈 Combined WebSocket: Processing historical data for chart update');
     console.log('📈 Combined WebSocket: Data points received:', dataPoints.length);
-
-    // Define chartElement globally for the function
-    const chartElement = document.getElementById('chart');
 
     if (!dataPoints || dataPoints.length === 0) {
         console.warn('⚠️ Combined WebSocket: No historical data points to process');
@@ -794,13 +731,13 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     console.log('🔍 DEBUG: Number of dataPoints:', dataPoints.length);
 
     dataPoints.forEach((point, pointIndex) => {
-        // console.log(`🔍 DEBUG: DataPoint ${pointIndex}: time=${point.time}, has indicators:`, !!point.indicators);
+        console.log(`🔍 DEBUG: DataPoint ${pointIndex}: time=${point.time}, has indicators:`, !!point.indicators);
         if (point.indicators) {
-            // console.log(`🔍 DEBUG: DataPoint ${pointIndex} indicators keys:`, Object.keys(point.indicators));
+            console.log(`🔍 DEBUG: DataPoint ${pointIndex} indicators keys:`, Object.keys(point.indicators));
             Object.keys(point.indicators).forEach(indicatorId => {
-                // console.log(`🔍 DEBUG: Processing indicator ${indicatorId} for dataPoint ${pointIndex}`);
+                console.log(`🔍 DEBUG: Processing indicator ${indicatorId} for dataPoint ${pointIndex}`);
                 if (!indicatorsData[indicatorId]) {
-                    // console.log(`🔍 DEBUG: Creating new indicatorsData entry for ${indicatorId}`);
+                    console.log(`🔍 DEBUG: Creating new indicatorsData entry for ${indicatorId}`);
                     indicatorsData[indicatorId] = {
                         timestamps: [],
                         values: {}
@@ -811,7 +748,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
 
                 // Store all indicator values for this point
                 Object.keys(point.indicators[indicatorId]).forEach(key => {
-                    // console.log(`🔍 DEBUG: Processing indicator ${indicatorId} key ${key} with value:`, point.indicators[indicatorId][key]);
+                    console.log(`🔍 DEBUG: Processing indicator ${indicatorId} key ${key} with value:`, point.indicators[indicatorId][key]);
                     if (!indicatorsData[indicatorId].values[key]) {
                         indicatorsData[indicatorId].values[key] = [];
                     }
@@ -819,7 +756,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                 });
             });
         } else {
-            //console.log(`🔍 DEBUG: DataPoint ${pointIndex} has no indicators object`);
+            console.log(`🔍 DEBUG: DataPoint ${pointIndex} has no indicators object`);
         }
     });
 
@@ -868,9 +805,9 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
 
         // DEBUG: Log filtering results
         if (nanCount > 0 || infiniteCount > 0 || nonNumericCount > 0) {
-            //console.log(`🔍 DEBUG: NaN filtering for indicator data:`);
-            //console.log(`  Original: ${values.length}, Filtered: ${filteredValues.length}`);
-            //console.log(`  NaN count: ${nanCount}, Infinite count: ${infiniteCount}, Non-numeric count: ${nonNumericCount}`);
+            console.log(`🔍 DEBUG: NaN filtering for indicator data:`);
+            console.log(`  Original: ${values.length}, Filtered: ${filteredValues.length}`);
+            console.log(`  NaN count: ${nanCount}, Infinite count: ${infiniteCount}, Non-numeric count: ${nonNumericCount}`);
         }
 
         return { timestamps: filteredTimestamps, values: filteredValues };
@@ -1047,82 +984,70 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     // Update chart with all traces
     const allTraces = [priceTrace, ...indicatorTraces];
 
-    // Check if we need to create a new layout or can reuse existing one
-    let layout;
-    if (window.gd && window.gd.layout && window.gd.layout.grid) {
-        // Reuse existing layout and just update necessary properties
-        layout = { ...window.gd.layout };
+    // Create layout using the same function as updateChartIndicatorsDisplay
+    const layout = createLayoutForIndicators(indicatorTypes);
 
-        // Update title and axis ranges if needed
-        layout.title = `${symbol} - ${combinedResolution.toUpperCase()}`;
+    // Override the title and axis settings for historical data
+    layout.title = `${symbol} - ${combinedResolution.toUpperCase()}`;
 
-        // Preserve user's saved X-axis range if it exists
-        if (window.currentXAxisRange && window.currentXAxisRange.length === 2) {
-            let xMinMs = window.currentXAxisRange[0];
-            let xMaxMs = window.currentXAxisRange[1];
+    // Preserve user's saved X-axis range if it exists
+    if (window.currentXAxisRange && window.currentXAxisRange.length === 2) {
+        // Check if timestamps are already in milliseconds (values > 1e12 indicate milliseconds)
+        let xMinMs = window.currentXAxisRange[0];
+        let xMaxMs = window.currentXAxisRange[1];
 
-            if (xMinMs < 2e9) {
-                xMinMs = xMinMs * 1000;
-                xMaxMs = xMaxMs * 1000;
-            }
-
-            const xMinDate = new Date(xMinMs);
-            const xMaxDate = new Date(xMaxMs);
-            layout.xaxis = {
-                ...layout.xaxis,
-                rangeslider: { visible: false },
-                type: 'date',
-                autorange: false,
-                range: [xMinDate, xMaxDate]
-            };
+        // If values are in seconds (reasonable for 2025), convert to milliseconds
+        if (xMinMs < 2e9) { // Less than 2 billion (reasonable for seconds since 1970)
+            xMinMs = xMinMs * 1000;
+            xMaxMs = xMaxMs * 1000;
+            /* console.log('🔍 DEBUG: Converted X-axis timestamps from seconds to milliseconds:', {
+                originalMin: window.currentXAxisRange[0],
+                originalMax: window.currentXAxisRange[1],
+                convertedMin: xMinMs,
+                convertedMax: xMaxMs
+            }); */
+        } else {
+            /*  console.log('🔍 DEBUG: X-axis timestamps already in milliseconds:', {
+                min: xMinMs,
+                max: xMaxMs
+            });
+            */
         }
 
-        // Preserve user's saved Y-axis range if it exists
-        if (window.currentYAxisRange && window.currentYAxisRange.length === 2) {
-            layout.yaxis = {
-                ...layout.yaxis,
-                title: `${symbol.replace('USDT', '/USDT')} Price`,
-                autorange: false,
-                range: window.currentYAxisRange
-            };
-        }
-
-        console.log('🔄 Reusing existing layout instead of recreating');
+        const xMinDate = new Date(xMinMs);
+        const xMaxDate = new Date(xMaxMs);
+        layout.xaxis = {
+            rangeslider: { visible: false },
+            type: 'date',
+            autorange: false,
+            range: [xMinDate, xMaxDate]
+        };
+        // console.log('Combined WebSocket: Applied saved X-axis range:', window.currentXAxisRange);
+        // console.log('🔍 DEBUG: X-axis range dates:', xMinDate.toISOString(), 'to', xMaxDate.toISOString());
     } else {
-        // Create new layout only if we don't have one
-        layout = createLayoutForIndicators(indicatorTypes);
-        console.log('🆕 Creating new layout (first time or layout missing)');
+        layout.xaxis = {
+            rangeslider: { visible: false },
+            type: 'date',
+            autorange: true
+        };
+        // console.log('Combined WebSocket: No saved X-axis range, using autorange');
     }
 
-    // Layout configuration is now handled above in the reuse/create logic
-
-    // Call Plotly.react immediately after layout creation
-    if (!chartElement) {
-        console.error('Combined WebSocket: Chart element not found');
-        return;
-    }
-
-    // Preserve existing shapes when updating chart with historical data
-    if (window.gd && window.gd.layout && window.gd.layout.shapes) {
-        layout.shapes = window.gd.layout.shapes;
-        console.log('🎨 DRAWINGS: Preserving', window.gd.layout.shapes.length, 'existing shapes during historical data update');
-    }
-
-    console.log('🔄 Using Plotly.react with user\'s zoom/pan settings preserved...');
-    Plotly.react(chartElement, allTraces, layout);
-    console.log('✅ Plotly.react completed successfully with user settings preserved');
-    console.log('[CHART_UPDATE] combinedData.js historical data - chart update completed at', new Date().toISOString());
-    console.log('📊 User zoom/pan settings maintained - no forced autorange');
-
-    console.log('📊 Chart should now display all merged historical data');
-
-    // Set up WebSocket message handler after subplots are initialized
-    console.log('🎨 DRAWINGS: Chart layout with subplots initialized, setting up WebSocket message handler');
-    try {
-        setupWebSocketMessageHandler();
-        console.log('✅ Combined WebSocket: Message handler setup completed in updateChartWithHistoricalData');
-    } catch (error) {
-        console.error('❌ Combined WebSocket: Failed to setup message handler in updateChartWithHistoricalData:', error);
+    // Preserve user's saved Y-axis range if it exists
+    if (window.currentYAxisRange && window.currentYAxisRange.length === 2) {
+        layout.yaxis = {
+            title: `${symbol.replace('USDT', '/USDT')} Price`,
+            autorange: false,
+            range: window.currentYAxisRange
+        };
+        // console.log('Combined WebSocket: Applied saved Y-axis range:', window.currentYAxisRange);
+        // console.log('🔍 DEBUG: Y-axis range values:', window.currentYAxisRange[0], 'to', window.currentYAxisRange[1]);
+    } else {
+        layout.yaxis = {
+            title: `${symbol.replace('USDT', '/USDT')} Price`,
+            autorange: true
+        };
+        // console.log('Combined WebSocket: No saved Y-axis range, using autorange');
     }
 
     // DEBUG: Check data range vs axis range
@@ -1188,6 +1113,232 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
 
     // Update price trace to use y (not yaxis)
     priceTrace.yaxis = 'y';
+
+    const chartElement = document.getElementById('chart');
+    if (!chartElement) {
+        // console.error('Combined WebSocket: Chart element not found');
+        return;
+    }
+
+    // console.log('Combined WebSocket: About to update chart');
+    // console.log('Combined WebSocket: Chart element found:', !!chartElement);
+    // console.log('Combined WebSocket: Window.gd exists:', !!window.gd);
+    // console.log('Combined WebSocket: All traces count:', allTraces.length);
+    // console.log('Combined WebSocket: Price trace:', allTraces[0] ? 'exists' : 'missing');
+    // console.log('Combined WebSocket: Indicator traces:', indicatorTraces.length);
+
+    // DEBUG: Log final data ranges before chart update
+    if (timestamps.length > 0) {
+        // console.log('📊 FINAL DATA TO DISPLAY:');
+        // console.log('  Data points:', timestamps.length);
+        // console.log('  Time range (UTC):', timestamps[0].toISOString(), 'to', timestamps[timestamps.length - 1].toISOString());
+        // console.log('  Time range (Local):', timestamps[0].toLocaleString(), 'to', timestamps[timestamps.length - 1].toLocaleString());
+        // console.log('  Price range:', Math.min(...close), 'to', Math.max(...close));
+    }
+
+    // Compare with server range if available
+    if (window.lastServerRange) {
+        // console.log('🔄 COMPARING CLIENT VS SERVER RANGES:');
+        // console.log('  Server range (UTC):', window.lastServerRange.fromDate, 'to', window.lastServerRange.toDate);
+        // console.log('  Client data range (UTC):', timestamps[0].toISOString(), 'to', timestamps[timestamps.length - 1].toISOString());
+        // console.log('  Server range (Local):', new Date(window.lastServerRange.fromTs * 1000).toLocaleString(), 'to', new Date(window.lastServerRange.toTs * 1000).toLocaleString());
+        // console.log('  Client data range (Local):', timestamps[0].toLocaleString(), 'to', timestamps[timestamps.length - 1].toLocaleString());
+
+        const serverStart = new Date(window.lastServerRange.fromTs * 1000);
+        const serverEnd = new Date(window.lastServerRange.toTs * 1000);
+        const clientStart = timestamps[0];
+        const clientEnd = timestamps[timestamps.length - 1];
+
+        const startDiff = Math.abs(clientStart.getTime() - serverStart.getTime()) / 1000;
+        const endDiff = Math.abs(clientEnd.getTime() - serverEnd.getTime()) / 1000;
+
+        // console.log('  Start time difference:', startDiff, 'seconds');
+        // console.log('  End time difference:', endDiff, 'seconds');
+    }
+
+    // Log details about each trace
+    allTraces.forEach((trace, index) => {
+        const dataPoints = trace.x ? trace.x.length : 0;
+        // console.log(`Combined WebSocket: Trace ${index} (${trace.name}): ${dataPoints} data points, type: ${trace.type}`);
+        if (dataPoints === 0) {
+            // console.warn(`Combined WebSocket: Trace ${trace.name} has no data points!`);
+        }
+    });
+
+    // Filter out traces with no data
+    const validTraces = allTraces.filter(trace => {
+        const hasData = trace.x && trace.x.length > 0;
+        if (!hasData) {
+            // console.warn(`Combined WebSocket: Removing trace ${trace.name} - no data points`);
+        }
+        return hasData;
+    });
+
+    console.log(`📊 Combined WebSocket: Valid traces: ${validTraces.length}/${allTraces.length}`);
+
+    // DEBUG: Detailed trace analysis
+    console.log('🔍 DEBUG: Trace details before filtering:');
+    allTraces.forEach((trace, index) => {
+        const dataPoints = trace.x ? trace.x.length : 0;
+        const hasNaN = trace.y ? trace.y.some(v => isNaN(v)) : false;
+        console.log(`  Trace ${index} (${trace.name}): ${dataPoints} points, type: ${trace.type}, hasNaN: ${hasNaN}, yaxis: ${trace.yaxis}`);
+    });
+
+    console.log('🔍 DEBUG: Valid traces after filtering:');
+    validTraces.forEach((trace, index) => {
+        const dataPoints = trace.x ? trace.x.length : 0;
+        const hasNaN = trace.y ? trace.y.some(v => isNaN(v)) : false;
+        console.log(`  Valid Trace ${index} (${trace.name}): ${dataPoints} points, type: ${trace.type}, hasNaN: ${hasNaN}, yaxis: ${trace.yaxis}`);
+    });
+
+    // Check if chart already has data - if so, we need to merge with existing data
+    let finalTraces = validTraces;
+    if (window.gd && window.gd.data && window.gd.data.length > 0) {
+        // console.log('Combined WebSocket: Chart already has data, merging with historical data');
+
+        // Find existing price trace
+        const existingPriceTrace = window.gd.data.find(trace => trace.type === 'candlestick');
+        if (existingPriceTrace) {
+            // console.log('Combined WebSocket: Found existing price trace with', existingPriceTrace.x ? existingPriceTrace.x.length : 0, 'points');
+
+            // Merge historical data with existing data
+            const existingTimestamps = existingPriceTrace.x || [];
+            const historicalTimestamps = priceTrace.x || [];
+
+            // Combine and sort all timestamps
+            const allTimestamps = [...new Set([...existingTimestamps, ...historicalTimestamps])];
+            allTimestamps.sort((a, b) => new Date(a) - new Date(b));
+
+            // console.log('Combined WebSocket: Merging data - existing:', existingTimestamps.length, 'historical:', historicalTimestamps.length, 'combined:', allTimestamps.length);
+
+            // Create merged price trace
+            const mergedPriceTrace = {
+                ...priceTrace,
+                x: allTimestamps,
+                open: new Array(allTimestamps.length),
+                high: new Array(allTimestamps.length),
+                low: new Array(allTimestamps.length),
+                close: new Array(allTimestamps.length),
+                volume: new Array(allTimestamps.length)
+            };
+
+            // Fill merged data
+            allTimestamps.forEach((timestamp, index) => {
+                const existingIndex = existingTimestamps.findIndex(t => t.getTime() === timestamp.getTime());
+                const historicalIndex = historicalTimestamps.findIndex(t => t.getTime() === timestamp.getTime());
+
+                if (existingIndex !== -1) {
+                    // Use existing data
+                    mergedPriceTrace.open[index] = existingPriceTrace.open[existingIndex];
+                    mergedPriceTrace.high[index] = existingPriceTrace.high[existingIndex];
+                    mergedPriceTrace.low[index] = existingPriceTrace.low[existingIndex];
+                    mergedPriceTrace.close[index] = existingPriceTrace.close[existingIndex];
+                    mergedPriceTrace.volume[index] = existingPriceTrace.volume[existingIndex];
+                } else if (historicalIndex !== -1) {
+                    // Use historical data
+                    mergedPriceTrace.open[index] = priceTrace.open[historicalIndex];
+                    mergedPriceTrace.high[index] = priceTrace.high[historicalIndex];
+                    mergedPriceTrace.low[index] = priceTrace.low[historicalIndex];
+                    mergedPriceTrace.close[index] = priceTrace.close[historicalIndex];
+                    mergedPriceTrace.volume[index] = priceTrace.volume[historicalIndex];
+                }
+            });
+
+            // Replace price trace in validTraces
+            finalTraces = validTraces.map(trace =>
+                trace.type === 'candlestick' ? mergedPriceTrace : trace
+            );
+
+            /* console.log('Combined WebSocket: Successfully merged historical data with existing chart data');
+            console.log('🔍 DEBUG: Merged data verification:');
+            console.log('  Merged timestamps range:', mergedPriceTrace.x[0], 'to', mergedPriceTrace.x[mergedPriceTrace.x.length - 1]);
+            console.log('  Merged data points:', mergedPriceTrace.x.length);
+            console.log('  Sample merged data - First:', {
+                time: mergedPriceTrace.x[0],
+                open: mergedPriceTrace.open[0],
+                close: mergedPriceTrace.close[0]
+            });
+            // console.log('  Sample merged data - Last:', {
+                time: mergedPriceTrace.x[mergedPriceTrace.x.length - 1],
+                open: mergedPriceTrace.open[mergedPriceTrace.x.length - 1],
+                close: mergedPriceTrace.close[mergedPriceTrace.x.length - 1]
+            });
+            */
+        } else {
+            // console.log('Combined WebSocket: No existing price trace found, using historical data only');
+        }
+    } else {
+        // console.log('Combined WebSocket: No existing chart data found, using historical data only');
+    }
+
+    // Always update existing chart - we should never need to create a new one
+    // console.log('Combined WebSocket: Updating existing chart with Plotly.react');
+    // console.log('[CHART_UPDATE] combinedData.js historical data - updating chart at', new Date().toISOString());
+    // console.log('[CHART_UPDATE] combinedData.js - finalTraces count:', finalTraces.length);
+
+    // DEBUG: Log chart update details
+    // console.log('🔍 DEBUG: Plotly.react call details:');
+    // console.log('  Chart element exists:', !!chartElement);
+    // console.log('  Final traces count:', finalTraces.length);
+    // console.log('  Layout object keys:', Object.keys(layout));
+    // console.log('  Layout xaxis:', layout.xaxis);
+    // console.log('  Layout yaxis:', layout.yaxis);
+
+    // Preserve existing shapes when updating chart with historical data
+    if (window.gd && window.gd.layout && window.gd.layout.shapes) {
+        layout.shapes = window.gd.layout.shapes;
+        console.log('🎨 DRAWINGS: Preserving', window.gd.layout.shapes.length, 'existing shapes during historical data update');
+    }
+
+    // console.log('🔍 DEBUG: About to call Plotly.react...');
+    // console.log('  Chart element type:', chartElement?.tagName);
+    // console.log('  Chart element id:', chartElement?.id);
+    // console.log('  Final traces to update:', finalTraces.length);
+    // console.log('  Layout xaxis range:', layout.xaxis.range);
+
+    try {
+        // Honor user's zoom/pan settings - do not force autorange
+        console.log('🔄 Using Plotly.react with user\'s zoom/pan settings preserved...');
+
+        // Use the original layout which preserves user's axis ranges and existing shapes
+        Plotly.react(chartElement, finalTraces, layout);
+        console.log('✅ Plotly.react completed successfully with user settings preserved');
+        console.log('[CHART_UPDATE] combinedData.js historical data - chart update completed at', new Date().toISOString());
+        console.log('📊 User zoom/pan settings maintained - no forced autorange');
+
+        console.log('📊 Chart should now display all merged historical data');
+
+        // Set up WebSocket message handler after subplots are initialized
+        console.log('🎨 DRAWINGS: Chart layout with subplots initialized, setting up WebSocket message handler');
+        setupWebSocketMessageHandler();
+
+        // DEBUG: Verify chart state after update
+        setTimeout(() => {
+            if (window.gd && window.gd.data) {
+                // console.log('🔍 DEBUG: Chart state after Plotly.react:');
+                // console.log('  Chart has data:', window.gd.data.length > 0);
+                // console.log('  Data traces count:', window.gd.data.length);
+                // console.log('  First trace data points:', window.gd.data[0] ? window.gd.data[0].x.length : 0);
+                // console.log('  Layout xaxis range:', window.gd.layout.xaxis.range);
+                // console.log('  Layout yaxis range:', window.gd.layout.yaxis.range);
+
+                // Check if the data actually contains the historical data
+                if (window.gd.data[0] && window.gd.data[0].x && window.gd.data[0].x.length > 0) {
+                    const firstDataPoint = window.gd.data[0].x[0];
+                    const lastDataPoint = window.gd.data[0].x[window.gd.data[0].x.length - 1];
+                    // console.log('  Chart data range:', firstDataPoint, 'to', lastDataPoint);
+                }
+            } else {
+                // console.error('🚨 ERROR: Chart state invalid after Plotly.react');
+                // console.error('  window.gd exists:', !!window.gd);
+                // console.error('  window.gd.data exists:', !!(window.gd && window.gd.data));
+            }
+        }, 100);
+    } catch (error) {
+        // console.error('🚨 ERROR: Plotly.react failed:', error);
+        // console.error('  Error details:', error.message);
+        // console.error('  Error stack:', error.stack);
+    }
 
     // Force Y-axis autoscale if no specific range is set
     if (!window.currentYAxisRange) {
@@ -1394,7 +1545,7 @@ function getCurrentActiveIndicators() {
             if (!indicators.includes('rsi')) indicators.push('rsi');
         } else if (trace.name === 'Stoch K' || trace.name === 'Stoch D') {
             // Find the stochrsi variant
-            const stochVariant = window.combinedIndicators?.find(id => id.startsWith('stochrsi'));
+            const stochVariant = combinedIndicators.find(id => id.startsWith('stochrsi'));
             if (stochVariant && !indicators.includes(stochVariant)) indicators.push(stochVariant);
         } else if (trace.name === 'JMA') {
             if (!indicators.includes('jma')) indicators.push('jma');
@@ -1705,47 +1856,70 @@ function createLayoutForIndicators(activeIndicatorIds) {
             side: 'left'
         },
         showlegend: false,
-        hovermode: 'x unified',
-        margin: { l: 50, r: 10, b: 20, t: 30 }
+        margin: { l: 40, r: 10, b: 20, t: 30 }
     };
 
     if (activeIndicatorIds.length > 0) {
         // Optimized space usage with 3:1 ratio - ensure full height utilization
         // Calculate from bottom up to eliminate any remaining blank space
-        const totalUnits = 2 + activeIndicatorIds.length; // Price gets 2 units, each indicator gets 1 unit
+        const totalUnits = 1 + activeIndicatorIds.length; // Price gets 2 units, each indicator gets 1 unit
         const unitHeight = 1.0 / totalUnits; // Each unit's height
 
-        const priceChartHeight = 2 * unitHeight; // Price chart gets 3 units
-        const availableForIndicators = 1.0 - priceChartHeight;
-        const totalIndicatorSpace = availableForIndicators;
+        const priceChartHeight = 1 * unitHeight; // Price chart gets 2 units
+        const labelGap = isMobileDevice() ? 0.04 : 0.04; // Increased gap: 6% mobile, 12% desktop
+        const availableForIndicators = 1.0 - priceChartHeight - labelGap;
+        const gapBetweenIndicators = 0.02; // 2% gap between indicators
+        const totalIndicatorSpace = availableForIndicators - (activeIndicatorIds.length - 1) * gapBetweenIndicators;
         const indicatorHeight = totalIndicatorSpace / activeIndicatorIds.length; // Redistribute remaining space
 
         const priceChartDomain = [1.0 - priceChartHeight, 1.0]; // Price chart at top
-        const indicatorsStartAt = 1.0 - priceChartHeight; // Indicators start below labels
+        const indicatorsStartAt = 1.0 - priceChartHeight - labelGap; // Indicators start below labels
 
         // Create grid with manual row heights - must match domain calculations exactly
         let rowHeights = [priceChartHeight]; // Price chart height (calculated, not hardcoded)
         for (let i = 0; i < activeIndicatorIds.length; i++) {
             rowHeights.push(indicatorHeight);
+            if (i < activeIndicatorIds.length - 1) rowHeights.push(gapBetweenIndicators);
         }
 
         baseLayout.grid = {
             rows: rowHeights.length,
             columns: 1,
-            pattern: 'domain',
+            pattern: 'independent',
             roworder: 'top to bottom',
             rowheights: rowHeights,
-            vertical_spacing: 0.05
+            xgap: 0,
+            ygap: 0
         };
 
-        console.log(`DEBUG: Grid created with ${rowHeights.length} rows, vertical_spacing: 0.05`);
+        // console.log(`DEBUG: Unit-based calculation - totalUnits: ${totalUnits}, unitHeight: ${unitHeight.toFixed(3)}`);
+        // console.log(`DEBUG: Price chart height: ${priceChartHeight.toFixed(3)}, domain: [${priceChartDomain[0].toFixed(3)}, ${priceChartDomain[1].toFixed(3)}]`);
+        // console.log(`DEBUG: Indicator height: ${indicatorHeight.toFixed(3)}, total indicators: ${activeIndicatorIds.length}`);
+        // console.log(`DEBUG: Grid row heights: [${rowHeights.map(h => h.toFixed(3)).join(', ')}]`);
 
-        // Let Plotly handle domain calculation automatically with pattern: 'domain'
-        console.log(`DEBUG: Price chart domain handled automatically by grid pattern`);
+        // Set price chart domain
+        baseLayout.yaxis.domain = priceChartDomain;
+        // console.log(`DEBUG: Price chart domain set to [${priceChartDomain[0].toFixed(3)}, ${priceChartDomain[1].toFixed(3)}]`);
 
-        // Let Plotly handle domain calculation automatically with pattern: 'domain'
+        // Assign indicator domains from bottom up within the remaining space
         activeIndicatorIds.forEach((indicatorId, index) => {
             const yAxisName = `yaxis${index + 2}`;
+            const indicatorIndex = activeIndicatorIds.length - 1 - index; // Reverse order for bottom-up stacking
+
+            // Optimized domain calculation for indicators - ensure last indicator reaches exactly 0.0
+            const isLastIndicator = indicatorIndex === activeIndicatorIds.length - 1;
+
+            // Declare variables outside if/else blocks to avoid scoping issues
+            let domainStart, domainEnd;
+            const higherStartPadding = 0.2 * indicatorHeight;
+
+            // Calculate domain with gaps between indicators
+            domainStart = (activeIndicatorIds.length - 1 - indicatorIndex) * (indicatorHeight + gapBetweenIndicators);
+            domainEnd = domainStart + indicatorHeight;
+            // Apply higher start padding for first indicator
+            if (indicatorIndex === 0) {
+                domainStart += higherStartPadding;
+            }
 
             baseLayout[yAxisName] = {
                 title: {
@@ -1766,17 +1940,18 @@ function createLayoutForIndicators(activeIndicatorIds) {
                 },
                 autorange: true,
                 fixedrange: false, // Allow zoom on indicator y-axes
-                // Remove manual domain setting - let Plotly handle with grid pattern
-                side: 'left'
+                domain: [domainStart, domainEnd] // Explicitly set domain based on grid rowheights
             };
-            console.log(`DEBUG: ${indicatorId} y-axis created without manual domain (using grid pattern)`);
+            // console.log(`DEBUG: ${indicatorId} domain set to [${domainStart.toFixed(3)}, ${domainEnd.toFixed(3)}]`);
         });
 
-        // Domain coverage handled automatically by Plotly with pattern: 'domain'
-        console.log(`DEBUG: Domain coverage handled automatically by grid pattern`);
+        // Verify total height coverage
+        const totalCoverage = baseLayout.yaxis.domain[1] - baseLayout.yaxis.domain[0] +
+            activeIndicatorIds.reduce((sum, _, i) => sum + (baseLayout[`yaxis${i + 2}`].domain[1] - baseLayout[`yaxis${i + 2}`].domain[0]), 0);
+        // console.log(`DEBUG: Total domain coverage: ${totalCoverage.toFixed(3)} (should be 1.0)`);
     } else {
-        // No indicators - let Plotly handle domain automatically
-        console.log(`DEBUG: No indicators, domain handled automatically`);
+        baseLayout.yaxis.domain = [0, 1];
+        // console.log(`DEBUG: No indicators, price chart domain set to [0, 1]`);
     }
 
     return baseLayout;
@@ -1858,26 +2033,6 @@ window.debugChartState = function() {
         xAxisRange: window.currentXAxisRange,
         yAxisRange: window.currentYAxisRange
     };
-};
-
-// DEBUG: Add function to check WebSocket message handler status
-window.checkWebSocketStatus = function() {
-    console.log('🔍 STATUS: Checking WebSocket connection status...');
-
-    if (!combinedWebSocket) {
-        console.log('❌ STATUS: No WebSocket connection found');
-        return { connected: false, readyState: 'none', hasHandler: false };
-    }
-
-    const status = {
-        connected: combinedWebSocket.readyState === WebSocket.OPEN,
-        readyState: combinedWebSocket.readyState,
-        hasHandler: typeof combinedWebSocket.onmessage !== 'undefined',
-        url: combinedWebSocket.url
-    };
-
-    console.log('✅ STATUS: WebSocket status:', status);
-    return status;
 };
 
 // DEBUG: Add function to manually test historical data loading

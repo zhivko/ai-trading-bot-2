@@ -57,34 +57,6 @@ function initializePlotlyEventHandlers(gd) {
         alert('[DEBUG] Plotly event handlers initialized');
     }
 
-    // Verify event handler attachment and chart configuration
-    setTimeout(() => {
-        try {
-            if (typeof console !== 'undefined' && console.log) {
-                console.log('[DEBUG] Verifying event handler attachment and chart config...');
-                console.log('[DEBUG] gd._ev exists:', !!gd._ev);
-                console.log('[DEBUG] Current dragmode:', gd.layout?.dragmode);
-                console.log('[DEBUG] Chart has data:', !!(gd.data && gd.data.length > 0));
-                console.log('[DEBUG] Chart layout exists:', !!gd.layout);
-
-                if (gd._ev) {
-                    const relayoutHandlers = gd._ev._events?.plotly_relayout;
-                    console.log('[DEBUG] plotly_relayout handlers count:', relayoutHandlers?.length || 0);
-                }
-
-                // Test if we can manually trigger a relayout event
-                console.log('[DEBUG] Skipping manual relayout event trigger to prevent unwanted saves');
-                // const testData = { 'xaxis.autorange': true };
-                // gd.emit('plotly_relayout', testData);
-                // console.log('[DEBUG] Manual relayout event emitted');
-            }
-        } catch (e) {
-            if (typeof console !== 'undefined' && console.warn) {
-                console.warn('[DEBUG] Could not verify event handler attachment:', e.message);
-            }
-        }
-    }, 2000);
-
     // Add test event listeners to verify event system is working
     gd.on('plotly_click', function() {
         console.log('[DEBUG] plotly_click event received - event system is working');
@@ -156,16 +128,16 @@ function initializePlotlyEventHandlers(gd) {
         console.log('[DEBUG] plotly_shapedrawn FIRED. Shape from event:', JSON.parse(JSON.stringify(eventShapeData)));
 
         // The shape drawn is usually the last one added to gd.layout.shapes
-        // and it won't have a backendId yet.
+        // and it won't have an id yet.
         const currentLayoutShapes = gd.layout.shapes || [];
         let newlyAddedShapeInLayout = null;
 
         if (currentLayoutShapes.length > 0) {
             const lastShapeInLayout = currentLayoutShapes[currentLayoutShapes.length - 1];
-            // Basic check: if it's a line, has no backendId, and isn't already being processed.
+            // Basic check: if it's a line, has no id, and isn't already being processed.
             // A more robust match would compare coordinates if Plotly guarantees eventShapeData matches.
             if (lastShapeInLayout.type === eventShapeData.type &&
-                !lastShapeInLayout.backendId &&
+                !lastShapeInLayout.id &&
                 !lastShapeInLayout.isSystemShape && // Should not be needed for user-drawn shapes
                 !lastShapeInLayout._savingInProgress) {
                 newlyAddedShapeInLayout = lastShapeInLayout;
@@ -199,12 +171,12 @@ function initializePlotlyEventHandlers(gd) {
             const backendId = await handleNewShapeSave(newlyAddedShapeInLayout);
 
             if (backendId) {
-                newlyAddedShapeInLayout.backendId = backendId;
+                newlyAddedShapeInLayout.id = backendId;
                 // editable is already true
                 window.activeShapeForPotentialDeletion = { id: backendId, index: currentLayoutShapes.indexOf(newlyAddedShapeInLayout), shape: newlyAddedShapeInLayout };
                 updateSelectedShapeInfoPanel(window.activeShapeForPotentialDeletion);
                 await updateShapeVisuals();
-                console.log(`[plotly_shapedrawn] Shape processed and updated in layout with backendId: ${backendId}`);
+                console.log(`[plotly_shapedrawn] Shape processed and updated in layout with id: ${backendId}`);
             } else {
                 console.warn('[plotly_shapedrawn] handleNewShapeSave did not return a backendId. Removing shape from layout to prevent duplicates.');
                 const indexToRemove = currentLayoutShapes.indexOf(newlyAddedShapeInLayout);
@@ -223,6 +195,9 @@ function initializePlotlyEventHandlers(gd) {
     const DEBOUNCE_DELAY = 500; // ms
 
     gd.on('plotly_relayouting', function(eventData) {
+        console.log('[DRAGGING] plotly_relayouting fired with eventData:', eventData);
+        console.log('[DRAGGING] plotly_relayouting - All keys:', Object.keys(eventData));
+
         // Clean up duplicate drag helpers that might interfere with dragging
         if (window.d3) {
             d3.selectAll('g[drag-helper="true"]').remove();
@@ -233,6 +208,13 @@ function initializePlotlyEventHandlers(gd) {
         const hasShapeChanges = eventKeys.some(key => key.startsWith('shapes['));
         const hasAxisRangeChanges = eventKeys.some(key => key.includes('axis.range'));
         const isDragModeChange = eventKeys.includes('dragmode');
+
+        console.log('[DRAGGING] Analysis:', {
+            hasShapeChanges,
+            hasAxisRangeChanges,
+            isDragModeChange,
+            currentDragMode: gd.layout.dragmode
+        });
 
         // Only set dragging flag for actual shape interactions, NOT dragmode changes
         if (hasShapeChanges && !isDragModeChange) {
@@ -260,6 +242,7 @@ function initializePlotlyEventHandlers(gd) {
             // Allow line coloring in draw mode by not setting isDraggingShape
         } else {
             // For axis range changes or unknown events, don't set dragging flag
+            console.log('[DRAGGING] No shape changes detected, clearing dragging flag');
             window.isDraggingShape = false;
         }
     });
@@ -281,12 +264,12 @@ function initializePlotlyEventHandlers(gd) {
 
             for (let i = 0; i < currentShapes.length; i++) {
                 const shape = currentShapes[i];
-                if (shape.type === 'line' && shape.backendId && !shape.isSystemShape) {
-                    console.log(`[DEBUG] Found clickable shape ${i}: ID=${shape.backendId}, x0=${shape.x0}, y0=${shape.y0}, x1=${shape.x1}, y1=${shape.y1}`);
-
+                if (shape.type === 'line' && shape.id && !shape.isSystemShape) {
+                    console.log(`[DEBUG] Found clickable shape ${i}: ID=${shape.id}, x0=${shape.x0}, y0=${shape.y0}, x1=${shape.x1}, y1=${shape.y1}`);
+        
                     // For now, let's just assume any line shape that exists is clickable
                     // This is a simplified approach to test if the event handling works
-                    const clickedShapeId = shape.backendId;
+                    const clickedShapeId = shape.id;
                     console.log(`[DEBUG] Clicked on shape ID: ${clickedShapeId}`);
 
                     // Update UI for click (selection)
@@ -335,16 +318,32 @@ function initializePlotlyEventHandlers(gd) {
                     if (xMin) {
                         const minDate = new Date(xMin);
                         // getTimezoneOffset() returns the offset in minutes from UTC to local time
-                        // For UTC+2, it returns -120 (local is 120 minutes ahead of UTC)
+                        // For UTC+2, it returns 120 (local is 120 minutes ahead of UTC)
                         // To get UTC timestamp from local time, we need to subtract this offset
                         const timezoneOffsetMs = minDate.getTimezoneOffset() * 60 * 1000;
                         xMinTimestamp = Math.floor((minDate.getTime() - timezoneOffsetMs) / 1000);
+                        console.log('[TIMESTAMP DEBUG] xMin conversion:', {
+                            xMin: xMin,
+                            minDate: minDate.toISOString(),
+                            timezoneOffsetMs: timezoneOffsetMs,
+                            timezoneOffsetMinutes: minDate.getTimezoneOffset(),
+                            xMinTimestamp: xMinTimestamp,
+                            xMinTimestampDate: new Date(xMinTimestamp * 1000).toISOString()
+                        });
                     }
 
                     if (xMax) {
                         const maxDate = new Date(xMax);
                         const timezoneOffsetMs = maxDate.getTimezoneOffset() * 60 * 1000;
                         xMaxTimestamp = Math.floor((maxDate.getTime() - timezoneOffsetMs) / 1000);
+                        console.log('[TIMESTAMP DEBUG] xMax conversion:', {
+                            xMax: xMax,
+                            maxDate: maxDate.toISOString(),
+                            timezoneOffsetMs: timezoneOffsetMs,
+                            timezoneOffsetMinutes: maxDate.getTimezoneOffset(),
+                            xMaxTimestamp: xMaxTimestamp,
+                            xMaxTimestampDate: new Date(xMaxTimestamp * 1000).toISOString()
+                        });
                     }
 
                     console.log('🚨 CHART RANGE CHANGE DETECTED 🚨', {
@@ -429,11 +428,15 @@ function initializePlotlyEventHandlers(gd) {
         if (originalRelayoutHandler) originalRelayoutHandler(eventData);
 
         let interactedShapeIndex = -1;
+        console.log(`[plotly_relayout] Checking for shape changes in eventData keys:`, Object.keys(eventData));
+
         for (const key in eventData) {
-            if (key.startsWith('shapes[') && key.includes('].x')) {
+            if (key.startsWith('shapes[')) {
+                console.log(`[plotly_relayout] Found shape-related key: ${key} = ${eventData[key]}`);
                 const match = key.match(/shapes\[(\d+)\]/);
                 if (match && match[1]) {
                     interactedShapeIndex = parseInt(match[1], 10);
+                    console.log(`[plotly_relayout] Extracted shape index: ${interactedShapeIndex}`);
                     break;
                 }
             }
@@ -441,8 +444,8 @@ function initializePlotlyEventHandlers(gd) {
 
         if (interactedShapeIndex !== -1 && gd.layout.shapes && gd.layout.shapes[interactedShapeIndex]) {
             const interactedShape = gd.layout.shapes[interactedShapeIndex];
-            if (interactedShape.backendId && !interactedShape.isSystemShape) {
-                
+            if (interactedShape.id && !interactedShape.isSystemShape) {
+
                 // --- Visual feedback on drag start (Temporarily disabled to fix line disappearing)---
                 // if (interactedShape.line.color !== 'rgba(255, 0, 255, 0.5)') {
                 //     const currentShapes = [...gd.layout.shapes];
@@ -452,25 +455,47 @@ function initializePlotlyEventHandlers(gd) {
                 // --- Debounced save on drag end ---
                 clearTimeout(shapeDragEndTimer);
                 shapeDragEndTimer = setTimeout(async () => {
-                    console.log(`[plotly_relayout] Drag end detected for shape ${interactedShape.backendId}, attempting to save.`);
-                    
+                    console.log(`[plotly_relayout] Drag end detected for shape ${interactedShape.id}, attempting to save.`);
+                    console.log(`[plotly_relayout] Shape data:`, {
+                        id: interactedShape.id,
+                        x0: interactedShape.x0,
+                        y0: interactedShape.y0,
+                        x1: interactedShape.x1,
+                        y1: interactedShape.y1,
+                        type: interactedShape.type
+                    });
+
                     // It's possible the shape was deleted or changed, so we get the latest version
                     const finalShapeState = gd.layout.shapes[interactedShapeIndex];
-                    if (finalShapeState && finalShapeState.backendId === interactedShape.backendId) {
-                        
+                    if (finalShapeState && finalShapeState.id === interactedShape.id) {
+                        console.log(`[plotly_relayout] Final shape state:`, {
+                            id: finalShapeState.id,
+                            x0: finalShapeState.x0,
+                            y0: finalShapeState.y0,
+                            x1: finalShapeState.x1,
+                            y1: finalShapeState.y1,
+                            type: finalShapeState.type
+                        });
+
                         const saveSuccess = await sendShapeUpdateToServer(finalShapeState, window.symbolSelect.value);
+                        console.log(`[plotly_relayout] Shape update result: ${saveSuccess ? 'SUCCESS' : 'FAILED'}`);
+
                         if (!saveSuccess) {
+                            console.warn(`[plotly_relayout] Shape update failed, reloading drawings`);
                             loadDrawingsAndRedraw(window.symbolSelect.value);
                         } else {
                             // Restore original color after successful save
+                            console.log(`[plotly_relayout] Shape update successful, updating visuals`);
                             await updateShapeVisuals(); // This should handle restoring the color
                         }
+                    } else {
+                        console.warn(`[plotly_relayout] Shape state mismatch or shape was deleted during update`);
                     }
                 }, DEBOUNCE_DELAY);
 
-                const selectionChanged = !window.activeShapeForPotentialDeletion || window.activeShapeForPotentialDeletion.id !== interactedShape.backendId;
+                const selectionChanged = !window.activeShapeForPotentialDeletion || window.activeShapeForPotentialDeletion.id !== interactedShape.id;
                 if (selectionChanged) {
-                    window.activeShapeForPotentialDeletion = { id: interactedShape.backendId, index: interactedShapeIndex, shape: interactedShape };
+                    window.activeShapeForPotentialDeletion = { id: interactedShape.id, index: interactedShapeIndex, shape: interactedShape };
                     await updateShapeVisuals();
                 } else {
                     window.activeShapeForPotentialDeletion.shape = interactedShape;
@@ -484,23 +509,41 @@ function initializePlotlyEventHandlers(gd) {
         let newShapesProcessedInRelayout = false;
         for (let i = 0; i < currentLayoutShapesForNewCheck.length; i++) {
             const shapeInLayout = currentLayoutShapesForNewCheck[i];
+
+            // Check if this is already a processed drawing (has drawing_ prefix in name)
+            const isAlreadyProcessedDrawing = shapeInLayout.name && shapeInLayout.name.startsWith('drawing_');
+
+            // Additional check: warn if we have an id but it's still being processed
+            if (shapeInLayout.id && !shapeInLayout._savingInProgress) {
+                console.warn('[plotly_relayout] WARNING: Shape already has id but is being considered for processing:', {
+                    name: shapeInLayout.name,
+                    id: shapeInLayout.id,
+                    type: shapeInLayout.type,
+                    isSystemShape: shapeInLayout.isSystemShape,
+                    isAlreadyProcessedDrawing: isAlreadyProcessedDrawing
+                });
+                continue; // Skip this shape entirely
+            }
+
             if (shapeInLayout.type === 'line' &&
-                !shapeInLayout.backendId &&
+                !shapeInLayout.id &&
                 !shapeInLayout.isSystemShape && // Already correctly ignores system shapes
-                !shapeInLayout._savingInProgress // Check this flag
+                !shapeInLayout._savingInProgress && // Check this flag
+                !isAlreadyProcessedDrawing // Additional check for already processed drawings
                ) {
 
-               // DETAILED LOGGING FOR POTENTIALLY MISIDENTIFIED NEW SHAPE
-               console.warn('[plotly_relayout] Fallback: Potential new shape to save. Inspecting properties:', {
-                   name: shapeInLayout.name,
-                   type: shapeInLayout.type,
-                   x0: shapeInLayout.x0, y0: shapeInLayout.y0,
-                   x1: shapeInLayout.x1, y1: shapeInLayout.y1,
-                   xref: shapeInLayout.xref, yref: shapeInLayout.yref,
-                   backendId: shapeInLayout.backendId, // Should be undefined/null
-                   isSystemShape: shapeInLayout.isSystemShape, // CRITICAL: Should be true for system shapes to be ignored
-                   _savingInProgress: shapeInLayout._savingInProgress // Should be false or undefined
-               });
+                // DETAILED LOGGING FOR POTENTIALLY MISIDENTIFIED NEW SHAPE
+                console.warn('[plotly_relayout] Fallback: Potential new shape to save. Inspecting properties:', {
+                    name: shapeInLayout.name,
+                    type: shapeInLayout.type,
+                    x0: shapeInLayout.x0, y0: shapeInLayout.y0,
+                    x1: shapeInLayout.x1, y1: shapeInLayout.y1,
+                    xref: shapeInLayout.xref, yref: shapeInLayout.yref,
+                    id: shapeInLayout.id, // Should be undefined/null
+                    isSystemShape: shapeInLayout.isSystemShape, // CRITICAL: Should be true for system shapes to be ignored
+                    _savingInProgress: shapeInLayout._savingInProgress, // Should be false or undefined
+                    isAlreadyProcessedDrawing: isAlreadyProcessedDrawing
+                });
                 shapeInLayout._savingInProgress = true; // Set flag on the layout shape
                 console.log(`[plotly_relayout] Fallback: Found new unsaved line (index ${i}), attempting to save:`, JSON.parse(JSON.stringify(shapeInLayout)));
                 
@@ -526,19 +569,20 @@ function initializePlotlyEventHandlers(gd) {
                 const backendId = await handleNewShapeSave(shapeInLayout);
 
                 if (backendId) {
-                    // Check if the shape still exists at this index and hasn't been processed
-                    if (window.gd.layout.shapes[i] === shapeInLayout && !window.gd.layout.shapes[i].backendId) {
-                        window.gd.layout.shapes[i].backendId = backendId;
+                    // Find the current index of the shape in the live layout (it might have shifted due to removals)
+                    const currentIndex = window.gd.layout.shapes.indexOf(shapeInLayout);
+                    if (currentIndex > -1 && !window.gd.layout.shapes[currentIndex].id) {
+                        window.gd.layout.shapes[currentIndex].id = backendId;
                         // editable and layer already set
-                        window.activeShapeForPotentialDeletion = { id: backendId, index: i, shape: window.gd.layout.shapes[i] };
+                        window.activeShapeForPotentialDeletion = { id: backendId, index: currentIndex, shape: window.gd.layout.shapes[currentIndex] };
                         updateSelectedShapeInfoPanel(window.activeShapeForPotentialDeletion);
-                        console.log(`[plotly_relayout] Fallback: New shape (index ${i}) saved with backendId: ${backendId}`);
+                        console.log(`[plotly_relayout] Fallback: New shape (index ${currentIndex}) saved with id: ${backendId}`);
                         newShapesProcessedInRelayout = true;
                     } else {
-                         console.warn(`[plotly_relayout] Fallback: Shape at index ${i} was already processed, changed, or removed before backendId could be assigned by relayout.`);
+                          console.warn(`[plotly_relayout] Fallback: Shape was already processed, changed, or removed before id could be assigned by relayout.`);
                     }
                 } else {
-                    console.warn(`[plotly_relayout] Fallback: Failed to save new shape (index ${i}). Removing from layout.`);
+                    console.warn(`[plotly_relayout] Fallback: Failed to save new shape. Removing from layout.`);
                     // Remove the shape if save failed to prevent it from being re-processed
                     const indexToRemove = window.gd.layout.shapes.indexOf(shapeInLayout);
                     if (indexToRemove > -1) window.gd.layout.shapes.splice(indexToRemove, 1);
@@ -598,8 +642,22 @@ function initializePlotlyEventHandlers(gd) {
 
                 // Store timestamps in milliseconds for consistency with the rest of the system
                 window.currentXAxisRange = [minTimestamp, maxTimestamp];
-                window.xAxisMinDisplay.textContent = new Date(minTimestamp).toISOString();
-                window.xAxisMaxDisplay.textContent = new Date(maxTimestamp).toISOString();
+
+                // Update display elements with validation
+                try {
+                    window.xAxisMinDisplay.textContent = new Date(minTimestamp).toISOString();
+                } catch (e) {
+                    console.error("Error formatting xAxisMinDisplay:", e);
+                    window.xAxisMinDisplay.textContent = `Invalid Date: ${minTimestamp}`;
+                }
+
+                try {
+                    window.xAxisMaxDisplay.textContent = new Date(maxTimestamp).toISOString();
+                } catch (e) {
+                    console.error("Error formatting xAxisMaxDisplay:", e);
+                    window.xAxisMaxDisplay.textContent = `Invalid Date: ${maxTimestamp}`;
+                }
+
                 if (!window.isApplyingAutoscale) {
                     rangesChangedByEvent = true;
                     userModifiedRanges = true;
@@ -622,8 +680,22 @@ function initializePlotlyEventHandlers(gd) {
                     const minTimestamp = (xRange[0] instanceof Date) ? xRange[0].getTime() : new Date(xRange[0]).getTime();
                     const maxTimestamp = (xRange[1] instanceof Date) ? xRange[1].getTime() : new Date(xRange[1]).getTime();
                     window.currentXAxisRange = [minTimestamp, maxTimestamp];
-                    window.xAxisMinDisplay.textContent = new Date(minTimestamp).toISOString();
-                    window.xAxisMaxDisplay.textContent = new Date(maxTimestamp).toISOString();
+
+                    // Update display elements with validation
+                    try {
+                        window.xAxisMinDisplay.textContent = new Date(minTimestamp).toISOString();
+                    } catch (e) {
+                        console.error("Error formatting xAxisMinDisplay on autorange:", e);
+                        window.xAxisMinDisplay.textContent = `Invalid Date: ${minTimestamp}`;
+                    }
+
+                    try {
+                        window.xAxisMaxDisplay.textContent = new Date(maxTimestamp).toISOString();
+                    } catch (e) {
+                        console.error("Error formatting xAxisMaxDisplay on autorange:", e);
+                        window.xAxisMaxDisplay.textContent = `Invalid Date: ${maxTimestamp}`;
+                    }
+
                     console.log('[DEBUG] Autorange on first load, updating to actual range');
                     // Don't save settings for initial autorange
                     rangesChangedByEvent = false;
@@ -738,16 +810,16 @@ function initializePlotlyEventHandlers(gd) {
         const shapeIndex = eventData.shapeindex; // Hypothetical eventData structure
         if (shapeIndex !== undefined && gd.layout.shapes && gd.layout.shapes[shapeIndex]) {
             const updatedShape = gd.layout.shapes[shapeIndex];
-            if (updatedShape.backendId) {
-                console.log(`[plotly_shapeupdate] Detected update for shape ${updatedShape.backendId}, attempting to save.`);
+            if (updatedShape.id) {
+                console.log(`[plotly_shapeupdate] Detected update for shape ${updatedShape.id}, attempting to save.`);
                 const saveSuccess = await sendShapeUpdateToServer(updatedShape, window.symbolSelect.value);
                 if (!saveSuccess) {
                     loadDrawingsAndRedraw(window.symbolSelect.value);
                     return;
                 }
                 // Update active shape state if this is the one being edited
-                if (!window.activeShapeForPotentialDeletion || window.activeShapeForPotentialDeletion.id !== updatedShape.backendId) {
-                    window.activeShapeForPotentialDeletion = { id: updatedShape.backendId, index: shapeIndex, shape: updatedShape };
+                if (!window.activeShapeForPotentialDeletion || window.activeShapeForPotentialDeletion.id !== updatedShape.id) {
+                    window.activeShapeForPotentialDeletion = { id: updatedShape.id, index: shapeIndex, shape: updatedShape };
                 } else { // It is the active shape, ensure its 'shape' property is updated
                     window.activeShapeForPotentialDeletion.shape = updatedShape;
                 }
@@ -764,20 +836,20 @@ function initializePlotlyEventHandlers(gd) {
         // This handler is speculative, assuming 'eventData' contains the removed shape.
         console.warn('[plotly_remove_shape] This event handler was called. Deletions are primarily handled by keydown. Event data:', eventData);
         const removedShape = eventData.shape; // Hypothetical: eventData directly provides the removed shape object
-        if (removedShape && removedShape.backendId) {
+        if (removedShape && removedShape.id) {
             const symbol = window.symbolSelect.value;
-            console.log(`[plotly_remove_shape] Attempting to delete shape ${removedShape.backendId} from backend.`);
+            console.log(`[plotly_remove_shape] Attempting to delete shape ${removedShape.id} from backend.`);
             try {
-                const response = await fetch(`/delete_drawing/${symbol}/${removedShape.backendId}`, { method: 'DELETE' });
+                const response = await fetch(`/delete_drawing/${symbol}/${removedShape.id}`, { method: 'DELETE' });
                 if (!response.ok) throw new Error(`Backend delete failed: ${response.status} ${await response.text()}`);
-                console.log(`Drawing ${removedShape.backendId} deleted from backend via plotly_remove_shape.`);
-                if (window.activeShapeForPotentialDeletion && window.activeShapeForPotentialDeletion.id === removedShape.backendId) {
+                console.log(`Drawing ${removedShape.id} deleted from backend via plotly_remove_shape.`);
+                if (window.activeShapeForPotentialDeletion && window.activeShapeForPotentialDeletion.id === removedShape.id) {
                     window.activeShapeForPotentialDeletion = null;
                     updateSelectedShapeInfoPanel(null);
                 }
                 await updateShapeVisuals(); // Refresh visuals
             } catch (error) {
-                console.error(`Error deleting drawing ${removedShape.backendId} via plotly_remove_shape:`, error);
+                console.error(`Error deleting drawing ${removedShape.id} via plotly_remove_shape:`, error);
                 alert(`Failed to delete drawing: ${error.message}`);
                 loadDrawingsAndRedraw(symbol); // Sync with backend
             }

@@ -12,6 +12,7 @@ from redis_utils import get_redis_connection, publish_live_data_tick, get_cached
 from logging_config import logger
 from indicators import _prepare_dataframe, calculate_macd, calculate_rsi, calculate_stoch_rsi, calculate_open_interest, calculate_jma_indicator, get_timeframe_seconds
 from datetime import datetime, timezone
+from drawing_manager import get_drawings
 
 async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str):
     await websocket.accept()
@@ -300,6 +301,59 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
             logger.info(f"Sending historical data for {active_symbol} with indicators: {client_state['indicators']}")
             logger.info(f"Time range: from_ts={client_state['from_ts']}, to_ts={client_state['to_ts']}, resolution={client_state['resolution']}")
 
+            # Load and send existing shapes/drawings for this symbol
+            async def send_existing_shapes():
+                """Send existing drawings/shapes for the current symbol to the client."""
+                try:
+                    # Try to get user email from WebSocket scope if available
+                    user_email = None
+                    if hasattr(websocket, 'scope') and 'session' in websocket.scope:
+                        user_email = websocket.scope['session'].get('email')
+                        logger.info(f"WebSocket session email found: {user_email}")
+                    else:
+                        logger.info("No WebSocket session found, using anonymous access")
+
+                    # Get drawings for this symbol and resolution
+                    logger.info(f"Looking for drawings: symbol={active_symbol}, resolution={client_state.get('resolution')}, email={user_email}")
+
+                    # Log the Redis key that will be used
+                    from redis_utils import get_drawings_redis_key
+                    redis_key = get_drawings_redis_key(active_symbol, None, user_email)
+                    logger.info(f"Redis key for drawings: {redis_key}")
+
+                    drawings = await get_drawings(
+                        active_symbol,
+                        resolution=client_state.get('resolution'),
+                        email=user_email
+                    )
+
+                    logger.info(f"get_drawings() returned: {drawings}")
+                    logger.info(f"Drawings type: {type(drawings)}")
+                    print(f"Drawings console output: {json.dumps(drawings, indent=2)}")
+                    if drawings:
+                        logger.info(f"Drawings length: {len(drawings)}")
+                        logger.info(f"First drawing sample: {drawings[0] if drawings else 'None'}")
+
+                    if drawings and len(drawings) > 0:
+                        logger.info(f"Sending {len(drawings)} existing drawings for {active_symbol}")
+                        drawing_message = {
+                            "type": "drawings",
+                            "symbol": active_symbol,
+                            "data": drawings
+                        }
+                        logger.info(f"Sending drawing message: {drawing_message}")
+                        await send_to_client(drawing_message)
+                        logger.info(f"Successfully sent drawings message to client")
+                    else:
+                        logger.info(f"No existing drawings found for {active_symbol} (email: {user_email}, resolution: {client_state.get('resolution')})")
+
+                except Exception as e:
+                    logger.error(f"Error sending existing shapes for {active_symbol}: {e}", exc_info=True)
+                    import traceback
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+
+            await send_existing_shapes()
+
             # Get historical klines from Redis with error handling
             try:
                 logger.info(f"🔍 REDIS QUERY: Requesting klines for {active_symbol}, resolution={client_state['resolution']}, from_ts={client_state['from_ts']}, to_ts={client_state['to_ts']}")
@@ -393,21 +447,21 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
             # Send historical data in batches
             batch_size = 100
             total_batches = (len(combined_data) + batch_size - 1) // batch_size
-            logger.info(f"Sending {len(combined_data)} historical data points in {total_batches} batches for {active_symbol}")
+            # logger.info(f"Sending {len(combined_data)} historical data points in {total_batches} batches for {active_symbol}")
 
             # Log sample of data being sent to verify timestamps
             if combined_data:
                 first_point = combined_data[0]
                 last_point = combined_data[-1]
-                logger.info(f"📤 SAMPLE DATA POINTS TO CLIENT:")
-                logger.info(f"  First point: time={first_point['time']} ({datetime.fromtimestamp(first_point['time'], timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')})")
-                logger.info(f"  Last point: time={last_point['time']} ({datetime.fromtimestamp(last_point['time'], timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')})")
-                logger.info(f"  Time range in data: {first_point['time']} to {last_point['time']} (seconds)")
+                # logger.info(f"📤 SAMPLE DATA POINTS TO CLIENT:")
+                # logger.info(f"  First point: time={first_point['time']} ({datetime.fromtimestamp(first_point['time'], timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')})")
+                # logger.info(f"  Last point: time={last_point['time']} ({datetime.fromtimestamp(last_point['time'], timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')})")
+                # logger.info(f"  Time range in data: {first_point['time']} to {last_point['time']} (seconds)")
 
             for i in range(0, len(combined_data), batch_size):
                 batch = combined_data[i:i + batch_size]
                 batch_num = i // batch_size + 1
-                logger.info(f"Sending batch {batch_num}/{total_batches} with {len(batch)} data points")
+                # logger.info(f"Sending batch {batch_num}/{total_batches} with {len(batch)} data points")
 
                 try:
                     await send_to_client({
@@ -415,14 +469,14 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                         "symbol": active_symbol,
                         "data": batch
                     })
-                    logger.info(f"Successfully sent batch {batch_num}/{total_batches}")
+                    # logger.info(f"Successfully sent batch {batch_num}/{total_batches}")
                 except Exception as e:
                     logger.error(f"Failed to send batch {batch_num}/{total_batches}: {e}")
                     break
 
                 await asyncio.sleep(0.01)  # Small delay to prevent overwhelming client
 
-            logger.info(f"Completed sending {len(combined_data)} historical data points for {active_symbol}")
+            # logger.info(f"Completed sending {len(combined_data)} historical data points for {active_symbol}")
             client_state["historical_sent"] = True
 
         except Exception as e:
@@ -597,7 +651,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
         indicators_data = {}
 
         for indicator_id in indicators:
-            logger.info(f"🔍 SERVER DEBUG: Processing indicator {indicator_id}")
+            # logger.info(f"🔍 SERVER DEBUG: Processing indicator {indicator_id}")
             config = next((item for item in AVAILABLE_INDICATORS if item["id"] == indicator_id), None)
             if not config:
                 logger.warning(f"Unknown indicator {indicator_id} requested for {active_symbol}")
@@ -606,34 +660,34 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
             try:
                 params = config["params"]
                 calc_id = config["id"]
-                logger.info(f"🔍 SERVER DEBUG: Indicator {indicator_id} config: calc_id={calc_id}, params={params}")
+                # logger.info(f"🔍 SERVER DEBUG: Indicator {indicator_id} config: calc_id={calc_id}, params={params}")
 
                 if calc_id == "macd":
-                    logger.info(f"🔍 SERVER DEBUG: Calling calculate_macd for {indicator_id}")
+                    # logger.info(f"🔍 SERVER DEBUG: Calling calculate_macd for {indicator_id}")
                     result = calculate_macd(df.copy(), **params)
                 elif calc_id == "rsi":
-                    logger.info(f"🔍 SERVER DEBUG: Calling calculate_rsi for {indicator_id}")
+                    # logger.info(f"🔍 SERVER DEBUG: Calling calculate_rsi for {indicator_id}")
                     result = calculate_rsi(df.copy(), **params)
                 elif calc_id.startswith("stochrsi"):
-                    logger.info(f"🔍 SERVER DEBUG: Calling calculate_stoch_rsi for {indicator_id}")
+                    # logger.info(f"🔍 SERVER DEBUG: Calling calculate_stoch_rsi for {indicator_id}")
                     result = calculate_stoch_rsi(df.copy(), **params)
                 elif calc_id == "open_interest":
-                    logger.info(f"🔍 SERVER DEBUG: Calling calculate_open_interest for {indicator_id}")
+                    # logger.info(f"🔍 SERVER DEBUG: Calling calculate_open_interest for {indicator_id}")
                     result = calculate_open_interest(df.copy())
                 elif calc_id == "jma":
-                    logger.info(f"🔍 SERVER DEBUG: Calling calculate_jma_indicator for {indicator_id}")
+                    # logger.info(f"🔍 SERVER DEBUG: Calling calculate_jma_indicator for {indicator_id}")
                     result = calculate_jma_indicator(df.copy(), **params)
                 else:
                     logger.warning(f"Unsupported indicator calculation {calc_id} for {active_symbol}")
                     continue
 
-                logger.info(f"🔍 SERVER DEBUG: Indicator {indicator_id} calculation result: {result is not None}")
+                # logger.info(f"🔍 SERVER DEBUG: Indicator {indicator_id} calculation result: {result is not None}")
                 if result:
-                    logger.info(f"🔍 SERVER DEBUG: Indicator {indicator_id} result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
+                    # logger.info(f"🔍 SERVER DEBUG: Indicator {indicator_id} result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
                     if "t" in result:
-                        logger.info(f"🔍 SERVER DEBUG: Indicator {indicator_id} has 't' key with {len(result['t'])} timestamps")
+                        # logger.info(f"🔍 SERVER DEBUG: Indicator {indicator_id} has 't' key with {len(result['t'])} timestamps")
                         indicators_data[indicator_id] = result
-                        logger.info(f"🔍 SERVER DEBUG: Added indicator {indicator_id} to indicators_data")
+                        # logger.info(f"🔍 SERVER DEBUG: Added indicator {indicator_id} to indicators_data")
                     else:
                         logger.warning(f"Indicator {indicator_id} calculation result missing 't' key for {active_symbol}")
                 else:
