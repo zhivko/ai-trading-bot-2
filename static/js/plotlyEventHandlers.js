@@ -417,15 +417,11 @@ function initializePlotlyEventHandlers(gd) {
         if (originalRelayoutHandler) originalRelayoutHandler(eventData);
 
         let interactedShapeIndex = -1;
-        console.log(`[plotly_relayout] Checking for shape changes in eventData keys:`, Object.keys(eventData));
-
         for (const key in eventData) {
-            if (key.startsWith('shapes[')) {
-                console.log(`[plotly_relayout] Found shape-related key: ${key} = ${eventData[key]}`);
+            if (key.startsWith('shapes[') && key.includes('].x')) {
                 const match = key.match(/shapes\[(\d+)\]/);
                 if (match && match[1]) {
                     interactedShapeIndex = parseInt(match[1], 10);
-                    console.log(`[plotly_relayout] Extracted shape index: ${interactedShapeIndex}`);
                     break;
                 }
             }
@@ -445,40 +441,19 @@ function initializePlotlyEventHandlers(gd) {
                 clearTimeout(shapeDragEndTimer);
                 shapeDragEndTimer = setTimeout(async () => {
                     console.log(`[plotly_relayout] Drag end detected for shape ${interactedShape.id}, attempting to save.`);
-                    console.log(`[plotly_relayout] Shape data:`, {
-                        id: interactedShape.id,
-                        x0: interactedShape.x0,
-                        y0: interactedShape.y0,
-                        x1: interactedShape.x1,
-                        y1: interactedShape.y1,
-                        type: interactedShape.type
-                    });
 
                     // It's possible the shape was deleted or changed, so we get the latest version
                     const finalShapeState = gd.layout.shapes[interactedShapeIndex];
                     if (finalShapeState && finalShapeState.id === interactedShape.id) {
-                        console.log(`[plotly_relayout] Final shape state:`, {
-                            id: finalShapeState.id,
-                            x0: finalShapeState.x0,
-                            y0: finalShapeState.y0,
-                            x1: finalShapeState.x1,
-                            y1: finalShapeState.y1,
-                            type: finalShapeState.type
-                        });
-
                         const saveSuccess = await sendShapeUpdateToServer(finalShapeState, window.symbolSelect.value);
-                        console.log(`[plotly_relayout] Shape update result: ${saveSuccess ? 'SUCCESS' : 'FAILED'}`);
 
                         if (!saveSuccess) {
                             console.warn(`[plotly_relayout] Shape update failed, reloading drawings`);
                             loadDrawingsAndRedraw(window.symbolSelect.value);
                         } else {
                             // Restore original color after successful save
-                            console.log(`[plotly_relayout] Shape update successful, updating visuals`);
                             await updateShapeVisuals(); // This should handle restoring the color
                         }
-                    } else {
-                        console.warn(`[plotly_relayout] Shape state mismatch or shape was deleted during update`);
                     }
                 }, DEBOUNCE_DELAY);
 

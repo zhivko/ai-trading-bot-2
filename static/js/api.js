@@ -21,31 +21,14 @@ async function getDrawings(symbol) {
 window.getDrawings = getDrawings; // Make getDrawings globally accessible
 
 async function sendShapeUpdateToServer(shapeToUpdate, symbol) {
-    console.log(`[sendShapeUpdateToServer] Called with shape ID: ${shapeToUpdate?.id}, symbol: ${symbol}`);
-
     if (!shapeToUpdate || !shapeToUpdate.id || !symbol) {
-        console.warn("sendShapeUpdateToServer: Missing shape, id, or symbol.", {
-            hasShape: !!shapeToUpdate,
-            hasId: !!(shapeToUpdate?.id),
-            hasSymbol: !!symbol
-        });
+        console.warn("sendShapeUpdateToServer: Missing shape, id, or symbol.");
         return false;
     }
 
     const resolution = window.resolutionSelect.value;
-    console.log(`[sendShapeUpdateToServer] Resolution: ${resolution}`);
-
     const start_time_ms = (shapeToUpdate.x0 instanceof Date) ? shapeToUpdate.x0.getTime() : new Date(shapeToUpdate.x0).getTime();
     const end_time_ms = (shapeToUpdate.x1 instanceof Date) ? shapeToUpdate.x1.getTime() : new Date(shapeToUpdate.x1).getTime();
-
-    console.log(`[sendShapeUpdateToServer] Time conversion:`, {
-        x0: shapeToUpdate.x0,
-        x1: shapeToUpdate.x1,
-        start_time_ms: start_time_ms,
-        end_time_ms: end_time_ms,
-        start_time_seconds: Math.floor(start_time_ms / 1000),
-        end_time_seconds: Math.floor(end_time_ms / 1000)
-    });
 
     const drawingData = {
         symbol: symbol,
@@ -58,9 +41,6 @@ async function sendShapeUpdateToServer(shapeToUpdate, symbol) {
         resolution: resolution
     };
 
-    console.log(`[sendShapeUpdateToServer] Prepared drawing data:`, drawingData);
-    console.log(`[sendShapeUpdateToServer] API endpoint: /update_drawing/${symbol}/${shapeToUpdate.id}`);
-
     try {
         const response = await fetch(`/update_drawing/${symbol}/${shapeToUpdate.id}`, {
             method: 'PUT',
@@ -68,16 +48,7 @@ async function sendShapeUpdateToServer(shapeToUpdate, symbol) {
             body: JSON.stringify(drawingData)
         });
 
-        console.log(`[sendShapeUpdateToServer] Response status: ${response.status}`);
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`[sendShapeUpdateToServer] Server error response:`, errorText);
-            throw new Error(`Failed to update drawing ${shapeToUpdate.id} on server: ${response.status} ${errorText}`);
-        }
-
-        const responseData = await response.json();
-        console.log(`[sendShapeUpdateToServer] Server response:`, responseData);
+        if (!response.ok) throw new Error(`Failed to update drawing ${shapeToUpdate.id} on server: ${response.status} ${await response.text()}`);
         console.log(`Drawing ${shapeToUpdate.id} updated successfully on server via sendShapeUpdateToServer.`);
         return true;
     } catch (error) {
