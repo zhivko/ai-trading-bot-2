@@ -17,6 +17,7 @@ const REALTIME_PRICE_TEXT_ANNOTATION_NAME = 'realtimePriceTextAnnotation';
 // Function to detect mobile devices using modern browser APIs
 function isMobileDevice() {
     // Log client resolution information
+    /*
     console.log('Client Resolution Info:');
     console.log('  window.innerWidth:', window.innerWidth);
     console.log('  window.innerHeight:', window.innerHeight);
@@ -26,6 +27,8 @@ function isMobileDevice() {
     console.log('  screen.availHeight:', screen.availHeight);
     console.log('  devicePixelRatio:', window.devicePixelRatio);
     console.log('  navigator.userAgent:', navigator.userAgent);
+
+   */
 
     // Use the modern User-Agent Client Hints API if available
     if (navigator.userAgentData && typeof navigator.userAgentData.mobile === 'boolean') {
@@ -61,7 +64,7 @@ const layout = {
         showgrid: false,
         gridcolor: '#e5e7eb',
         linecolor: '#6b7280',
-        automargin: true,
+        automargin: false,
         tickvals: [],
         ticktext: [],
         autorange: false
@@ -76,15 +79,15 @@ const layout = {
         autorange: false
     },
     dragmode: 'pan',
-    showlegend: false,
-    margin: { l: 50, r: 50, b: 60, t: 40, pad: 0 }
+    showlegend: false
+    // margin: { l: 40, r: 10, b: 20, t: 10, pad: 0 }
 };
 
 const config = {
     responsive: true,
     displayModeBar: true,
-    scrollZoom: true,
-    modeBarButtonsToRemove: ['autoscale2d'], // Remove the default Plotly autoscale button
+    scrollZoom: true, // Keep scroll zoom enabled for mouse wheel zooming
+    modeBarButtonsToRemove: ['zoom2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d'], // Remove zoom buttons
     modeBarButtonsToAdd: [
         {
             name: 'Autoscale Data', // Tooltip for the button
@@ -98,10 +101,9 @@ const config = {
                     Plotly.relayout(gd, {'xaxis.autorange': true, 'yaxis.autorange': true}); // Fallback
                 }
             }
-        },
-        'zoomIn2d', 'zoomOut2d', 'drawline', 'select2d', 'lasso2d' // Keep other buttons from your original config
+        }
+        // Removed other buttons to keep all default Plotly tools enabled
     ],
-    // Force modebar to show on mobile devices
     displaylogo: false, // Hide Plotly logo to save space
     showTips: false, // Disable tips that might interfere on mobile
     editable: false,
@@ -176,3 +178,7 @@ window.isMobileDevice = isMobileDevice;
 window.disableMobileHover = disableMobileHover;
 window.getMobileOptimizedLayout = getMobileOptimizedLayout;
 window.forceHideHoverElements = forceHideHoverElements;
+
+// Make config and layout globally available
+window.config = config;
+window.layout = layout;

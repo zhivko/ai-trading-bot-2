@@ -10,8 +10,13 @@ async function updateChart() {
     }
 
     if (window.currentXAxisRange) {
+        console.log('[TIMESTAMP DEBUG] chartUpdater.js - Converting X-axis range to seconds:');
+        console.log('  window.currentXAxisRange[0]:', window.currentXAxisRange[0], '(type:', typeof window.currentXAxisRange[0], ')');
+        console.log('  window.currentXAxisRange[1]:', window.currentXAxisRange[1], '(type:', typeof window.currentXAxisRange[1], ')');
         fromTs = Math.floor(window.currentXAxisRange[0] / 1000);
         toTs = Math.floor(window.currentXAxisRange[1] / 1000);
+        console.log('  Converted fromTs:', fromTs, 'toTs:', toTs);
+        console.log('  Verification - fromTs in milliseconds would be:', fromTs * 1000);
     } else {
         const now = Math.floor(Date.now() / 1000);
         switch(rangeDropdownValue) {
@@ -225,7 +230,7 @@ async function updateChart() {
             const unitHeight = 1.0 / totalUnits; // Each unit's height
 
             const priceChartHeight = 2 * unitHeight; // Price chart gets 3 units
-            const labelGap = isMobileDevice() ? 0.04 : 0.04;
+            const labelGap = isMobileDevice() ? 0.01 : 0.01;
             const availableForIndicators = 1.0 - priceChartHeight - labelGap;
             const gapBetweenIndicators = 0.02; // 2% gap between indicators
             const totalIndicatorSpace = availableForIndicators - (numValidIndicators - 1) * gapBetweenIndicators;
@@ -246,7 +251,9 @@ async function updateChart() {
                 columns: 1,
                 pattern: 'independent',
                 roworder: 'top to bottom',
-                rowheights: rowHeights
+                rowheights: rowHeights,
+                xgap: 0,
+                ygap: 0
             };
             
             // Clean up any numbered yaxisN that are not part of the grid
@@ -480,6 +487,7 @@ async function updateChart() {
     console.log('[DEBUG chartUpdater] About to call Plotly.react with layout ranges: ',currentLayout.yaxis.range)
     console.log('[DEBUG chartUpdater] About to call Plotly.react. Number of indicator traces:', indicatorTraces.length);
     console.log('[DEBUG chartUpdater] currentLayout before Plotly.react:', JSON.stringify(currentLayout, null, 2)); // Potentially very verbose, but necessary for debugging
+
     // Log the actual data being sent for indicator traces
     if (indicatorTraces.length > 0) {
         console.log('[DEBUG chartUpdater] Indicator Traces Data (first 5 y-values shown):', JSON.parse(JSON.stringify(indicatorTraces.map(t => ({name: t.name, yaxis: t.yaxis, x_length: t.x?.length, y_length: t.y?.length, y_sample: t.y?.slice(0,5) })))));
@@ -843,7 +851,12 @@ async function updateChart() {
     // Note: Removed fixed height setting to allow grid rowheights to work properly
     // The grid's rowheights configuration will handle height distribution
 
+    console.log('[CHART_UPDATE] chartUpdater.js - updating chart at', new Date().toISOString());
+    console.log('[CHART_UPDATE] chartUpdater.js - allTraces count:', allTraces.length);
+
     Plotly.react('chart', allTraces, currentLayout, config); // Assumes config is global
+
+    console.log('[CHART_UPDATE] chartUpdater.js - chart update completed at', new Date().toISOString());
 
     if (window.gd && window.gd._fullLayout) {
         const fl = window.gd._fullLayout;

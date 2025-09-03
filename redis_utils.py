@@ -96,6 +96,23 @@ async def get_cached_klines(symbol: str, resolution: str, start_ts: int, end_ts:
         sorted_set_key = get_sorted_set_key(symbol, resolution)
         logger.info(f"Querying sorted set '{sorted_set_key}' for range [{start_ts}, {end_ts}]")
 
+        # TIMESTAMP DEBUG: Analyze query timestamps
+        logger.info(f"[TIMESTAMP DEBUG] redis_utils.py - get_cached_klines query:")
+        logger.info(f"  start_ts: {start_ts} (type: {type(start_ts)})")
+        logger.info(f"  end_ts: {end_ts} (type: {type(end_ts)})")
+
+        if start_ts and end_ts:
+            if start_ts > 1e10:  # Likely milliseconds
+                logger.warning(f"[TIMESTAMP DEBUG] start_ts {start_ts} appears to be in MILLISECONDS (should be seconds for Redis)")
+                logger.info(f"  Converting to seconds: {start_ts // 1000}")
+            elif start_ts > 1e8:  # Likely seconds
+                logger.info(f"[TIMESTAMP DEBUG] start_ts {start_ts} appears to be in SECONDS (correct for Redis)")
+            else:
+                logger.warning(f"[TIMESTAMP DEBUG] start_ts {start_ts} appears to be invalid")
+
+        # Check Redis data sample
+        logger.info(f"[TIMESTAMP DEBUG] Checking Redis data sample for comparison...")
+
         klines_data_redis = await redis.zrangebyscore(
             sorted_set_key,
             min=start_ts,
@@ -134,6 +151,47 @@ async def get_cached_klines(symbol: str, resolution: str, start_ts: int, end_ts:
                 continue
 
         logger.info(f"Found {len(cached_data)} cached klines for {symbol} {resolution} between {start_ts} and {end_ts}")
+
+        # DATA GAP ANALYSIS: Check for gaps in the data
+        if cached_data:
+            logger.info(f"🔍 DATA GAP ANALYSIS for {symbol} {resolution}:")
+            logger.info(f"  Expected data points based on time range: ~{int((end_ts - start_ts) / get_timeframe_seconds(resolution))}")
+            logger.info(f"  Actual data points retrieved: {len(cached_data)}")
+
+            # Check for timestamp gaps
+            timestamps = [item['time'] for item in cached_data]
+            timestamps.sort()
+
+            expected_interval = get_timeframe_seconds(resolution)
+            gaps = []
+            consecutive_missing = 0
+
+            for i in range(1, len(timestamps)):
+                gap = timestamps[i] - timestamps[i-1]
+                if gap > expected_interval:
+                    missing_points = int(gap / expected_interval) - 1
+                    gaps.append({
+                        'from': timestamps[i-1],
+                        'to': timestamps[i],
+                        'gap_seconds': gap,
+                        'missing_points': missing_points
+                    })
+                    consecutive_missing += missing_points
+
+            if gaps:
+                logger.warning(f"🚨 DATA GAPS DETECTED: {len(gaps)} gaps found, {consecutive_missing} total missing data points")
+                for gap in gaps[:5]:  # Show first 5 gaps
+                    logger.warning(f"  Gap: {datetime.fromtimestamp(gap['from'], timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} to {datetime.fromtimestamp(gap['to'], timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} ({gap['missing_points']} missing points)")
+                if len(gaps) > 5:
+                    logger.warning(f"  ... and {len(gaps) - 5} more gaps")
+            else:
+                logger.info(f"✅ No data gaps detected - data appears continuous")
+
+            # Check data quality
+            null_values = sum(1 for item in cached_data if not all(item.get(field) for field in ['time', 'open', 'high', 'low', 'close', 'vol']))
+            if null_values > 0:
+                logger.warning(f"🚨 DATA QUALITY ISSUE: {null_values} records have null/empty OHLC values")
+
         return cached_data
     except Exception as e:
         logger.error(f"Error in get_cached_klines: {e}", exc_info=True)

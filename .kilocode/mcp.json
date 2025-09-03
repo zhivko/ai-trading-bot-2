@@ -18,13 +18,14 @@
         "--device-scale-factor=1"
       ],
       "alwaysAllow": [
-        "puppeteer_evaluate",
         "puppeteer_fill",
         "puppeteer_click",
         "puppeteer_screenshot",
         "puppeteer_select",
         "puppeteer_hover",
-        "puppeteer_navigate"
+        "puppeteer_navigate",
+        "puppeteer_evaluate</tool name>\n<arguments>\n{\n  \"script\": \"document.getElementById('symbol-select').value\"\n}\n</arguments>\n</use_mcp_tool>",
+        "puppeteer_evaluate"
       ]
     }
   }

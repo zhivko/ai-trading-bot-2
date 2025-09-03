@@ -47,7 +47,78 @@ function initializePlotlyEventHandlers(gd) {
     console.log('[DEBUG] initializePlotlyEventHandlers called with gd:', gd);
 
     // Test if Plotly events are working
-    console.log('[DEBUG] Plotly event handlers initialized');
+    try {
+        if (typeof console !== 'undefined' && console.log) {
+            console.log('[DEBUG] Plotly event handlers initialized');
+            console.log('[DEBUG] Chart object:', gd);
+            console.log('[DEBUG] Chart has _ev:', !!gd._ev);
+        }
+    } catch (e) {
+        alert('[DEBUG] Plotly event handlers initialized');
+    }
+
+    // Verify event handler attachment and chart configuration
+    setTimeout(() => {
+        try {
+            if (typeof console !== 'undefined' && console.log) {
+                console.log('[DEBUG] Verifying event handler attachment and chart config...');
+                console.log('[DEBUG] gd._ev exists:', !!gd._ev);
+                console.log('[DEBUG] Current dragmode:', gd.layout?.dragmode);
+                console.log('[DEBUG] Chart has data:', !!(gd.data && gd.data.length > 0));
+                console.log('[DEBUG] Chart layout exists:', !!gd.layout);
+
+                if (gd._ev) {
+                    const relayoutHandlers = gd._ev._events?.plotly_relayout;
+                    console.log('[DEBUG] plotly_relayout handlers count:', relayoutHandlers?.length || 0);
+                }
+
+                // Test if we can manually trigger a relayout event
+                console.log('[DEBUG] Skipping manual relayout event trigger to prevent unwanted saves');
+                // const testData = { 'xaxis.autorange': true };
+                // gd.emit('plotly_relayout', testData);
+                // console.log('[DEBUG] Manual relayout event emitted');
+            }
+        } catch (e) {
+            if (typeof console !== 'undefined' && console.warn) {
+                console.warn('[DEBUG] Could not verify event handler attachment:', e.message);
+            }
+        }
+    }, 2000);
+
+    // Add test event listeners to verify event system is working
+    gd.on('plotly_click', function() {
+        console.log('[DEBUG] plotly_click event received - event system is working');
+    });
+
+    // Add keyboard shortcut for testing (press 'T' to trigger test event)
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 't' || event.key === 'T') {
+            try {
+                if (typeof console !== 'undefined' && console.log) {
+                    console.log('[DEBUG] Test key pressed - manually triggering plotly_relayout simulation');
+                } else {
+                    alert('[DEBUG] Test key pressed - manually triggering plotly_relayout simulation');
+                }
+            } catch (e) {
+                alert('[DEBUG] Test key pressed - manually triggering plotly_relayout simulation');
+            }
+
+            // Simulate a relayout event
+            const testEventData = {
+                'xaxis.range[0]': new Date(Date.now() - 24 * 60 * 60 * 1000), // 24 hours ago
+                'xaxis.range[1]': new Date()
+            };
+
+            try {
+                gd.emit('plotly_relayout', testEventData);
+                if (typeof console !== 'undefined' && console.log) {
+                    console.log('[DEBUG] Test event emitted successfully');
+                }
+            } catch (e) {
+                alert('[DEBUG] Failed to emit test event: ' + e.message);
+            }
+        }
+    });
 
     let currentDragMode = gd.layout.dragmode || 'pan';
     let previousDragMode = gd.layout.dragmode || 'pan'; // Store previous mode for restoration
@@ -232,6 +303,115 @@ function initializePlotlyEventHandlers(gd) {
 
 
     gd.on('plotly_relayout', async function(eventData) {
+        // Safe console logging for Puppeteer compatibility
+        try {
+            if (typeof console !== 'undefined' && console.log) {
+                console.log('[DEBUG] plotly_relayout event fired with data:', eventData);
+            }
+        } catch (e) {
+            alert('[DEBUG] plotly_relayout event fired');
+        }
+
+        // 🚨 PANNING DETECTION 🚨 - Check for ANY range changes
+        const hasXRangeChange = eventData['xaxis.range[0]'] !== undefined || eventData['xaxis.range[1]'] !== undefined;
+        const hasYRangeChange = eventData['yaxis.range[0]'] !== undefined || eventData['yaxis.range[1]'] !== undefined;
+        const hasAutorange = eventData['xaxis.autorange'] === true || eventData['yaxis.autorange'] === true;
+
+        const isAnyRangeChange = hasXRangeChange || hasYRangeChange || hasAutorange;
+
+        if (isAnyRangeChange) {
+            try {
+                if (typeof console !== 'undefined' && console.log) {
+                    // Extract x-axis range values for debugging
+                    const xMin = gd.layout.xaxis?.range?.[0];
+                    const xMax = gd.layout.xaxis?.range?.[1];
+
+                    // Convert to timestamps, accounting for timezone offset
+                    // Plotly displays in local time, but we need UTC timestamps for the server
+                    // getTimezoneOffset() returns minutes, convert to milliseconds
+                    let xMinTimestamp = null;
+                    let xMaxTimestamp = null;
+
+                    if (xMin) {
+                        const minDate = new Date(xMin);
+                        // getTimezoneOffset() returns the offset in minutes from UTC to local time
+                        // For UTC+2, it returns -120 (local is 120 minutes ahead of UTC)
+                        // To get UTC timestamp from local time, we need to subtract this offset
+                        const timezoneOffsetMs = minDate.getTimezoneOffset() * 60 * 1000;
+                        xMinTimestamp = Math.floor((minDate.getTime() - timezoneOffsetMs) / 1000);
+                    }
+
+                    if (xMax) {
+                        const maxDate = new Date(xMax);
+                        const timezoneOffsetMs = maxDate.getTimezoneOffset() * 60 * 1000;
+                        xMaxTimestamp = Math.floor((maxDate.getTime() - timezoneOffsetMs) / 1000);
+                    }
+
+                    console.log('🚨 CHART RANGE CHANGE DETECTED 🚨', {
+                        xRangeChanged: hasXRangeChange,
+                        yRangeChanged: hasYRangeChange,
+                        autorange: hasAutorange,
+                        xRange: [xMin, xMax],
+                        xTimestamps: [xMinTimestamp, xMaxTimestamp],
+                        xRangeHuman: xMin && xMax ? `${new Date(xMin).toISOString()} to ${new Date(xMax).toISOString()}` : 'N/A',
+                        yRange: gd.layout.yaxis?.range,
+                        timestamp: new Date().toISOString(),
+                        eventData: eventData
+                    });
+
+                    // Specific logging for server comparison
+                    if (xMinTimestamp && xMaxTimestamp) {
+                        // xMinTimestamp and xMaxTimestamp are already in seconds (converted above)
+                        const clientRange = {
+                            xMinTimestamp,
+                            xMaxTimestamp,
+                            xMinDate: new Date(xMinTimestamp * 1000).toISOString(),
+                            xMaxDate: new Date(xMaxTimestamp * 1000).toISOString(),
+                            rangeSeconds: xMaxTimestamp - xMinTimestamp,
+                            rangeHours: (xMaxTimestamp - xMinTimestamp) / 3600
+                        };
+
+                        console.log('📊 CLIENT X-AXIS RANGE (for server comparison):', clientRange);
+
+                        // Store for comparison with server response
+                        window.lastClientRange = clientRange;
+                        console.log('💾 Stored client range for server comparison. Look for 📊 SERVER RECEIVED RANGE in server logs.');
+                    }
+                } else {
+                    alert('🚨 CHART RANGE CHANGE DETECTED 🚨');
+                }
+            } catch (e) {
+                alert('🚨 CHART RANGE CHANGE DETECTED 🚨 (console not available)');
+            }
+
+            // Dispatch custom event for other parts of the app to listen to
+            const panEvent = new CustomEvent('chartPanned', {
+                detail: {
+                    xRange: gd.layout.xaxis?.range,
+                    yRange: gd.layout.yaxis?.range,
+                    eventData: eventData
+                }
+            });
+            document.dispatchEvent(panEvent);
+
+            // Update UI indicator
+            updatePanningStatus(true);
+
+            // Reset status after 3 seconds
+            setTimeout(() => {
+                updatePanningStatus(false);
+            }, 3000);
+        } else {
+            // Log non-range events too for debugging
+            try {
+                if (typeof console !== 'undefined' && console.log) {
+                    console.log('[DEBUG] plotly_relayout event (non-range):', Object.keys(eventData));
+                }
+            } catch (e) {
+                // Ignore console errors
+            }
+        }
+
         // Check if dragmode changed to 'drawline'
         if (eventData['dragmode'] === 'drawline') {
             if (window.liveDataCheckbox && window.liveDataCheckbox.checked) {
@@ -378,14 +558,25 @@ function initializePlotlyEventHandlers(gd) {
         let rangesChangedByEvent = false;
         let userModifiedRanges = false;
 
+        console.log('[DEBUG] Checking for axis range changes in eventData:', {
+            hasXRange0: !!eventData['xaxis.range[0]'],
+            hasXRange1: !!eventData['xaxis.range[1]'],
+            hasAutorange: eventData['xaxis.autorange'] === true,
+            eventDataKeys: Object.keys(eventData)
+        });
+
         if (eventData['xaxis.range[0]'] || eventData['xaxis.range[1]']) {
+            console.log('[DEBUG] X-axis range change detected');
             const currentLayoutShapes = gd.layout.shapes || [];
             const xRange = gd.layout.xaxis.range;
+            console.log('[DEBUG] Current xRange from layout:', xRange);
             if (xRange && xRange.length === 2) {
                 // Keep in milliseconds - Plotly already provides proper Date objects/timestamps
                 const minTimestamp = (xRange[0] instanceof Date) ? xRange[0].getTime() : new Date(xRange[0]).getTime();
                 const maxTimestamp = (xRange[1] instanceof Date) ? xRange[1].getTime() : new Date(xRange[1]).getTime();
-        
+
+                console.log('[DEBUG] Calculated timestamps:', { minTimestamp, maxTimestamp });
+
                 // 🚨 OLD ALARM CHECK: Validate zoom/pan timestamps before saving
                 const minDate = new Date(minTimestamp);
                 const maxDate = new Date(maxTimestamp);
@@ -404,18 +595,42 @@ function initializePlotlyEventHandlers(gd) {
                         action: 'Chart zoom/pan calculated timestamps before year 2000 - this should not happen!'
                     });
                 }
-        
+
+                // Store timestamps in milliseconds for consistency with the rest of the system
                 window.currentXAxisRange = [minTimestamp, maxTimestamp];
-                window.xAxisMinDisplay.textContent = new Date(minTimestamp).toLocaleString();
-                window.xAxisMaxDisplay.textContent = new Date(maxTimestamp).toLocaleString();
-                rangesChangedByEvent = true;
-                userModifiedRanges = true;
+                window.xAxisMinDisplay.textContent = new Date(minTimestamp).toISOString();
+                window.xAxisMaxDisplay.textContent = new Date(maxTimestamp).toISOString();
+                if (!window.isApplyingAutoscale) {
+                    rangesChangedByEvent = true;
+                    userModifiedRanges = true;
+                }
+                console.log('[DEBUG] Updated currentXAxisRange (in seconds):', window.currentXAxisRange);
+            } else {
+                console.log('[DEBUG] xRange is invalid or missing:', xRange);
             }
-        } else if (eventData['xaxis.autorange'] === true && window.currentXAxisRange !== null) {
-            window.currentXAxisRange = null;
-            window.xAxisMinDisplay.textContent = 'Auto';
-            window.xAxisMaxDisplay.textContent = 'Auto';
-            rangesChangedByEvent = true;
+        } else if (eventData['xaxis.autorange'] === true) {
+            if (window.currentXAxisRange !== null) {
+                console.log('[DEBUG] Autorange detected, clearing currentXAxisRange');
+                window.currentXAxisRange = null;
+                window.xAxisMinDisplay.textContent = 'Auto';
+                window.xAxisMaxDisplay.textContent = 'Auto';
+                rangesChangedByEvent = true;
+            } else {
+                // On first load or when no previous range, update to actual range
+                const xRange = gd.layout.xaxis.range;
+                if (xRange && xRange.length === 2) {
+                    const minTimestamp = (xRange[0] instanceof Date) ? xRange[0].getTime() : new Date(xRange[0]).getTime();
+                    const maxTimestamp = (xRange[1] instanceof Date) ? xRange[1].getTime() : new Date(xRange[1]).getTime();
+                    window.currentXAxisRange = [minTimestamp, maxTimestamp];
+                    window.xAxisMinDisplay.textContent = new Date(minTimestamp).toISOString();
+                    window.xAxisMaxDisplay.textContent = new Date(maxTimestamp).toISOString();
+                    console.log('[DEBUG] Autorange on first load, updating to actual range');
+                    // Don't save settings for initial autorange
+                    rangesChangedByEvent = false;
+                }
+            }
+        } else {
+            console.log('[DEBUG] No axis range changes detected in this event');
         }
 
         if (eventData['yaxis.range[0]'] || eventData['yaxis.range[1]']) {
@@ -424,8 +639,10 @@ function initializePlotlyEventHandlers(gd) {
                 window.currentYAxisRange = [yRange[0], yRange[1]];
                 window.yAxisMinDisplay.textContent = window.currentYAxisRange[0].toFixed(2);
                 window.yAxisMaxDisplay.textContent = window.currentYAxisRange[1].toFixed(2);
-                rangesChangedByEvent = true;
-                userModifiedRanges = true;
+                if (!window.isApplyingAutoscale) {
+                    rangesChangedByEvent = true;
+                    userModifiedRanges = true;
+                }
             }
         } else if (eventData['yaxis.autorange'] === true && window.currentYAxisRange !== null) {
             window.currentYAxisRange = null;
@@ -434,16 +651,58 @@ function initializePlotlyEventHandlers(gd) {
             rangesChangedByEvent = true;
         }
 
-        if (rangesChangedByEvent) {
-            console.log('[plotly_relayout] Ranges changed. User modified:', userModifiedRanges, 'New X-Range:', window.currentXAxisRange, 'New Y-Range:', window.currentYAxisRange);
+        if (rangesChangedByEvent && userModifiedRanges) {
+            console.log('[plotly_relayout] Ranges changed by user. User modified:', userModifiedRanges, 'New X-Range:', window.currentXAxisRange, 'New Y-Range:', window.currentYAxisRange);
             saveSettings(); // from settingsManager.js
             // Debounce chart update if ranges were changed by user panning/zooming,
             // or if autorange occurred (which means we need to reload based on dropdowns)
             clearTimeout(window.fetchDataDebounceTimer); // fetchDataDebounceTimer from state.js
             window.fetchDataDebounceTimer = setTimeout(() => {
                 console.log('[plotly_relayout] Debounced chart update due to axis range change.');
-                updateChart(); // updateChart from chartUpdater.js
+                // Update combined WebSocket with new time range
+                const symbol = window.symbolSelect ? window.symbolSelect.value : null;
+                const resolution = window.resolutionSelect ? window.resolutionSelect.value : '1h';
+                if (symbol && resolution && window.currentXAxisRange) {
+                    const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+                    // currentXAxisRange is already in seconds, no need to divide by 1000
+                    const fromTs = Math.floor(window.currentXAxisRange[0]);
+                    const toTs = Math.floor(window.currentXAxisRange[1]);
+
+                    // Check if we need to request more historical data
+                    const needsMoreData = checkIfHistoricalDataNeeded(fromTs, toTs, resolution);
+                    if (needsMoreData) {
+                        console.log('[plotly_relayout] Requesting additional historical data for new time range');
+                        // Request historical data with expanded range to provide buffer
+                        const bufferMultiplier = 2; // Request 2x the visible range for buffer
+                        const bufferedFromTs = Math.floor(fromTs - (toTs - fromTs) * (bufferMultiplier - 1) / 2);
+                        const bufferedToTs = Math.floor(toTs + (toTs - fromTs) * (bufferMultiplier - 1) / 2);
+
+                        setupCombinedWebSocket(symbol, activeIndicators, resolution, bufferedFromTs, bufferedToTs);
+                    } else {
+                        // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use ISO timestamp strings with timezone
+                        // window.currentXAxisRange is in milliseconds, convert to ISO strings
+                        const wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
+                        const wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
+
+                        console.log('[plotly_relayout] 🔍 TIMESTAMP CONVERSION DEBUG:');
+                        console.log('  window.currentXAxisRange:', window.currentXAxisRange);
+                        console.log('  wsFromTs (ISO):', wsFromTs);
+                        console.log('  wsToTs (ISO):', wsToTs);
+
+                        // If WebSocket is open, send new config, otherwise establish new connection
+                        if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
+                            setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+                        } else {
+                            setTimeout(() => {
+                                setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+                            }, 100);
+                        }
+                    }
+                }
             }, FETCH_DEBOUNCE_DELAY); // FETCH_DEBOUNCE_DELAY from config.js
+        } else if (rangesChangedByEvent && !userModifiedRanges) {
+            console.log('[plotly_relayout] Ranges changed programmatically. User modified:', userModifiedRanges, 'New X-Range:', window.currentXAxisRange, 'New Y-Range:', window.currentYAxisRange);
+            // Don't save settings for programmatic changes
         }
 
         // Reset dragging flag and restore previous drag mode after relayout completes
@@ -607,5 +866,204 @@ function observeShapeDAttributeChanges(plotDivId) {
     });
 }
 
+// Function to check if we need more historical data for the current visible range
+function checkIfHistoricalDataNeeded(fromTs, toTs, resolution) {
+    console.log('[checkIfHistoricalDataNeeded] Called with:', { fromTs, toTs, resolution });
+
+    // Get current chart data to see what time range we already have
+    const gd = window.gd;
+    if (!gd || !gd.data || gd.data.length === 0) {
+        console.log('[checkIfHistoricalDataNeeded] No chart data available, requesting historical data');
+        return true; // No data at all, definitely need historical data
+    }
+
+    // Find the main price trace (candlestick)
+    const priceTrace = gd.data.find(trace => trace.type === 'candlestick');
+    if (!priceTrace || !priceTrace.x || priceTrace.x.length === 0) {
+        console.log('[checkIfHistoricalDataNeeded] No price data available, requesting historical data');
+        return true;
+    }
+
+    console.log('[checkIfHistoricalDataNeeded] Found price trace with', priceTrace.x.length, 'data points');
+
+    // Get the time range of current data
+    const currentDataMin = Math.min(...priceTrace.x.map(x => (x instanceof Date) ? x.getTime() : new Date(x).getTime())) / 1000;
+    const currentDataMax = Math.max(...priceTrace.x.map(x => (x instanceof Date) ? x.getTime() : new Date(x).getTime())) / 1000;
+
+    console.log('[checkIfHistoricalDataNeeded] Current data time range:', {
+        currentDataMin: new Date(currentDataMin * 1000).toISOString(),
+        currentDataMax: new Date(currentDataMax * 1000).toISOString(),
+        requestedFrom: new Date(fromTs * 1000).toISOString(),
+        requestedTo: new Date(toTs * 1000).toISOString()
+    });
+
+    // Check if the requested range extends beyond current data
+    const rangeExtension = 0.1; // 10% buffer
+    const extendedFromTs = fromTs - (toTs - fromTs) * rangeExtension;
+    const extendedToTs = toTs + (toTs - fromTs) * rangeExtension;
+
+    const needsEarlierData = extendedFromTs < currentDataMin;
+    const needsLaterData = extendedToTs > currentDataMax;
+
+    console.log('[checkIfHistoricalDataNeeded] Range analysis:', {
+        extendedFromTs: new Date(extendedFromTs * 1000).toISOString(),
+        extendedToTs: new Date(extendedToTs * 1000).toISOString(),
+        needsEarlierData,
+        needsLaterData
+    });
+
+    if (needsEarlierData || needsLaterData) {
+        console.log('[checkIfHistoricalDataNeeded] Visible range extends beyond current data - requesting more data');
+        return true;
+    }
+
+    console.log('[checkIfHistoricalDataNeeded] Current data covers the visible range adequately');
+    return false;
+}
+
 // Initialize observer for main chart
 observeShapeDAttributeChanges('chart'); // Use your actual chart div ID
+
+// Global function to test panning detection
+window.testPanningDetection = function() {
+    // Safe console logging for Puppeteer compatibility
+    try {
+        if (typeof console !== 'undefined' && console.log) {
+            console.log('🧪 TESTING PANNING DETECTION 🧪');
+            console.log('Current chart state:', {
+                hasGd: !!window.gd,
+                layout: window.gd?.layout,
+                xaxisRange: window.gd?.layout?.xaxis?.range,
+                yaxisRange: window.gd?.layout?.yaxis?.range
+            });
+        }
+    } catch (e) {
+        // Fallback for environments where console is not available
+        alert('🧪 TESTING PANNING DETECTION 🧪\nConsole not available in this environment.');
+    }
+
+    // Listen for our custom pan event
+    document.addEventListener('chartPanned', function(event) {
+        try {
+            if (typeof console !== 'undefined' && console.log) {
+                console.log('🎯 CUSTOM PAN EVENT RECEIVED:', event.detail);
+            }
+        } catch (e) {
+            alert('🎯 CUSTOM PAN EVENT RECEIVED: ' + JSON.stringify(event.detail));
+        }
+    });
+
+    try {
+        if (typeof console !== 'undefined' && console.log) {
+            console.log('✅ Panning detection test setup complete. Try panning the chart now.');
+            console.log('Expected console output: "🚨 CHART PANNED/ZOOMED DETECTED 🚨"');
+        }
+    } catch (e) {
+        alert('✅ Panning detection test setup complete.\nTry panning the chart now.');
+    }
+
+    // Also trigger a manual test event
+    setTimeout(() => {
+        try {
+            if (window.gd && window.gd.emit) {
+                const testEventData = {
+                    'xaxis.range[0]': new Date(Date.now() - 24 * 60 * 60 * 1000),
+                    'xaxis.range[1]': new Date()
+                };
+                window.gd.emit('plotly_relayout', testEventData);
+                if (typeof console !== 'undefined' && console.log) {
+                    console.log('🧪 MANUAL TEST EVENT TRIGGERED');
+                } else {
+                    alert('🧪 MANUAL TEST EVENT TRIGGERED');
+                }
+            }
+        } catch (e) {
+            alert('🧪 Manual test event failed: ' + e.message);
+        }
+    }, 1000);
+};
+
+// Function to update the panning status indicator in the UI
+function updatePanningStatus(isPanning = false) {
+    const indicator = document.getElementById('panning-indicator');
+    const lastPanTime = document.getElementById('last-pan-time');
+
+    if (indicator && lastPanTime) {
+        if (isPanning) {
+            indicator.textContent = '🚨 Panning Detected!';
+            indicator.style.color = '#28a745'; // Green
+            lastPanTime.textContent = new Date().toLocaleTimeString();
+        } else {
+            indicator.textContent = 'Waiting for pan/zoom...';
+            indicator.style.color = '#666'; // Gray
+        }
+    }
+}
+
+// Add additional event listeners for debugging
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('📋 PANNING DETECTION SYSTEM INITIALIZED 📋');
+    console.log('Available test functions:');
+    console.log('- window.testPanningDetection() - Test panning detection');
+    console.log('- window.compareClientServerRanges() - Compare client and server timestamp ranges');
+    console.log('- Press "T" key - Manual test event trigger');
+    console.log('- Pan/zoom the chart - Should trigger automatic detection');
+
+    // Initialize panning status
+    updatePanningStatus(false);
+});
+
+// Global function to compare client and server timestamp ranges
+window.compareClientServerRanges = function() {
+    try {
+        if (typeof console !== 'undefined' && console.log) {
+            console.log('🔍 COMPARING CLIENT AND SERVER TIMESTAMP RANGES 🔍');
+
+            if (!window.lastClientRange) {
+                console.log('❌ No client range stored. Pan the chart first to capture client range.');
+                return;
+            }
+
+            console.log('📊 CLIENT RANGE (stored):', window.lastClientRange);
+
+            // Try to get server range from WebSocket state if available
+            if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+                console.log('🔗 WebSocket is connected. Server range should be logged in server console.');
+                console.log('💡 Look for "📊 SERVER RECEIVED RANGE" in server logs for comparison.');
+            } else {
+                console.log('⚠️ WebSocket not connected. Cannot get current server state.');
+            }
+
+            // Manual comparison if we have both ranges
+            if (window.lastServerRange) {
+                console.log('📊 SERVER RANGE (stored):', window.lastServerRange);
+
+                const clientFrom = window.lastClientRange.xMinTimestamp;
+                const clientTo = window.lastClientRange.xMaxTimestamp;
+                const serverFrom = window.lastServerRange.fromTs;
+                const serverTo = window.lastServerRange.toTs;
+
+                const fromDiff = Math.abs(clientFrom - serverFrom);
+                const toDiff = Math.abs(clientTo - serverTo);
+
+                console.log('⚖️ COMPARISON RESULTS:');
+                console.log(`  From timestamp difference: ${fromDiff} seconds (${(fromDiff / 3600).toFixed(2)} hours)`);
+                console.log(`  To timestamp difference: ${toDiff} seconds (${(toDiff / 3600).toFixed(2)} hours)`);
+
+                if (fromDiff > 60 || toDiff > 60) {
+                    console.log('🚨 SIGNIFICANT DIFFERENCE DETECTED (> 1 minute)');
+                    console.log('  This could indicate a timestamp conversion issue.');
+                } else {
+                    console.log('✅ Ranges are within acceptable tolerance (< 1 minute)');
+                }
+            } else {
+                console.log('❌ No server range stored. Check server logs for "📊 SERVER RECEIVED RANGE".');
+            }
+        } else {
+            alert('🔍 COMPARING CLIENT AND SERVER TIMESTAMP RANGES 🔍\nConsole not available in this environment.');
+        }
+    } catch (e) {
+        console.error('Error in compareClientServerRanges:', e);
+        alert('Error comparing ranges: ' + e.message);
+    }
+};

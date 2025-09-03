@@ -32,6 +32,93 @@ async def settings_endpoint(request: Request):
             settings_json = await redis.get(settings_key)
             if settings_json:
                 symbol_settings = json.loads(settings_json)
+
+                # Check for corrupted X-axis timestamps (dates before year 2000)
+                if 'xAxisMin' in symbol_settings and 'xAxisMax' in symbol_settings:
+                    x_axis_min = symbol_settings['xAxisMin']
+                    x_axis_max = symbol_settings['xAxisMax']
+
+                    # Convert to datetime for validation (handle both seconds and milliseconds)
+                    import datetime
+                    if x_axis_min is not None and x_axis_max is not None:
+                        # Use 1e11 (100 billion) as threshold to distinguish seconds from milliseconds
+                        # Unix timestamp in seconds (2025): ~1.7e9
+                        # Unix timestamp in milliseconds (2025): ~1.7e12
+                        if x_axis_min < 1e11:  # Less than 100 billion (reasonable for seconds since 1970)
+                            min_timestamp = x_axis_min * 1000  # Convert seconds to milliseconds
+                            max_timestamp = x_axis_max * 1000
+                        else:
+                            min_timestamp = x_axis_min
+                            max_timestamp = x_axis_max
+
+                        # Convert timestamps to seconds for datetime conversion
+                        min_timestamp_seconds = min_timestamp / 1000
+                        max_timestamp_seconds = max_timestamp / 1000
+
+                        # Debug logging for timestamp conversion
+                        logger.info(f"DEBUG: Timestamp conversion for {symbol}:")
+                        logger.info(f"  Raw x_axis_min: {x_axis_min}, x_axis_max: {x_axis_max}")
+                        logger.info(f"  Converted min_timestamp: {min_timestamp}, max_timestamp: {max_timestamp}")
+                        logger.info(f"  Timestamp seconds: min={min_timestamp_seconds}, max={max_timestamp_seconds}")
+
+                        data_was_fixed = False
+                        try:
+                            min_date = datetime.datetime.fromtimestamp(min_timestamp_seconds, tz=datetime.timezone.utc)
+                            max_date = datetime.datetime.fromtimestamp(max_timestamp_seconds, tz=datetime.timezone.utc)
+                            logger.info(f"  Final dates: min={min_date.isoformat()}, max={max_date.isoformat()}")
+                        except (ValueError, OSError, OverflowError) as e:
+                            logger.error(f"Failed to convert timestamps to datetime for {symbol}: {e}")
+                            logger.error(f"  Problematic values: min_ts={min_timestamp_seconds}, max_ts={max_timestamp_seconds}")
+                            logger.error(f"  Raw values: x_axis_min={x_axis_min}, x_axis_max={x_axis_max}")
+                            logger.error(f"  Converted values: min_timestamp={min_timestamp}, max_timestamp={max_timestamp}")
+
+                            # Reset to reasonable values: xAxisMax = NOW, xAxisMin = 30 days before NOW
+                            now = datetime.datetime.now(datetime.timezone.utc)
+                            thirty_days_ago = now - datetime.timedelta(days=30)
+
+                            # Store as seconds (milliseconds / 1000) for consistency with client expectations
+                            symbol_settings['xAxisMax'] = int(now.timestamp())
+                            symbol_settings['xAxisMin'] = int(thirty_days_ago.timestamp())
+
+                            logger.info(f"✅ FIXED corrupted X-axis data for {symbol} due to conversion error:")
+                            logger.info(f"   New xAxisMin: {symbol_settings['xAxisMin']} ({thirty_days_ago.isoformat()})")
+                            logger.info(f"   New xAxisMax: {symbol_settings['xAxisMax']} ({now.isoformat()})")
+
+                            # Save the corrected settings back to Redis
+                            await redis.set(settings_key, json.dumps(symbol_settings))
+                            logger.info(f"Saved corrected X-axis settings to Redis for {symbol}")
+
+                            # Skip further validation since we just fixed the data
+                            data_was_fixed = True
+
+                        # Only check for corrupted data if we didn't already fix it due to conversion errors
+                        if not data_was_fixed:
+                            # Check if dates are before year 2000 (indicating corrupted data)
+                            if min_date.year < 2000 or max_date.year < 2000:
+                                # Log the corrupted data in human readable format
+                                logger.warning(f"🚨 CORRUPTED X-AXIS DATA DETECTED for {symbol}:")
+                                logger.warning(f"   xAxisMin: {x_axis_min} ({min_date.isoformat()})")
+                                logger.warning(f"   xAxisMax: {x_axis_max} ({max_date.isoformat()})")
+                                logger.warning(f"   Min year: {min_date.year}, Max year: {max_date.year}")
+
+                                # Reset to reasonable values: xAxisMax = NOW, xAxisMin = 30 days before NOW
+                                now = datetime.datetime.now(datetime.timezone.utc)
+                                thirty_days_ago = now - datetime.timedelta(days=30)
+
+                                # Store as seconds (milliseconds / 1000) for consistency with client expectations
+                                symbol_settings['xAxisMax'] = int(now.timestamp())
+                                symbol_settings['xAxisMin'] = int(thirty_days_ago.timestamp())
+
+                                logger.info(f"✅ FIXED corrupted X-axis data for {symbol}:")
+                                logger.info(f"   New xAxisMin: {symbol_settings['xAxisMin']} ({thirty_days_ago.isoformat()})")
+                                logger.info(f"   New xAxisMax: {symbol_settings['xAxisMax']} ({now.isoformat()})")
+
+                                # Save the corrected settings back to Redis
+                                await redis.set(settings_key, json.dumps(symbol_settings))
+                                logger.info(f"Saved corrected X-axis settings to Redis for {symbol}")
+                    else:
+                        logger.warning(f"X-axis timestamps are None for {symbol}, skipping validation")
+
                 # Ensure activeIndicators key exists for backward compatibility
                 if 'activeIndicators' not in symbol_settings:
                     symbol_settings['activeIndicators'] = []
@@ -151,6 +238,7 @@ async def set_last_selected_symbol(symbol: str, request: Request):
 async def get_last_selected_symbol(request: Request):
     """
     Gets the last selected symbol for a user from Redis.
+    Falls back to BTCUSDT if no symbol is found.
     """
     logger.info(f"GET /get_last_symbol request received.")
 
@@ -163,10 +251,11 @@ async def get_last_selected_symbol(request: Request):
             logger.info(f"Got last selected symbol for user {email}: {symbol}")
             return JSONResponse({"status": "success", "symbol": symbol})
         else:
-            logger.info(f"No last selected symbol found for user {email}.")
-            return JSONResponse({"status": "no_data", "message": "No last selected symbol found."}, status_code=404)
+            logger.info(f"No last selected symbol found for user {email}. Falling back to BTCUSDT.")
+            return JSONResponse({"status": "success", "symbol": "BTCUSDT"})
     except Exception as e:
-        logger.error(f"Error getting last selected symbol: {e}", exc_info=True)
+        logger.error(f"Error getting last selected symbol: {e}. Falling back to BTCUSDT.", exc_info=True)
+        return JSONResponse({"status": "success", "symbol": "BTCUSDT"})
 
 async def stream_logs_endpoint(request: Request):
     from logging_config import log_file_path

@@ -1,4 +1,23 @@
+let isLoadingSettings = false;
+let isRestoringIndicators = false;
+let isProgrammaticallySettingResolution = false;
+let isProgrammaticallySettingRange = false;
+
 function saveSettings() {
+    // Prevent saving settings while they're still being loaded
+    if (isLoadingSettings) {
+        console.log("[DEBUG settingsManager] Skipping saveSettings - settings are still loading from server");
+        console.log("[DEBUG settingsManager] This prevents overwriting saved indicators with empty array during page load");
+        return;
+    }
+
+    // Prevent saving settings while indicators are still being restored
+    if (isRestoringIndicators) {
+        console.log("[DEBUG settingsManager] Skipping saveSettings - indicators are still being restored from server");
+        console.log("[DEBUG settingsManager] This prevents saving empty indicators during restoration");
+        return;
+    }
+
     const currentSymbol = window.symbolSelect.value;
     if (!currentSymbol) {
         console.warn("saveSettings: No symbol selected. Cannot save settings.");
@@ -33,12 +52,15 @@ function saveSettings() {
 
     const indicatorCheckboxes = document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]');
     const activeIndicators = [];
+    console.log('[DEBUG settingsManager] Found', indicatorCheckboxes.length, 'indicator checkboxes for saving');
     indicatorCheckboxes.forEach(checkbox => {
         if (checkbox.checked) {
             activeIndicators.push(checkbox.value);
+            console.log('[DEBUG settingsManager] Saving active indicator:', checkbox.value);
         }
     });
     settings.activeIndicators = activeIndicators;
+    console.log('[DEBUG settingsManager] Saving activeIndicators array:', activeIndicators);
     settings.liveDataEnabled = window.liveDataCheckbox.checked;
     settings.showAgentTrades = document.getElementById('showAgentTradesCheckbox').checked;
 
@@ -49,6 +71,9 @@ function saveSettings() {
         console.warn("saveSettings: streamDeltaSlider element not found on window.");
         settings.streamDeltaTime = 0; // Default if slider not found
     }
+
+    // Include the last selected symbol in settings
+    settings.last_selected_symbol = currentSymbol;
 
     console.log('[DEBUG settingsManager] Saving settings for', currentSymbol, ':', JSON.stringify(settings, null, 2));
 
@@ -130,27 +155,61 @@ async function populateDropdowns() {
     }
 }
 
-async function loadSettings() {
-    const currentSymbol = window.symbolSelect.value;
+async function loadSettings(symbolOverride = null) {
+    isLoadingSettings = true; // Prevent saveSettings from running during load
+    console.log("[DEBUG settingsManager] Started loading settings, preventing saves");
+    console.log("[DEBUG settingsManager] symbolOverride parameter:", symbolOverride);
+    console.log("[DEBUG settingsManager] window.symbolSelect.value:", window.symbolSelect ? window.symbolSelect.value : "NOT SET");
+
+    // Use provided symbol override (e.g., from URL) or fall back to dropdown value
+    const currentSymbol = symbolOverride || window.symbolSelect.value;
+    console.log("[DEBUG settingsManager] Final currentSymbol:", currentSymbol);
     if (!currentSymbol) {
-        console.warn("loadSettings: No symbol available in dropdown yet. updateChart will use defaults.");
-        window.xAxisMinDisplay.textContent = 'Auto'; window.xAxisMaxDisplay.textContent = 'Auto';
-        window.yAxisMinDisplay.textContent = 'Auto'; window.yAxisMaxDisplay.textContent = 'Auto';
-        updateChart(); // Assumes updateChart is globally available
+        console.error("loadSettings: No symbol available. This should not happen - dropdown should be populated first.");
+        isLoadingSettings = false;
         return;
-    } else {
-        updateSelectedShapeInfoPanel(null); // Assumes updateSelectedShapeInfoPanel is globally available
     }
 
+    updateSelectedShapeInfoPanel(null); // Assumes updateSelectedShapeInfoPanel is globally available
+
     try {
+        console.log('[DEBUG settingsManager] Loading settings for symbol:', currentSymbol);
         const response = await fetch(`/settings?symbol=${currentSymbol}`);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        console.log('[DEBUG settingsManager] Settings response status:', response.status);
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('[DEBUG settingsManager] Settings load failed:', response.status, errorText);
+            throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+        }
+
         const settings = await response.json();
+        console.log('[DEBUG settingsManager] Successfully loaded settings for', currentSymbol, ':', JSON.stringify(settings, null, 2));
 
-        console.log('[DEBUG settingsManager] Loaded settings for', currentSymbol, ':', JSON.stringify(settings, null, 2));
+        // Always apply saved settings to UI controls - this is the expected behavior
+        console.log('[DEBUG settingsManager] Applying saved resolution and range settings to UI controls');
 
-        if (settings.resolution && window.resolutionSelect.options.length > 0) window.resolutionSelect.value = settings.resolution;
-        if (settings.range && window.rangeSelect.options.length > 0) window.rangeSelect.value = settings.range;
+        // Set resolution programmatically (without triggering change event)
+        if (settings.resolution && window.resolutionSelect.options.length > 0) {
+            isProgrammaticallySettingResolution = true;
+            window.resolutionSelect.value = settings.resolution;
+            console.log('[DEBUG settingsManager] Applied saved resolution to UI:', settings.resolution);
+            // Reset flag after a short delay to allow any event processing
+            setTimeout(() => {
+                isProgrammaticallySettingResolution = false;
+            }, 10);
+        }
+
+        // Set range programmatically (without triggering change event)
+        if (settings.range && window.rangeSelect.options.length > 0) {
+            isProgrammaticallySettingRange = true;
+            window.rangeSelect.value = settings.range;
+            console.log('[DEBUG settingsManager] Applied saved range to UI:', settings.range);
+            // Reset flag after a short delay to allow any event processing
+            setTimeout(() => {
+                isProgrammaticallySettingRange = false;
+            }, 10);
+        }
 
         if (settings.xAxisMin !== null && settings.xAxisMax !== null && typeof settings.xAxisMin !== 'undefined') {
             // Check if timestamps are in seconds or milliseconds
@@ -161,51 +220,54 @@ async function loadSettings() {
             const minDate = new Date(settings.xAxisMin < 1e10 ? settings.xAxisMin * 1000 : settings.xAxisMin);
             const maxDate = new Date(settings.xAxisMax < 1e10 ? settings.xAxisMax * 1000 : settings.xAxisMax);
 
-            if (minDate.getFullYear() < 2000 || maxDate.getFullYear() < 2000) {
-                const minDateStr = isNaN(minDate.getTime()) ? 'Invalid Date' : minDate.toISOString();
-                const maxDateStr = isNaN(maxDate.getTime()) ? 'Invalid Date' : maxDate.toISOString();
-                console.warn('🚨 OLD ALARM DETECTED: X-Axis settings contain very old dates!', {
-                    symbol: currentSymbol,
-                    xAxisMin: settings.xAxisMin,
-                    xAxisMax: settings.xAxisMax,
-                    minDate: minDateStr,
-                    maxDate: maxDateStr,
-                    minYear: minDate.getFullYear(),
-                    maxYear: maxDate.getFullYear(),
-                    action: 'Auto-scaling chart to fix corrupted timestamps'
-                });
-
-                // Auto-scale immediately to fix the corrupted timestamps
-                setTimeout(() => {
-                    if (typeof window.applyAutoscale === 'function') {
-                        console.log('🚨 OLD ALARM: Triggering automatic autoscale to fix corrupted timestamps');
-                        window.applyAutoscale();
-                    } else {
-                        console.warn('🚨 OLD ALARM: window.applyAutoscale function not available for auto-fix');
-                    }
-                }, 100); // Small delay to ensure chart is fully loaded
-            }
-
-            // If the timestamp appears to be in seconds (reasonable date range),
-            // convert to milliseconds for JavaScript Date
-            // If it's already in milliseconds (large numbers), use as-is
+            // Handle timestamp format detection and conversion
+            // Current system uses seconds (1.75e9 range), but we need milliseconds for JavaScript Date objects
             if (settings.xAxisMin < 1e10) { // Less than 10 billion (reasonable for seconds since 1970)
+                // Convert seconds to milliseconds for JavaScript Date objects
                 minTimestamp = settings.xAxisMin * 1000;
                 maxTimestamp = settings.xAxisMax * 1000;
+                console.log('[DEBUG settingsManager] Converted seconds to milliseconds:', {
+                    originalMin: settings.xAxisMin,
+                    originalMax: settings.xAxisMax,
+                    convertedMin: minTimestamp,
+                    convertedMax: maxTimestamp
+                });
             }
-            // Handle legacy timestamps that were incorrectly saved
+            // Handle legacy timestamps that were incorrectly saved as milliseconds but represent old dates
             else if (settings.xAxisMin < 1e12 && new Date(settings.xAxisMin).getFullYear() < 2000) {
+                // These are old millisecond timestamps that need to be converted to proper milliseconds
                 minTimestamp = Math.floor(settings.xAxisMin / 1000);
                 maxTimestamp = Math.floor(settings.xAxisMax / 1000);
+                console.log('[DEBUG settingsManager] Fixed legacy millisecond timestamps:', {
+                    originalMin: settings.xAxisMin,
+                    originalMax: settings.xAxisMax,
+                    fixedMin: minTimestamp,
+                    fixedMax: maxTimestamp
+                });
+            }
+            // Handle current millisecond timestamps (1.75e12 range for 2025 dates)
+            else {
+                // Already in milliseconds, use as-is
+                minTimestamp = settings.xAxisMin;
+                maxTimestamp = settings.xAxisMax;
+                console.log('[DEBUG settingsManager] Using millisecond timestamps as-is:', {
+                    min: minTimestamp,
+                    max: maxTimestamp
+                });
             }
 
-            window.currentXAxisRange = [minTimestamp, maxTimestamp];
-            console.log('[DEBUG settingsManager] Set window.currentXAxisRange to:', window.currentXAxisRange);
+            // Only set currentXAxisRange if it's not already set (preserves user's current panning)
+            if (!window.currentXAxisRange) {
+                window.currentXAxisRange = [minTimestamp, maxTimestamp];
+                console.log('[DEBUG settingsManager] Set window.currentXAxisRange to saved values:', window.currentXAxisRange);
+            } else {
+                console.log('[DEBUG settingsManager] Preserving existing currentXAxisRange (user panning):', window.currentXAxisRange);
+            }
 
             const minDateDisplay = new Date(minTimestamp);
             const maxDateDisplay = new Date(maxTimestamp);
-            window.xAxisMinDisplay.textContent = isNaN(minDateDisplay.getTime()) ? 'Invalid Date' : minDateDisplay.toLocaleString();
-            window.xAxisMaxDisplay.textContent = isNaN(maxDateDisplay.getTime()) ? 'Invalid Date' : maxDateDisplay.toLocaleString();
+            window.xAxisMinDisplay.textContent = isNaN(minDateDisplay.getTime()) ? 'Invalid Date' : minDateDisplay.toISOString();
+            window.xAxisMaxDisplay.textContent = isNaN(maxDateDisplay.getTime()) ? 'Invalid Date' : maxDateDisplay.toISOString();
 
             console.log('[DEBUG settingsManager] X-axis display updated - Min:', window.xAxisMinDisplay.textContent, 'Max:', window.xAxisMaxDisplay.textContent);
         } else {
@@ -219,37 +281,65 @@ async function loadSettings() {
              const yMin = parseFloat(settings.yAxisMin);
              const yMax = parseFloat(settings.yAxisMax);
 
-             // Log warning for very small ranges or unusual values that might indicate old settings
-             if ((yMax - yMin) < 0.1 || yMin < 0 || yMax > 100) {
-                 console.warn('🚨 POTENTIAL OLD ALARM DETECTED: Y-Axis settings have unusual values!', {
-                     symbol: currentSymbol,
-                     yAxisMin: settings.yAxisMin,
-                     yAxisMax: settings.yAxisMax,
-                     range: yMax - yMin,
-                     action: 'Please verify if these Y-axis values are correct'
-                 });
+             // Only set currentYAxisRange if it's not already set (preserves user's current zoom)
+             if (!window.currentYAxisRange) {
+                 window.currentYAxisRange = [settings.yAxisMin, settings.yAxisMax];
+                 window.yAxisMinDisplay.textContent = settings.yAxisMin.toFixed(2);
+                 window.yAxisMaxDisplay.textContent = settings.yAxisMax.toFixed(2);
+                 console.log('[DEBUG settingsManager] Set window.currentYAxisRange to saved values:', window.currentYAxisRange);
+             } else {
+                 console.log('[DEBUG settingsManager] Preserving existing currentYAxisRange (user zoom):', window.currentYAxisRange);
              }
-
-             window.currentYAxisRange = [settings.yAxisMin, settings.yAxisMax];
-             window.yAxisMinDisplay.textContent = settings.yAxisMin.toFixed(2);
-             window.yAxisMaxDisplay.textContent = settings.yAxisMax.toFixed(2);
          } else {
-             window.currentYAxisRange = null;
-             window.yAxisMinDisplay.textContent = 'Auto';
-             window.yAxisMaxDisplay.textContent = 'Auto';
+             // Only clear if not already set by user
+             if (!window.currentYAxisRange) {
+                 window.currentYAxisRange = null;
+                 window.yAxisMinDisplay.textContent = 'Auto';
+                 window.yAxisMaxDisplay.textContent = 'Auto';
+             }
          }
 
-        const allIndicatorCheckboxes = document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]');
-        allIndicatorCheckboxes.forEach(checkbox => checkbox.checked = false);
+        // Restore active indicators - ensure DOM is ready
+        const restoreIndicators = () => {
+            const allIndicatorCheckboxes = document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]');
+            console.log('[DEBUG settingsManager] Found', allIndicatorCheckboxes.length, 'indicator checkboxes in DOM');
 
-        if (settings.activeIndicators && Array.isArray(settings.activeIndicators)) {
-            settings.activeIndicators.forEach(indicatorValue => {
-                const checkbox = document.querySelector(`#indicator-checkbox-list input[type="checkbox"][value="${indicatorValue}"]`);
-                if (checkbox) {
-                    checkbox.checked = true;
-                }
-            });
-        }
+            if (allIndicatorCheckboxes.length === 0) {
+                console.warn('[DEBUG settingsManager] No indicator checkboxes found, will retry in 100ms');
+                setTimeout(restoreIndicators, 100);
+                return;
+            }
+
+            // Set flag to prevent saves during restoration
+            isRestoringIndicators = true;
+            console.log('[DEBUG settingsManager] Started restoring indicators, preventing saves');
+
+            // First uncheck all
+            allIndicatorCheckboxes.forEach(checkbox => checkbox.checked = false);
+
+            // Then check the active ones
+            if (settings.activeIndicators && Array.isArray(settings.activeIndicators)) {
+                console.log('[DEBUG settingsManager] Restoring active indicators:', settings.activeIndicators);
+                settings.activeIndicators.forEach(indicatorValue => {
+                    const checkbox = document.querySelector(`#indicator-checkbox-list input[type="checkbox"][value="${indicatorValue}"]`);
+                    if (checkbox) {
+                        checkbox.checked = true;
+                        console.log('[DEBUG settingsManager] Checked indicator:', indicatorValue);
+                    } else {
+                        console.warn('[DEBUG settingsManager] Indicator checkbox not found for:', indicatorValue);
+                    }
+                });
+            } else {
+                console.log('[DEBUG settingsManager] No activeIndicators in settings or not an array');
+            }
+
+            // Reset flag after restoration is complete
+            isRestoringIndicators = false;
+            console.log('[DEBUG settingsManager] Finished restoring indicators, allowing saves again');
+        };
+
+        // Try to restore indicators immediately, or retry if DOM not ready
+        restoreIndicators();
 
         if (typeof settings.liveDataEnabled === 'boolean') {
             window.liveDataCheckbox.checked = settings.liveDataEnabled;
@@ -299,9 +389,47 @@ async function loadSettings() {
             window.currentStreamDeltaTime = 0; // Update global state
         }
         if (settings.last_selected_symbol) {
+            const currentUrlSymbol = window.location.pathname.substring(1).toUpperCase() || null;
             if (window.symbolSelect.value != settings.last_selected_symbol) {
-                window.isProgrammaticallySettingSymbol = true;
+                // Only set programmatic flag if this is NOT the symbol from the URL
+                // (URL symbols should be allowed to trigger change events)
+                if (settings.last_selected_symbol !== currentUrlSymbol) {
+                    window.isProgrammaticallySettingSymbol = true;
+                    console.log('[DEBUG settingsManager] Setting programmatic flag for non-URL symbol:', settings.last_selected_symbol);
+                } else {
+                    console.log('[DEBUG settingsManager] Not setting programmatic flag for URL symbol:', settings.last_selected_symbol);
+                }
                 window.symbolSelect.value = settings.last_selected_symbol;
+                // Reset the flag after a short delay to allow the change event to be processed
+                setTimeout(() => {
+                    window.isProgrammaticallySettingSymbol = false;
+                    console.log('[DEBUG settingsManager] Reset isProgrammaticallySettingSymbol flag after loading settings');
+                }, 100);
+            }
+        }
+
+        // Apply loaded ranges to the chart if it exists
+        if (window.gd && (window.currentXAxisRange || window.currentYAxisRange)) {
+            const layoutUpdate = {};
+
+            if (window.currentXAxisRange) {
+                layoutUpdate['xaxis.range'] = [new Date(window.currentXAxisRange[0]), new Date(window.currentXAxisRange[1])];
+                layoutUpdate['xaxis.autorange'] = false;
+                console.log('[DEBUG settingsManager] Applying loaded X-axis range to chart:', layoutUpdate['xaxis.range']);
+            }
+
+            if (window.currentYAxisRange) {
+                layoutUpdate['yaxis.range'] = window.currentYAxisRange;
+                layoutUpdate['yaxis.autorange'] = false;
+                console.log('[DEBUG settingsManager] Applying loaded Y-axis range to chart:', layoutUpdate['yaxis.range']);
+            }
+
+            if (Object.keys(layoutUpdate).length > 0) {
+                Plotly.relayout(window.gd, layoutUpdate).then(() => {
+                    console.log('[DEBUG settingsManager] Successfully applied loaded ranges to chart');
+                }).catch(error => {
+                    console.error('[DEBUG settingsManager] Error applying loaded ranges to chart:', error);
+                });
             }
         }
     } catch (error) {
@@ -321,6 +449,10 @@ async function loadSettings() {
             window.currentStreamDeltaTime = 0;
         }
     } finally {
-        updateChart(); // Assumes updateChart is globally available
+        isLoadingSettings = false; // Allow saves again
+        isRestoringIndicators = false; // Ensure indicator restoration flag is also reset
+        console.log("[DEBUG settingsManager] Finished loading settings, allowing saves again");
+
+        // WebSocket will be initialized by main.js after all initialization is complete
     }
 }

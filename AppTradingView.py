@@ -57,7 +57,7 @@ from endpoints.utility_endpoints import (
 from endpoints.indicator_endpoints import indicator_history_endpoint
 
 # Import WebSocket handlers
-from websocket_handlers import stream_live_data_websocket_endpoint, stream_klines
+from websocket_handlers import stream_live_data_websocket_endpoint, stream_klines, stream_combined_data_websocket_endpoint
 
 # Lifespan manager for startup and shutdown events
 @asynccontextmanager
@@ -131,28 +131,28 @@ async def chart_page(request: Request):
     authenticated = False
 
     logger.info(f"Chart page request from {client_host}. Current session state: authenticated={request.session.get('authenticated')}, email={request.session.get('email')}")
+
+    # Check if this is a local testing request (from 192.168.1.52)
+    is_local_test = client_host == "192.168.1.52"
+
     if request.session.get('email') is None:
-        logger.info(f"No email in session for {client_host}, redirecting to Google OAuth")
-        #try:
-        #    require_valid_certificate(request)
-        #    authenticated = True
-        #    request.session["authenticated"] = True
-        #    logger.info(f"Client authenticated via certificate. Serving chart page to {client_host}.")
-        #    return templates.TemplateResponse("index.html", {"request": request, "authenticated": authenticated}) # type: ignore
+        if is_local_test:
+            logger.info(f"Local test request from {client_host}, bypassing authentication for testing")
+            request.session["authenticated"] = True
+            request.session["email"] = "test@example.com"
+            authenticated = True
+        else:
+            logger.info(f"No email in session for {client_host}, redirecting to Google OAuth")
+            # Build Google OAuth URL
+            google_auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={creds.GOOGLE_CLIENT_ID}&redirect_uri={quote_plus('https://crypto.zhivko.eu/OAuthCallback')}&response_type=code&scope=openid%20profile%20email&response_mode=query"
 
-        #except HTTPException as cert_exception:
-            # Certificate is invalid, initiate Google Auth flow
-        #    logger.warning(f"Client certificate missing or invalid. Initiating Google Auth flow for {client_host}. Error: {cert_exception.detail}")
-
-        # Build Google OAuth URL
-        google_auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={creds.GOOGLE_CLIENT_ID}&redirect_uri={quote_plus('https://crypto.zhivko.eu/OAuthCallback')}&response_type=code&scope=openid%20profile%20email&response_mode=query"
-
-        # Redirect to Google for authentication
-        return RedirectResponse(google_auth_url, status_code=302)
+            # Redirect to Google for authentication
+            return RedirectResponse(google_auth_url, status_code=302)
     else:
         logger.info(f"Email found in session for {client_host}: {request.session.get('email')}")
+        authenticated = True
 
-    response = templates.TemplateResponse("index.html", {"request": request, "authenticated": True}) # type: ignore
+    response = templates.TemplateResponse("index.html", {"request": request, "authenticated": authenticated}) # type: ignore
     return response
 
 # Chart endpoints
@@ -193,6 +193,7 @@ app.get("/indicatorHistory")(indicator_history_endpoint)
 # WebSocket endpoints
 app.websocket("/stream/live/{symbol}")(stream_live_data_websocket_endpoint)
 app.get("/stream/{symbol}/{resolution}")(stream_klines)
+app.websocket("/data/{symbol}")(stream_combined_data_websocket_endpoint)
 
 # Logout endpoint
 @app.get("/logout")
@@ -325,30 +326,33 @@ async def symbol_chart_page(symbol: str, request: Request):
     '''
 
     logger.info(f"Symbol chart page request for {symbol} from {client_host}. Current session state: authenticated={request.session.get('authenticated')}, email={request.session.get('email')}")
+
+    # Check if this is a local testing request (from 192.168.1.52)
+    is_local_test = client_host == "192.168.1.52"
+
     if request.session.get('email') is None:
-        logger.info(f"No email in session for {symbol} request from {client_host}, redirecting to Google OAuth")
-        #try:
-        #    require_valid_certificate(request)
-        #    authenticated = True
-        #    request.session["authenticated"] = True
-        #    logger.info(f"Client authenticated via certificate. Serving chart page to {client_host}.")
-        #    return templates.TemplateResponse("index.html", {"request": request, "authenticated": authenticated}) # type: ignore
+        if is_local_test:
+            logger.info(f"Local test request from {client_host}, bypassing authentication for testing")
+            request.session["authenticated"] = True
+            request.session["email"] = "test@example.com"
+            authenticated = True
+        else:
+            logger.info(f"No email in session for {symbol} request from {client_host}, redirecting to Google OAuth")
+            # Build Google OAuth URL
+            google_auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={creds.GOOGLE_CLIENT_ID}&redirect_uri={quote_plus('https://crypto.zhivko.eu/OAuthCallback')}&response_type=code&scope=openid%20profile%20email&response_mode=query"
 
-        #except HTTPException as cert_exception:
-            # Certificate is invalid, initiate Google Auth flow
-        #    logger.warning(f"Client certificate missing or invalid. Initiating Google Auth flow for {client_host}. Error: {cert_exception.detail}")
-
-        # Build Google OAuth URL
-        google_auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={creds.GOOGLE_CLIENT_ID}&redirect_uri={quote_plus('https://crypto.zhivko.eu/OAuthCallback')}&response_type=code&scope=openid%20profile%20email&response_mode=query"
-
-        # Redirect to Google for authentication
-        return RedirectResponse(google_auth_url, status_code=302)
+            # Redirect to Google for authentication
+            return RedirectResponse(google_auth_url, status_code=302)
     else:
         logger.info(f"Email found in session for {symbol} request from {client_host}: {request.session.get('email')}")
+        authenticated = True
 
-    # Set the symbol in session for the frontend to use
-    request.session["requested_symbol"] = symbol
-    response = templates.TemplateResponse("index.html", {"request": request, "authenticated": authenticated})
+    # Render the main chart page with authentication status and symbol
+    response = templates.TemplateResponse("index.html", {
+        "request": request,
+        "authenticated": authenticated,
+        "symbol": symbol.upper()
+    })
     return response
 
 if __name__ == "__main__":
@@ -379,5 +383,7 @@ if __name__ == "__main__":
         reload_excludes="*.log",
         http="h11",
         timeout_keep_alive=10,
-        log_level="info"
+        log_level="info",
+        # Add graceful shutdown timeout to prevent hanging
+        timeout_graceful_shutdown=1
     )

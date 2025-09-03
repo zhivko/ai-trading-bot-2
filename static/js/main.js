@@ -27,62 +27,267 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.streamDeltaSlider = document.getElementById('stream-delta-slider');
     window.streamDeltaValueDisplay = document.getElementById('stream-delta-value');
     // Initialize debounced functions
-    window.debouncedUpdateChart = debounce(updateChart, 1000);
     window.debouncedUpdateShapeVisuals = debounce(updateShapeVisuals, VISUAL_UPDATE_DEBOUNCE_DELAY); // VISUAL_UPDATE_DEBOUNCE_DELAY from config.js
     window.debouncedUpdateCrosshair = debounce(updateOrAddCrosshairVLine, 100); // updateOrAddCrosshairVLine from chartInteractions.js
 
+    // 🔧 TIMESTAMP SYNCHRONIZATION HELPER FUNCTION
+    window.getSynchronizedTimestamps = function(fromTs, toTs) {
+        // Convert to ISO timestamp strings for WebSocket
+        let wsFromTs = fromTs;
+        let wsToTs = toTs;
+
+        // If timestamps are in milliseconds (values > 1e12), convert to ISO strings
+        if (fromTs > 1e12) {
+            wsFromTs = new Date(fromTs).toISOString();
+        }
+        if (toTs > 1e12) {
+            wsToTs = new Date(toTs).toISOString();
+        }
+
+        // If we have saved X-axis range from settings, use it to ensure consistency
+        if (window.currentXAxisRange && window.currentXAxisRange.length === 2) {
+            wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
+            wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
+            console.log(`🔧 TIMESTAMP SYNC: Using saved X-axis range for consistency:`, {
+                savedRange: window.currentXAxisRange,
+                wsFromTs: wsFromTs,
+                wsToTs: wsToTs
+            });
+        }
+
+        return { fromTs: wsFromTs, toTs: wsToTs };
+    };
+
+    console.log('[DEBUG] Starting Plotly chart initialization');
+
     // Initialize Plotly chart (empty initially)
     const mobileOptimizedLayout = getMobileOptimizedLayout(); // Get mobile-optimized layout
+    console.log('[DEBUG] Mobile optimized layout:', mobileOptimizedLayout);
+
     Plotly.newPlot('chart', [], mobileOptimizedLayout, config).then(function(gd) { // layout & config from config.js
+        console.log('[DEBUG] Plotly.newPlot completed successfully, gd:', gd);
         window.gd = gd; // Make Plotly graph div object global
 
+
+        // Ensure dragmode is set to 'pan' for panning detection
+        console.log('[DEBUG] Setting initial dragmode to pan for panning detection');
+        Plotly.relayout(gd, { dragmode: 'pan' }).then(() => {
+            console.log('[DEBUG] Dragmode set to pan successfully');
+        }).catch(err => {
+            console.error('[DEBUG] Failed to set dragmode:', err);
+        });
+
+        console.log('[DEBUG] About to call initializePlotlyEventHandlers');
         // Initialize Plotly specific event handlers after chart is ready
         initializePlotlyEventHandlers(gd); // From plotlyEventHandlers.js
+        console.log('[DEBUG] initializePlotlyEventHandlers completed');
 
         // Ensure mobile hover is disabled after chart creation
         disableMobileHover(gd);
         forceHideHoverElements(); // Force hide hover elements via CSS
 
-    }).catch(err => console.error('Plotly initialization error:', err));
-
-
-    loadSettings();
+        console.log('[DEBUG] Chart initialization completed');
+    
+    }).catch(err => {
+        console.error('[DEBUG] Plotly initialization error:', err);
+        console.error('Full error details:', err);
+    });
     // General UI event listeners
-    window.symbolSelect.addEventListener('change', () => {
+    window.symbolSelect.addEventListener('change', async () => {
         window.currentXAxisRange = null; window.currentYAxisRange = null;
         window.xAxisMinDisplay.textContent = 'Auto'; window.xAxisMaxDisplay.textContent = 'Auto';
         window.yAxisMinDisplay.textContent = 'Auto'; window.yAxisMaxDisplay.textContent = 'Auto';
         window.activeShapeForPotentialDeletion = null;
+
+        const selectedSymbol = window.symbolSelect.value;
+        const currentUrlSymbol = window.location.pathname.substring(1).toUpperCase() || null;
+
+        // Skip if this is the same symbol as currently loaded
+        if (selectedSymbol === currentUrlSymbol) {
+            console.log(`[main.js] Symbol ${selectedSymbol} is already loaded, skipping change`);
+            setLastSelectedSymbol(selectedSymbol);
+            await loadSettings(selectedSymbol);
+            return;
+        }
+
         if (window.isProgrammaticallySettingSymbol) {
             console.log("Symbol change was triggered programmatically. Skipping saveSettings() and loadSettings().");
             return;
         }
-        console.log("[main.js] Symbol changed. Clearing ranges, deselecting shape.");
-        updateSelectedShapeInfoPanel(null);
-        if (window.gd) removeRealtimePriceLine(window.gd); // removeRealtimePriceLine from liveData.js
 
-        // Redirect to symbol page
-        const selectedSymbol = window.symbolSelect.value;
-        if (selectedSymbol) {
-            const symbolUrl = `/${selectedSymbol}`;
-            console.log(`[main.js] Redirecting to: ${symbolUrl}`);
-            window.location.href = symbolUrl;
+        console.log(`[main.js] Symbol changed from ${currentUrlSymbol} to ${selectedSymbol}. Performing seamless switch.`);
+
+        // Clear the entire chart before switching symbols
+        if (window.gd) {
+            console.log("[main.js] Clearing chart data for symbol switch");
+            console.log("[CHART_UPDATE] main.js symbol switch - clearing chart at", new Date().toISOString());
+            removeRealtimePriceLine(window.gd);
+            // Clear all chart data and reset to empty state
+            Plotly.react(window.gd, [], window.gd.layout || {});
+            console.log("[CHART_UPDATE] main.js symbol switch - chart cleared, ready for new data");
         }
 
+        // Close existing WebSocket connection
+        if (window.combinedWebSocket) {
+            console.log("[main.js] Closing existing WebSocket connection for symbol switch");
+            closeCombinedWebSocket("Symbol changed - switching to new symbol");
+        }
+
+        // Update URL without full page reload for better UX
+        const newUrl = `/${selectedSymbol}`;
+        window.history.pushState({ symbol: selectedSymbol }, '', newUrl);
+        console.log(`[main.js] Updated URL to: ${newUrl} (no page reload)`);
+
+        // Clear any pending timeouts
+        if (window.historicalDataTimeout) {
+            clearTimeout(window.historicalDataTimeout);
+            window.historicalDataTimeout = null;
+        }
+
+        // Reset WebSocket state
+        window.combinedSymbol = '';
+        window.combinedIndicators = [];
+        window.combinedResolution = '1h';
+        window.combinedFromTs = null;
+        window.combinedToTs = null;
+        window.accumulatedHistoricalData = [];
+        window.isAccumulatingHistorical = false;
+        window.historicalDataSymbol = '';
+
+        // Update selected shape info
+        updateSelectedShapeInfoPanel(null);
+
+        // Save the new symbol selection
         setLastSelectedSymbol(selectedSymbol);
-        loadSettings();
+
+        // Load settings for the new symbol SYNCHRONOUSLY
+        console.log(`[main.js] Loading settings for ${selectedSymbol}...`);
+        await loadSettings(selectedSymbol);
+        console.log(`[main.js] Settings loaded successfully for ${selectedSymbol}`);
+
+        // Establish new WebSocket connection for the new symbol AFTER settings are loaded
+        console.log(`[main.js] Establishing new WebSocket connection for ${selectedSymbol}`);
+
+        // Calculate time range for new symbol
+        const now = Date.now();
+        const fromTs = Math.floor((now - 30 * 86400 * 1000) / 1000); // 30 days ago
+        const toTs = Math.floor(now / 1000); // Current time
+
+        // Now get the indicator values AFTER settings are loaded
+        const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+        const resolution = window.resolutionSelect.value;
+        console.log(`[main.js] WebSocket setup - indicators: ${activeIndicators}, resolution: ${resolution}`);
+
+        // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use the same timestamp source for both settings and WebSocket
+        // If we have saved X-axis range from settings, use it for WebSocket too
+        let wsFromTs = fromTs;
+        let wsToTs = toTs;
+
+        console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange before WebSocket setup`);
+        console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange:`, window.currentXAxisRange);
+        console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange type:`, typeof window.currentXAxisRange);
+        console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange length:`, window.currentXAxisRange ? window.currentXAxisRange.length : 'undefined');
+
+        if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
+            // Convert saved milliseconds to ISO timestamp strings for WebSocket
+            wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
+            wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
+            console.log(`[main.js] ✅ TIMESTAMP SYNC: Using saved X-axis range for WebSocket:`, {
+                savedRange: window.currentXAxisRange,
+                wsFromTs: wsFromTs,
+                wsToTs: wsToTs
+            });
+        } else {
+            console.log(`[main.js] ⚠️ TIMESTAMP SYNC: No valid currentXAxisRange found, using calculated time range for WebSocket:`, {
+                wsFromTs: wsFromTs,
+                wsToTs: wsToTs,
+                currentXAxisRangeStatus: window.currentXAxisRange ? 'exists but invalid' : 'null/undefined'
+            });
+        }
+
+        setupCombinedWebSocket(selectedSymbol, activeIndicators, resolution, wsFromTs, wsToTs);
+
     }); // Replaced .onchange with addEventListener('change',...)
     window.resolutionSelect.addEventListener('change', () => {
+        // Check if this change was triggered programmatically (from settings load)
+        if (window.isProgrammaticallySettingResolution) {
+            console.log("[main.js] Resolution change was triggered programmatically (from settings load). Skipping user modification flag and save.");
+            // Still need to update WebSocket for new data stream
+        } else {
+            // Mark that user has modified resolution
+            window.hasUserModifiedResolution = true;
+            console.log("[main.js] User manually changed resolution. Marking as modified.");
+            saveSettings();
+        }
+
         window.currentXAxisRange = null; window.currentYAxisRange = null;
         window.xAxisMinDisplay.textContent = 'Auto'; window.xAxisMaxDisplay.textContent = 'Auto';
         window.yAxisMinDisplay.textContent = 'Auto'; window.yAxisMaxDisplay.textContent = 'Auto';
         window.activeShapeForPotentialDeletion = null;
         updateSelectedShapeInfoPanel(null);
         console.log("[main.js] Resolution changed. Clearing ranges, deselecting shape. Triggering chart update.");
-        if (window.gd) removeRealtimePriceLine(window.gd);
-        saveSettings(); updateChart(); // updateChart from chartUpdater.js
+
+        // Clear the entire chart before changing resolution
+        if (window.gd) {
+            console.log("[main.js] Clearing chart data for resolution change");
+            console.log("[CHART_UPDATE] main.js resolution change - clearing chart at", new Date().toISOString());
+            removeRealtimePriceLine(window.gd);
+            // Clear all chart data and reset to empty state
+            Plotly.react(window.gd, [], window.gd.layout || {});
+            console.log("[CHART_UPDATE] main.js resolution change - chart cleared, ready for new data");
+        }
+
+        // Update WebSocket with new resolution (don't close/reopen, just send new config)
+        const symbol = window.symbolSelect.value;
+        const resolution = window.resolutionSelect.value;
+        const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+        if (symbol && resolution) {
+            console.log(`[main.js] Resolution changed to ${resolution}, updating WebSocket config`);
+            updateCombinedResolution(resolution);
+
+            // Send new config with updated resolution
+            const now = Date.now();
+            const fromTs = Math.floor((now - 30 * 86400 * 1000) / 1000); // 30 days ago
+            const toTs = Math.floor(now / 1000); // Current time
+
+            // If WebSocket is open, send new config, otherwise establish new connection
+            if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
+                setupCombinedWebSocket(symbol, activeIndicators, resolution, fromTs, toTs);
+            } else {
+                setTimeout(() => {
+                    setupCombinedWebSocket(symbol, activeIndicators, resolution, fromTs, toTs);
+                }, 100);
+            }
+        } else {
+            console.log(`[main.js] Resolution changed to ${resolution}, updating WebSocket config`);
+            updateCombinedResolution(resolution);
+
+            // Send new config with updated resolution
+            const now = Date.now();
+            let wsFromTs = new Date(now - 30 * 86400 * 1000).toISOString(); // 30 days ago
+            let wsToTs = new Date(now).toISOString(); // Current time
+
+            // If WebSocket is open, send new config, otherwise establish new connection
+            if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
+                setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+            } else {
+                setTimeout(() => {
+                    setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+                }, 100);
+            }
+        }
     }); // Replaced .onchange with addEventListener('change',...)
     window.rangeSelect.addEventListener('change', () => {
+        // Check if this change was triggered programmatically (from settings load)
+        if (window.isProgrammaticallySettingRange) {
+            console.log("[main.js] Range change was triggered programmatically (from settings load). Skipping user modification flag and save.");
+            // Still need to update WebSocket for new data stream
+        } else {
+            // Mark that user has modified range
+            console.log("[main.js] User manually changed range. Marking as modified.");
+            saveSettings(); // Save the new X axis range to Redis
+        }
+
         const rangeDropdownValue = window.rangeSelect.value;
         const now = Date.now(); // Keep in milliseconds
         let fromTs;
@@ -102,33 +307,103 @@ document.addEventListener('DOMContentLoaded', async () => {
         const toTs = now;
 
         window.currentXAxisRange = [fromTs, toTs]; // Keep in milliseconds
-        window.xAxisMinDisplay.textContent = new Date(fromTs).toLocaleString();
-        window.xAxisMaxDisplay.textContent = new Date(toTs).toLocaleString();
+        window.xAxisMinDisplay.textContent = `First timestamp (UTC): ${new Date(fromTs).toISOString()}`;
+        window.xAxisMaxDisplay.textContent = `Last timestamp (UTC): ${new Date(toTs).toISOString()}`;
 
+        window.currentYAxisRange = null; // Reset Y-axis range for new data
         window.yAxisMinDisplay.textContent = 'Auto';
         window.yAxisMaxDisplay.textContent = 'Auto';
         window.activeShapeForPotentialDeletion = null;
         updateSelectedShapeInfoPanel(null);
         if (window.cancelRequests) window.cancelRequests("Range change initiated by user");
         console.log("[main.js] Range changed by user. Calculating and setting new x-axis range, triggering chart update.");
-        if (window.gd) removeRealtimePriceLine(window.gd);
-        saveSettings(); // Save the new X axis range to Redis
-        updateChart();
+
+        // Clear the entire chart before changing range
+        if (window.gd) {
+            console.log("[main.js] Clearing chart data for range change");
+            console.log("[CHART_UPDATE] main.js range change - clearing chart at", new Date().toISOString());
+            removeRealtimePriceLine(window.gd);
+            // Clear all chart data and reset to empty state
+            Plotly.react(window.gd, [], window.gd.layout || {});
+            console.log("[CHART_UPDATE] main.js range change - chart cleared, ready for new data");
+        }
+
+        // Update WebSocket with new time range (don't close/reopen, just send new config)
+        const symbol = window.symbolSelect.value;
+        const resolution = window.resolutionSelect.value;
+        const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+        if (symbol && resolution) {
+            console.log(`[main.js] Time range changed to ${rangeDropdownValue}, updating WebSocket config`);
+
+            // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use consistent timestamp source
+            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for range change WebSocket`);
+            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange:`, window.currentXAxisRange);
+            let wsFromTs = Math.floor(fromTs / 1000);
+            let wsToTs = Math.floor(toTs / 1000);
+
+            if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
+                wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
+                wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
+                console.log(`[main.js] ✅ TIMESTAMP SYNC: Using saved X-axis range for range change WebSocket:`, {
+                    savedRange: window.currentXAxisRange,
+                    wsFromTs: wsFromTs,
+                    wsToTs: wsToTs
+                });
+            } else {
+                console.log(`[main.js] ⚠️ TIMESTAMP SYNC: No valid currentXAxisRange for range change, using dropdown range`);
+            }
+
+            // If WebSocket is open, send new config with updated time range, otherwise establish new connection
+            if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
+                setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+            } else {
+                setTimeout(() => {
+                    setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+                }, 100);
+            }
+        }
     }); // Replaced .onchange with addEventListener('change',...)
 
     window.liveDataCheckbox.addEventListener('change', () => {
         const selectedSymbol = window.symbolSelect.value;
         if (!selectedSymbol) return;
+
         if (window.liveDataCheckbox.checked) {
             console.log("Live data enabled by user. Setting dragmode to 'pan'.");
             saveSettings();
-            setupWebSocket(selectedSymbol); // from liveData.js
+
+            // Setup combined WebSocket with live data
+            const resolution = window.resolutionSelect.value;
+            const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+
+            // Calculate time range for live data
+            const now = Date.now();
+            let wsFromTs = new Date(now - 30 * 86400 * 1000).toISOString(); // 30 days ago
+            let wsToTs = new Date(now).toISOString(); // Current time
+
+            // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use saved X-axis range if available
+            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for live data WebSocket`);
+            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange:`, window.currentXAxisRange);
+            if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
+                wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
+                wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
+                console.log(`[main.js] ✅ TIMESTAMP SYNC: Using saved X-axis range for live data WebSocket:`, {
+                    savedRange: window.currentXAxisRange,
+                    wsFromTs: wsFromTs,
+                    wsToTs: wsToTs
+                });
+            } else {
+                console.log(`[main.js] ⚠️ TIMESTAMP SYNC: No valid currentXAxisRange for live data, using calculated range`);
+            }
+
+            setupCombinedWebSocket(selectedSymbol, activeIndicators, resolution, wsFromTs, wsToTs);
+
             if (window.gd) {
                 Plotly.relayout(window.gd, { dragmode: 'pan' });
             }
         } else {
             console.log("Live data disabled by user.");
-            closeWebSocket("Live data disabled by user via checkbox."); // from liveData.js
+            closeCombinedWebSocket("Live data disabled by user via checkbox.");
             saveSettings();
         }
     });
@@ -136,14 +411,76 @@ document.addEventListener('DOMContentLoaded', async () => {
     const indicatorCheckboxes = document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]');
     indicatorCheckboxes.forEach(checkbox => {
         checkbox.addEventListener('change', () => {
-            saveSettings(); updateChart();
+            saveSettings();
+
+            // Update combined WebSocket with new indicators
+            const symbol = window.symbolSelect.value;
+            const resolution = window.resolutionSelect.value;
+            const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+            console.log('main.js: Indicator checkbox change - activeIndicators:', activeIndicators);
+
+            if (symbol && resolution) {
+                // Update indicators and send new config if WebSocket is connected
+                updateCombinedIndicators(activeIndicators);
+
+                // If WebSocket is open, send updated config with new indicators
+                if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
+                    const now = Date.now();
+                    let wsFromTs = new Date(now - 30 * 86400 * 1000).toISOString(); // 30 days ago
+                    let wsToTs = new Date(now).toISOString(); // Current time
+
+                    // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use saved X-axis range if available
+                    console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for indicator change WebSocket`);
+                    console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange:`, window.currentXAxisRange);
+                    if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
+                        wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
+                        wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
+                        console.log(`[main.js] ✅ TIMESTAMP SYNC: Using saved X-axis range for indicator change WebSocket:`, {
+                            savedRange: window.currentXAxisRange,
+                            wsFromTs: wsFromTs,
+                            wsToTs: wsToTs
+                        });
+                    } else {
+                        console.log(`[main.js] ⚠️ TIMESTAMP SYNC: No valid currentXAxisRange for indicator change, using calculated range`);
+                    }
+
+                    setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+                }
+            }
         });
     });
 
     // Event listener for "Show Agent Trades" checkbox
     document.getElementById('showAgentTradesCheckbox').addEventListener('change', () => {
         saveSettings();
-        updateChart();
+        // Agent trades will be handled by the combined WebSocket when data is refreshed
+        const symbol = window.symbolSelect.value;
+        const resolution = window.resolutionSelect.value;
+        if (symbol && resolution) {
+            const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+
+            // Calculate time range for agent trades update
+            const now = Date.now();
+            let wsFromTs = new Date(now - 30 * 86400 * 1000).toISOString(); // 30 days ago
+            let wsToTs = new Date(now).toISOString(); // Current time
+
+            // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use saved X-axis range if available
+            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for agent trades WebSocket`);
+            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange:`, window.currentXAxisRange);
+            if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
+                wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
+                wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
+                console.log(`[main.js] ✅ TIMESTAMP SYNC: Using saved X-axis range for agent trades WebSocket:`, {
+                    savedRange: window.currentXAxisRange,
+                    wsFromTs: wsFromTs,
+                    wsToTs: wsToTs
+                });
+            } else {
+                console.log(`[main.js] ⚠️ TIMESTAMP SYNC: No valid currentXAxisRange for agent trades, using default range`);
+            }
+
+            setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+        }
     });
 
     // Event listener for Stream Delta Time slider
@@ -260,36 +597,170 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize other features
     initializeReplayControls(); // From replay.js
     initializeAIFeatures();   // From aiFeatures.js
-    initializeLogStream(); // From chartUpdater.js
+    initializeLogStream(); // Initialize log streaming
 
-    await populateDropdowns(); // from settingsManager.js
-
-    const lastSelectedSymbol = await getLastSelectedSymbol();
-    if (lastSelectedSymbol) {
-        window.symbolSelect.value = lastSelectedSymbol;
+    // Check for symbol from template FIRST (highest priority)
+    let initialSymbol = null;
+    if (window.initialSymbol && window.initialSymbol !== 'BTCUSDT') {
+        initialSymbol = window.initialSymbol;
+        console.log(`[main.js] Symbol from template/server: ${initialSymbol}`);
+        window.symbolSelect.value = initialSymbol;
+    } else {
+        // Check for requested symbol from URL path (second priority)
+        const urlPath = window.location.pathname;
+        if (urlPath && urlPath !== '/' && urlPath.length > 1) {
+            initialSymbol = urlPath.substring(1).toUpperCase();
+            console.log(`[main.js] Requested symbol from URL: ${initialSymbol}`);
+            window.symbolSelect.value = initialSymbol;
+        } else {
+            // Load last selected symbol if no URL symbol (lowest priority)
+            const lastSelectedSymbol = await getLastSelectedSymbol();
+            if (lastSelectedSymbol) {
+                initialSymbol = lastSelectedSymbol;
+                window.symbolSelect.value = lastSelectedSymbol;
+                console.log(`[main.js] Loaded last selected symbol: ${lastSelectedSymbol}`);
+            }
+        }
     }
 
-    // Check for requested symbol from URL path (e.g., /BTCUSDT) after dropdown is populated
-    const urlPath = window.location.pathname;
-    if (urlPath && urlPath !== '/' && urlPath.length > 1) {
-        const requestedSymbol = urlPath.substring(1).toUpperCase();
-        console.log(`[main.js] Requested symbol from URL: ${requestedSymbol}`);
+    // Store the initial symbol for comparison
+    window.initialSymbol = initialSymbol;
 
-        // Wait a bit for dropdown to be fully populated, then set the symbol
-        setTimeout(() => {
-            if (window.symbolSelect.querySelector(`option[value="${requestedSymbol}"]`)) {
-                window.symbolSelect.value = requestedSymbol;
-                console.log(`[main.js] Set symbol from URL: ${requestedSymbol}`);
-            } else {
-                console.warn(`[main.js] Requested symbol ${requestedSymbol} not found in dropdown`);
-            }
-        }, 100);
+    await populateDropdowns(); // Populate dropdown first
+
+    // Load settings after dropdown is populated
+    // Use initial symbol if available, otherwise use dropdown value
+    const symbolToLoad = initialSymbol || window.symbolSelect.value;
+    if (symbolToLoad) {
+        console.log(`[main.js] Loading settings for symbol: ${symbolToLoad}`);
+        await loadSettings(symbolToLoad);
+    } else {
+        console.warn(`[main.js] No symbol available for settings loading, using defaults`);
     }
 
     // Now that dropdowns are populated (and symbolSelect.value should be set by populate or default),
     // initialize chart interactions and then load settings.
-    if (window.gd) initializeChartInteractions(); // From chartInteractions.js, ensure gd is available
-    await loadSettings(); // From settingsManager.js (which calls updateChart)
+    if (window.gd) {
+        console.log('[DEBUG] About to call initializeChartInteractions');
+        initializeChartInteractions(); // From chartInteractions.js, ensure gd is available
+        console.log('[DEBUG] initializeChartInteractions completed');
+    } else {
+        console.log('[DEBUG] window.gd not available, skipping initializeChartInteractions');
+    }
+
+    // Initialize combined WebSocket after settings are loaded
+    // Add a small delay to ensure programmatic setting of UI controls is complete
+    setTimeout(() => {
+        const selectedSymbol = window.symbolSelect.value;
+        const selectedResolution = window.resolutionSelect.value;
+        console.log(`[main.js] Initializing combined WebSocket with symbol: ${selectedSymbol}, resolution: ${selectedResolution}`);
+
+        if (selectedSymbol && selectedResolution) {
+            const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+            console.log(`[main.js] Active indicators:`, activeIndicators);
+
+            // Use saved X-axis range if available, otherwise use default (30 days ago to now)
+            let fromTs, toTs;
+            if (window.currentXAxisRange && window.currentXAxisRange.length === 2) {
+                // Convert milliseconds to ISO timestamp strings
+                fromTs = new Date(window.currentXAxisRange[0]).toISOString();
+                toTs = new Date(window.currentXAxisRange[1]).toISOString();
+                console.log(`[main.js] Using saved X-axis range: from ${fromTs} to ${toTs}`);
+            } else {
+                const now = Date.now();
+                fromTs = new Date(now - 30 * 86400 * 1000).toISOString(); // 30 days ago
+                toTs = new Date(now).toISOString(); // Current time
+                console.log(`[main.js] Using default time range: from ${fromTs} to ${toTs}`);
+            }
+
+            setupCombinedWebSocket(selectedSymbol, activeIndicators, selectedResolution, fromTs, toTs);
+        } else {
+            console.warn(`[main.js] Cannot initialize WebSocket - symbol: ${selectedSymbol}, resolution: ${selectedResolution}`);
+        }
+    }, 50); // Small delay to ensure UI updates are complete
+
+    // Force dragmode to 'pan' at the very end of initialization to override any other settings
+    setTimeout(() => {
+        if (window.gd) {
+            console.log('[DEBUG] Forcing final dragmode to pan');
+            Plotly.relayout(window.gd, { dragmode: 'pan' }).then(() => {
+                console.log('[DEBUG] Final dragmode set to pan successfully');
+            }).catch(err => {
+                console.error('[DEBUG] Failed to set final dragmode:', err);
+            });
+        }
+    }, 1000);
+
+    // Handle browser back/forward navigation
+    window.addEventListener('popstate', (event) => {
+        console.log('[main.js] Browser navigation detected, updating chart for new symbol');
+        const newSymbol = window.location.pathname.substring(1).toUpperCase();
+
+        if (newSymbol && newSymbol !== window.symbolSelect.value) {
+            console.log(`[main.js] Updating symbol from ${window.symbolSelect.value} to ${newSymbol} due to navigation`);
+
+            // Update dropdown without triggering change event
+            window.isProgrammaticallySettingSymbol = true;
+            window.symbolSelect.value = newSymbol;
+            window.isProgrammaticallySettingSymbol = false;
+
+            // Perform symbol switch
+            window.currentXAxisRange = null;
+            window.currentYAxisRange = null;
+            window.xAxisMinDisplay.textContent = 'Auto';
+            window.xAxisMaxDisplay.textContent = 'Auto';
+            window.yAxisMinDisplay.textContent = 'Auto';
+            window.yAxisMaxDisplay.textContent = 'Auto';
+            window.activeShapeForPotentialDeletion = null;
+
+            // Clear chart and close WebSocket
+            if (window.gd) {
+                removeRealtimePriceLine(window.gd);
+                Plotly.react(window.gd, [], window.gd.layout || {});
+            }
+            closeCombinedWebSocket("Browser navigation - switching symbols");
+
+            // Reset state
+            window.combinedSymbol = '';
+            window.combinedIndicators = [];
+            window.combinedResolution = '1h';
+            window.combinedFromTs = null;
+            window.combinedToTs = null;
+            window.accumulatedHistoricalData = [];
+            window.isAccumulatingHistorical = false;
+            window.historicalDataSymbol = '';
+
+            updateSelectedShapeInfoPanel(null);
+            setLastSelectedSymbol(newSymbol);
+            loadSettings(newSymbol);
+
+            // Establish new connection
+            const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+            const resolution = window.resolutionSelect.value;
+            const now = Date.now();
+            let wsFromTs = new Date(now - 30 * 86400 * 1000).toISOString();
+            let wsToTs = new Date(now).toISOString();
+
+            // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use saved X-axis range if available
+            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for browser navigation WebSocket`);
+            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange:`, window.currentXAxisRange);
+            if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
+                wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
+                wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
+                console.log(`[main.js] ✅ TIMESTAMP SYNC: Using saved X-axis range for browser navigation WebSocket:`, {
+                    savedRange: window.currentXAxisRange,
+                    wsFromTs: wsFromTs,
+                    wsToTs: wsToTs
+                });
+            } else {
+                console.log(`[main.js] ⚠️ TIMESTAMP SYNC: No valid currentXAxisRange for browser navigation, using calculated range`);
+            }
+
+            setTimeout(() => {
+                setupCombinedWebSocket(newSymbol, activeIndicators, resolution, wsFromTs, wsToTs);
+            }, 200);
+        }
+    });
 
     // Explicitly handle window resize
     const debouncedPlotlyResize = debounce(function() {
@@ -302,7 +773,33 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadDrawingsAndRedraw(symbol) { // Keep this global for now, or move to api.js and call from there
     console.log(`Fetching and redrawing drawings for ${symbol}...`);
-    updateChart(); // This will reload drawings as part of its process
+
+    // Re-initialize combined WebSocket to reload data with drawings
+    const resolution = window.resolutionSelect.value;
+    const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+    if (symbol && resolution) {
+        // Calculate time range for drawings reload
+        const now = Date.now();
+        let wsFromTs = new Date(now - 30 * 86400 * 1000).toISOString(); // 30 days ago
+        let wsToTs = new Date(now).toISOString(); // Current time
+
+        // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use saved X-axis range if available
+        console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for drawings reload WebSocket`);
+        console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange:`, window.currentXAxisRange);
+        if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
+            wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
+            wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
+            console.log(`[main.js] ✅ TIMESTAMP SYNC: Using saved X-axis range for drawings reload WebSocket:`, {
+                savedRange: window.currentXAxisRange,
+                wsFromTs: wsFromTs,
+                wsToTs: wsToTs
+            });
+        } else {
+            console.log(`[main.js] ⚠️ TIMESTAMP SYNC: No valid currentXAxisRange for drawings reload, using calculated range`);
+        }
+
+        setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+    }
 }
 
 
@@ -425,7 +922,7 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
                             if (yVal < yMin) yMin = yVal;
                             if (yVal > yMax) yMax = yVal;
                             yDataFound = true;
-                            console.log(`Autoscale: Found price yVal=${yVal}`);
+                            //console.log(`Autoscale: Found price yVal=${yVal}`);
                         }
                     });
                 } else {
@@ -495,6 +992,45 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
         console.log("Autoscale: Applying layoutUpdate:", JSON.stringify(layoutUpdate, null, 2));
         try {
             Plotly.relayout(plotlyGraphObj, layoutUpdate);
+
+            // Save the new axis ranges after applying autoscale
+            if (xDataFound) {
+                // Convert from ISO strings back to milliseconds for storage
+                const newXMin = new Date(layoutUpdate['xaxis.range[0]']).getTime();
+                const newXMax = new Date(layoutUpdate['xaxis.range[1]']).getTime();
+
+                // Update global variables (store in milliseconds as expected by the system)
+                window.currentXAxisRange = [newXMin, newXMax];
+
+                // Update display elements
+                if (window.xAxisMinDisplay) {
+                    window.xAxisMinDisplay.textContent = `First timestamp (UTC): ${new Date(newXMin).toISOString()}`;
+                }
+                if (window.xAxisMaxDisplay) {
+                    window.xAxisMaxDisplay.textContent = `Last timestamp (UTC): ${new Date(newXMax).toISOString()}`;
+                }
+
+                console.log("Autoscale: Updated currentXAxisRange:", window.currentXAxisRange);
+            }
+
+            // Save Y-axis range if it was calculated
+            if (priceChartYMin !== Infinity && priceChartYMax !== -Infinity) {
+                window.currentYAxisRange = [priceChartYMin - yPadding, priceChartYMax + yPadding];
+
+                // Update display elements
+                if (window.yAxisMinDisplay) {
+                    window.yAxisMinDisplay.textContent = (priceChartYMin - yPadding).toFixed(2);
+                }
+                if (window.yAxisMaxDisplay) {
+                    window.yAxisMaxDisplay.textContent = (priceChartYMax + yPadding).toFixed(2);
+                }
+
+                console.log("Autoscale: Updated currentYAxisRange:", window.currentYAxisRange);
+            }
+
+            // Save the new ranges to Redis
+            saveSettings();
+
         } catch (e) {
             console.error("Autoscale: Error during Plotly.relayout:", e);
             console.error("Autoscale: Failed layoutUpdate was:", JSON.stringify(layoutUpdate, null, 2));
@@ -691,4 +1227,51 @@ function closeShapePropertiesDialog() {
     if (dialog) {
         dialog.style.display = 'none';
     }
+}
+
+// Initialize log streaming
+function initializeLogStream() {
+    const logElement = document.getElementById('event-output');
+
+    if (!logElement) {
+        console.error("Log element with ID 'event-output' not found in the DOM.");
+        return;
+    }
+
+    const eventSource = new EventSource('/stream/logs');
+
+    eventSource.onmessage = function(event) {
+        try {
+            const logLineText = JSON.parse(event.data);
+
+            // Get current content, split into lines, and prepend the new log
+            let currentLog = logElement.value;
+            let lines = currentLog.split('\n');
+            lines.unshift(logLineText);
+
+            // Limit the number of lines to prevent the UI from slowing down
+            if (lines.length > 200) {
+                lines = lines.slice(0, 200);
+            }
+
+            logElement.value = lines.join('\n');
+
+            // Auto-scroll to the top to show the latest message if already there
+            /*
+            if (logElement.scrollTop < 10) { // A small tolerance
+                logElement.scrollTop = 0;
+            }
+            */
+
+        } catch (e) {
+            console.error("Error parsing log data:", e, "Raw data:", event.data);
+        }
+    };
+
+    eventSource.onerror = function(err) {
+        console.error("EventSource for logs failed:", err);
+        // The browser will automatically attempt to reconnect.
+    };
+
+    console.log("Log stream initialized.");
 }

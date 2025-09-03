@@ -39,13 +39,13 @@ function updateOrAddCrosshairVLine(gd, xDataValue, doRelayout = true) {
 
 function colorTheLine(eventParam)
 {
-        console.log('[DEBUG] colorTheLine called with event:', eventParam ? 'event provided' : 'no event');
+        // console.log('[DEBUG] colorTheLine called with event:', eventParam ? 'event provided' : 'no event');
         // console.groupCollapsed('[NativeMousemove] Event Processing');
         // console.log('[colorTheLine] Current dragmode:', window.gd ? window.gd.layout.dragmode : 'N/A');
 
         // Skip if a shape is currently being dragged
         if (window.isDraggingShape) {
-            console.log('[DEBUG] colorTheLine skipping because shape is being dragged');
+            // console.log('[DEBUG] colorTheLine skipping because shape is being dragged');
             return;
         }
 
@@ -238,9 +238,9 @@ function colorTheLine(eventParam)
             }
         }
 
-        console.log(`[DEBUG] colorTheLine Final: hoveredShapeBackendId=${window.hoveredShapeBackendId}, newHoveredShapeId=${window.newHoveredShapeId}`);
+        //console.log(`[DEBUG] colorTheLine Final: hoveredShapeBackendId=${window.hoveredShapeBackendId}, newHoveredShapeId=${window.newHoveredShapeId}`);
         if (window.hoveredShapeBackendId !== window.newHoveredShapeId) {
-            console.log(`[DEBUG] colorTheLine Updated hoveredShapeBackendId to: ${window.newHoveredShapeId}`);
+            //console.log(`[DEBUG] colorTheLine Updated hoveredShapeBackendId to: ${window.newHoveredShapeId}`);
             window.hoveredShapeBackendId = window.newHoveredShapeId;
             if(window.hoveredShapeBackendId) findAndupdateSelectedShapeInfoPanel(window.hoveredShapeBackendId)
             debouncedUpdateShapeVisuals();
@@ -263,7 +263,8 @@ function colorTheLine(eventParam)
                     if (window.cursorTimeDisplay) { // Assumes cursorTimeDisplay is global
                         window.cursorTimeDisplay.textContent = dateAtCursor.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
                     }
-                    window.debouncedUpdateCrosshair(window.gd, dateAtCursor); // Assumes debouncedUpdateCrosshair is global
+                    // DISABLED: Crosshair interferes with panning
+                    // window.debouncedUpdateCrosshair(window.gd, dateAtCursor); // Assumes debouncedUpdateCrosshair is global
 
                     const mainTrace = window.gd.data[0];
                     let candleIndex = -1;
@@ -286,18 +287,21 @@ function colorTheLine(eventParam)
                         window.cursorPriceDisplay.textContent = 'N/A';
                     }
                 } else {
-                    removeCrosshairVLine(window.gd, true);
+                    // DISABLED: Crosshair interferes with panning
+                    // removeCrosshairVLine(window.gd, true);
                     if (window.cursorTimeDisplay) window.cursorTimeDisplay.textContent = 'N/A';
                     if (window.cursorPriceDisplay) window.cursorPriceDisplay.textContent = 'N/A';
                 }
             } else {
-                removeCrosshairVLine(window.gd, true);
+                // DISABLED: Crosshair interferes with panning
+                // removeCrosshairVLine(window.gd, true);
                 if (window.cursorTimeDisplay) window.cursorTimeDisplay.textContent = 'N/A';
                 if (window.cursorPriceDisplay) window.cursorPriceDisplay.textContent = 'N/A';
             }
         } else {
             // On mobile, clear crosshair and cursor displays
-            removeCrosshairVLine(window.gd, true);
+            // DISABLED: Crosshair interferes with panning
+            // removeCrosshairVLine(window.gd, true);
             if (window.cursorTimeDisplay) window.cursorTimeDisplay.textContent = 'N/A';
             if (window.cursorPriceDisplay) window.cursorPriceDisplay.textContent = 'N/A';
         }
@@ -528,6 +532,7 @@ function initializeChartInteractions() {
             window.hoveredShapeBackendId = null;
             debouncedUpdateShapeVisuals(); // From main.js
         }
+        // DISABLED: Crosshair interferes with panning
         /*
         removeCrosshairVLine(window.gd, true); // removeCrosshairVLine from this file
         if (window.cursorTimeDisplay) window.cursorTimeDisplay.textContent = 'N/A'; // From main.js

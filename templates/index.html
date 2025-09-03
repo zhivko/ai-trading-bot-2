@@ -6,6 +6,11 @@
     <meta http-equiv="Expires" content="0">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Crypto Chart</title>
+    <script>
+        // Set the initial symbol from the server (defaults to BTCUSDT if not provided)
+        window.initialSymbol = "{{ symbol|default('BTCUSDT') }}";
+        console.log('[Template] Initial symbol set to:', window.initialSymbol);
+    </script>
     <style>
         * {
             box-sizing: border-box;
@@ -337,8 +342,7 @@
     <script src="/static/js/api.js"></script>       <!-- Ensure api.js is loaded before scripts that depend on it -->
     
     <!-- Scripts that depend on core utilities and API functions -->
-    <script src="/static/js/chartUpdater.js?v=2"></script>
-    <script src="/static/js/liveData.js"></script>
+    <script src="/static/js/combinedData.js"></script>
     <script src="/static/js/chartInteractions.js"></script>
     <script src="/static/js/aiFeatures.js"></script>
     <script src="/static/js/replay.js"></script>

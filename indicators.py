@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
+import time
 from config import AVAILABLE_INDICATORS, session
 from logging_config import logger
 from datetime import datetime, timezone
@@ -62,9 +63,21 @@ def _extract_results(df: pd.DataFrame, columns: List[str], original_time_index: 
     temp_df = df[columns].copy()
     temp_df['original_time'] = original_time_index
 
-    # Drop rows where ALL specified indicator columns are NaN
-    # This keeps rows if at least one indicator value is present
-    temp_df.dropna(subset=columns, how='all', inplace=True)
+    # DEBUG: Log gap analysis before dropping NaN rows
+    logger.info(f"🔍 GAP ANALYSIS: Before NaN drop - DataFrame has {len(temp_df)} rows")
+    logger.info(f"🔍 GAP ANALYSIS: Original time range: {temp_df['original_time'].min()} to {temp_df['original_time'].max()}")
+    logger.info(f"🔍 GAP ANALYSIS: First 5 timestamps: {temp_df['original_time'].head(5).tolist()}")
+    logger.info(f"🔍 GAP ANALYSIS: Last 5 timestamps: {temp_df['original_time'].tail(5).tolist()}")
+
+    # Check NaN counts for each column
+    for col in columns:
+        nan_count = temp_df[col].isna().sum()
+        logger.info(f"🔍 GAP ANALYSIS: Column '{col}' has {nan_count} NaN values out of {len(temp_df)} total rows")
+
+    # PRESERVE ALL TIMESTAMPS - Don't drop rows with NaN values to maintain alignment with price data
+    # This fixes the gap issue where indicators start later than price data
+    logger.info(f"🔍 GAP ANALYSIS: PRESERVING ALL TIMESTAMPS - No rows dropped")
+    logger.info(f"🔍 GAP ANALYSIS: Full time range maintained: {temp_df['original_time'].min()} to {temp_df['original_time'].max()}")
 
     data_dict["t"] = (temp_df['original_time'].astype('int64') // 10**9).tolist()  # Convert ns to s
     for col in columns:
@@ -93,9 +106,15 @@ def _extract_results(df: pd.DataFrame, columns: List[str], original_time_index: 
         elif "jma" in col.lower() and "jma_up" not in col.lower() and "jma_down" not in col.lower():
             simple_col_name = "jma"  # Add JMA
 
-        # Convert NaN to None for JSON compatibility
-        raw_values = temp_df[col].tolist()
-        processed_values = [None if pd.isna(val) else val for val in raw_values]
+        # Convert NaN to None for JSON compatibility, but PRESERVE all values including NaN
+        if col in temp_df.columns:
+            raw_values = temp_df[col].tolist()
+            processed_values = [None if pd.isna(val) else val for val in raw_values]
+        else:
+            # If column doesn't exist, fill with None values
+            processed_values = [None] * len(temp_df)
+            logger.warning(f"Column '{col}' not found in DataFrame, filling with None values")
+
         data_dict[simple_col_name] = processed_values
     return data_dict
 
@@ -104,24 +123,58 @@ def calculate_open_interest(df_input: pd.DataFrame) -> Dict[str, Any]:
     original_time_index = df.index.to_series()
     oi_col = 'open_interest'  # This column should already exist from _prepare_dataframe
     if oi_col not in df.columns:
-        logger.warning(f"Open Interest column '{oi_col}' not found in DataFrame. Cannot calculate.")
-        return {"t": [], "open_interest": []}
+        logger.warning(f"Open Interest column '{oi_col}' not found in DataFrame. Cannot calculate. Returning empty subplots.")
+        # Return placeholder data to create empty subplots - use first available timestamp
+        first_timestamp = original_time_index.iloc[0] if len(original_time_index) > 0 else int(time.time())
+        return {"t": [first_timestamp], "open_interest": [None]}
     return _extract_results(df, [oi_col], original_time_index)
 
 def calculate_macd(df_input: pd.DataFrame, short_period: int, long_period: int, signal_period: int) -> Dict[str, Any]:
     df = df_input.copy()
     original_time_index = df.index.to_series()  # Keep original timestamps before any drops
-    df.ta.macd(fast=short_period, slow=long_period, signal=signal_period, append=True)
+
+    # Clean the data before MACD calculation - remove rows with NaN/None values in critical columns
+    critical_columns = ['open', 'high', 'low', 'close']
+    df_clean = df.dropna(subset=critical_columns).copy()
+
+    # Also ensure volume is not None (replace with 0 if needed)
+    if 'volume' in df_clean.columns:
+        df_clean['volume'] = df_clean['volume'].fillna(0)
+
+    logger.info(f"🔍 MACD GAP DEBUG: Original data points: {len(df)}, Cleaned data points: {len(df_clean)}")
+    logger.info(f"🔍 MACD GAP DEBUG: Required minimum: {long_period + signal_period} points")
+    logger.info(f"🔍 MACD GAP DEBUG: Data timeframe: {df_clean.index.min()} to {df_clean.index.max()}")
+    logger.info(f"🔍 MACD GAP DEBUG: Gap from original start: {(df_clean.index.min() - original_time_index.min()).total_seconds() / 86400:.1f} days")
+
+    if len(df_clean) < long_period + signal_period:
+        logger.warning(f"🔍 MACD GAP CAUSE: Insufficient data for MACD calculation. Need at least {long_period + signal_period} points, got {len(df_clean)}. This creates a {((original_time_index.min() + pd.Timedelta(seconds=(long_period + signal_period) * get_timeframe_seconds('1h'))) - original_time_index.min()).total_seconds() / 86400:.1f} day gap.")
+        # Return placeholder data to create empty subplots - use first available timestamp
+        first_timestamp = original_time_index.iloc[0] if len(original_time_index) > 0 else int(time.time())
+        return {"t": [first_timestamp], "macd": [None], "signal": [None], "histogram": [None]}
+
+    try:
+        df_clean.ta.macd(fast=short_period, slow=long_period, signal=signal_period, append=True)
+    except Exception as e:
+        logger.error(f"pandas-ta MACD calculation failed: {e}")
+        logger.error(f"DataFrame info: shape={df_clean.shape}, columns={df_clean.columns.tolist()}")
+        logger.error(f"Sample data: {df_clean.head(3).to_dict() if len(df_clean) > 0 else 'No data'}. Returning empty subplots.")
+        # Return placeholder data to create empty subplots - use first available timestamp
+        first_timestamp = original_time_index.iloc[0] if len(original_time_index) > 0 else int(time.time())
+        return {"t": [first_timestamp], "macd": [None], "signal": [None], "histogram": [None]}
+
     macd_col = f'MACD_{short_period}_{long_period}_{signal_period}'
     signal_col = f'MACDs_{short_period}_{long_period}_{signal_period}'
     hist_col = f'MACDh_{short_period}_{long_period}_{signal_period}'
 
     # Check if columns were actually created by pandas_ta
-    if not all(col in df.columns for col in [macd_col, signal_col, hist_col]):
+    if not all(col in df_clean.columns for col in [macd_col, signal_col, hist_col]):
         logger.warning(f"MACD columns not found in DataFrame. Expected: {macd_col}, {signal_col}, {hist_col}. "
-                      f"This might be due to insufficient data for the indicator periods. Available columns: {df.columns.tolist()}")
-        return {"t": [], "macd": [], "signal": [], "histogram": []}  # Return empty data structure
-    return _extract_results(df, [macd_col, signal_col, hist_col], original_time_index)
+                      f"This might be due to insufficient data for the indicator periods. Available columns: {df_clean.columns.tolist()}. Returning empty subplots.")
+        # Return placeholder data to create empty subplots - use first available timestamp
+        first_timestamp = original_time_index.iloc[0] if len(original_time_index) > 0 else int(time.time())
+        return {"t": [first_timestamp], "macd": [None], "signal": [None], "histogram": [None]}
+
+    return _extract_results(df_clean, [macd_col, signal_col, hist_col], original_time_index)
 
 def calculate_rsi(df_input: pd.DataFrame, period: int = 14) -> Dict[str, Any]:
     """
@@ -138,44 +191,73 @@ def calculate_rsi(df_input: pd.DataFrame, period: int = 14) -> Dict[str, Any]:
     df = df_input.copy()
     original_time_index = df.index.to_series()
 
-    # DEBUG: Log input data
-    logger.debug(f"[DEBUG RSI] Input DataFrame length: {len(df)}, period: {period}")
-    if len(df) > 0:
-        logger.debug(f"[DEBUG RSI] Sample close prices: {df['close'].head(5).tolist()}")
-        logger.debug(f"[DEBUG RSI] Close price range: min={df['close'].min():.2f}, max={df['close'].max():.2f}")
+    # Clean the data before RSI calculation - remove rows with NaN/None values in critical columns
+    critical_columns = ['open', 'high', 'low', 'close']
+    df_clean = df.dropna(subset=critical_columns).copy()
 
-    # 1️⃣ Compute the raw RSI
-    df.ta.rsi(length=period, append=True)
+    # Also ensure volume is not None (replace with 0 if needed)
+    if 'volume' in df_clean.columns:
+        df_clean['volume'] = df_clean['volume'].fillna(0)
+
+    logger.info(f"🔍 RSI GAP DEBUG: Original data points: {len(df)}, Cleaned data points: {len(df_clean)}")
+    logger.info(f"🔍 RSI GAP DEBUG: Required minimum: {period + 14} points (RSI period {period} + SMA 14)")
+    logger.info(f"🔍 RSI GAP DEBUG: Data timeframe: {df_clean.index.min()} to {df_clean.index.max()}")
+    logger.info(f"🔍 RSI GAP DEBUG: Gap from original start: {(df_clean.index.min() - original_time_index.min()).total_seconds() / 86400:.1f} days")
+
+    if len(df_clean) < period + 14:  # Need enough data for RSI + SMA
+        logger.warning(f"🔍 RSI GAP CAUSE: Insufficient data for RSI calculation. Need at least {period + 14} points, got {len(df_clean)}. This creates a {((original_time_index.min() + pd.Timedelta(seconds=(period + 14) * get_timeframe_seconds('1h'))) - original_time_index.min()).total_seconds() / 86400:.1f} day gap.")
+        # Return placeholder data to create empty subplots - use first available timestamp
+        first_timestamp = original_time_index.iloc[0] if len(original_time_index) > 0 else int(time.time())
+        return {"t": [first_timestamp], "rsi": [None], "rsi_sma14": [None]}
+
+    # DEBUG: Log input data
+    logger.debug(f"[DEBUG RSI] Input DataFrame length: {len(df_clean)}, period: {period}")
+    if len(df_clean) > 0:
+        logger.debug(f"[DEBUG RSI] Sample close prices: {df_clean['close'].head(5).tolist()}")
+        logger.debug(f"[DEBUG RSI] Close price range: min={df_clean['close'].min():.2f}, max={df_clean['close'].max():.2f}")
+
+    try:
+        # 1️⃣ Compute the raw RSI
+        df_clean.ta.rsi(length=period, append=True)
+    except Exception as e:
+        logger.error(f"pandas-ta RSI calculation failed: {e}")
+        logger.error(f"DataFrame info: shape={df_clean.shape}, columns={df_clean.columns.tolist()}. Returning empty subplots.")
+        # Return placeholder data to create empty subplots - use first available timestamp
+        first_timestamp = original_time_index.iloc[0] if len(original_time_index) > 0 else int(time.time())
+        return {"t": [first_timestamp], "rsi": [None], "rsi_sma14": [None]}
+
     rsi_col = f"RSI_{period}"
-    if rsi_col not in df.columns:
+    if rsi_col not in df_clean.columns:
         logger.warning(
-            f"RSI column '{rsi_col}' not found – maybe not enough data."
+            f"RSI column '{rsi_col}' not found – maybe not enough data. Returning empty subplots."
         )
-        return {"t": [], "rsi": [], "rsi_sma14": []}
+        # Return placeholder data to create empty subplots - use first available timestamp
+        first_timestamp = original_time_index.iloc[0] if len(original_time_index) > 0 else int(time.time())
+        return {"t": [first_timestamp], "rsi": [None], "rsi_sma14": [None]}
 
     # DEBUG: Log RSI values
     logger.debug(f"[DEBUG RSI] RSI column created: {rsi_col}")
-    if len(df) > 0:
-        logger.debug(f"[DEBUG RSI] Sample RSI values: {df[rsi_col].head(5).tolist()}")
-        logger.debug(f"[DEBUG RSI] RSI range: min={df[rsi_col].min():.2f}, max={df[rsi_col].max():.2f}")
+    if len(df_clean) > 0:
+        logger.debug(f"[DEBUG RSI] Sample RSI values: {df_clean[rsi_col].head(5).tolist()}")
+        logger.debug(f"[DEBUG RSI] RSI range: min={df_clean[rsi_col].min():.2f}, max={df_clean[rsi_col].max():.2f}")
 
     # 2️⃣ Compute SMA‑14 of that RSI
     sma_col = f"RSI_{period}_sma14"
-    df[sma_col] = df[rsi_col].rolling(window=14).mean()
+    df_clean[sma_col] = df_clean[rsi_col].rolling(window=14).mean()
 
     # DEBUG: Log SMA values
     logger.debug(f"[DEBUG RSI] SMA column created: {sma_col}")
-    if len(df) > 0:
-        logger.info(f"[DEBUG RSI] Sample SMA values: {df[sma_col].head(5).tolist()}")
-        logger.info(f"[DEBUG RSI] SMA range: min={df[sma_col].min():.2f}, max={df[sma_col].max():.2f}")
+    if len(df_clean) > 0:
+        logger.info(f"[DEBUG RSI] Sample SMA values: {df_clean[sma_col].head(5).tolist()}")
+        logger.info(f"[DEBUG RSI] SMA range: min={df_clean[sma_col].min():.2f}, max={df_clean[sma_col].max():.2f}")
 
     # 3️⃣ Return both columns via _extract_results
-    logger.info(f"[DEBUG RSI] Columns before _extract_results: {df.columns.tolist()}")
-    logger.info(f"[DEBUG RSI] RSI column sample: {df[rsi_col].head(5).tolist()}")
-    logger.info(f"[DEBUG RSI] SMA column sample: {df[sma_col].head(5).tolist()}")
-    logger.info(f"[DEBUG RSI] SMA NaN count: {df[sma_col].isna().sum()}")
+    logger.info(f"[DEBUG RSI] Columns before _extract_results: {df_clean.columns.tolist()}")
+    logger.info(f"[DEBUG RSI] RSI column sample: {df_clean[rsi_col].head(5).tolist()}")
+    logger.info(f"[DEBUG RSI] SMA column sample: {df_clean[sma_col].head(5).tolist()}")
+    logger.info(f"[DEBUG RSI] SMA NaN count: {df_clean[sma_col].isna().sum()}")
 
-    result = _extract_results(df, [rsi_col, sma_col], original_time_index)
+    result = _extract_results(df_clean, [rsi_col, sma_col], original_time_index)
     logger.info(f"[DEBUG RSI] Final result keys: {list(result.keys())}")
     logger.info(f"[DEBUG RSI] Final result length: {len(result.get('t', []))}")
     return result
@@ -183,6 +265,22 @@ def calculate_rsi(df_input: pd.DataFrame, period: int = 14) -> Dict[str, Any]:
 def calculate_stoch_rsi(df_input: pd.DataFrame, rsi_period: int, stoch_period: int, k_period: int, d_period: int) -> Dict[str, Any]:
     df = df_input.copy()
     original_time_index = df.index.to_series()
+
+    logger.info(f"🔍 STOCHRSI GAP DEBUG: Input data points: {len(df)}")
+    logger.info(f"🔍 STOCHRSI GAP DEBUG: Parameters: RSI={rsi_period}, Stoch={stoch_period}, K={k_period}, D={d_period}")
+    logger.info(f"🔍 STOCHRSI GAP DEBUG: Estimated warmup period: RSI({rsi_period}) + Stoch({stoch_period}) + smoothing = ~{rsi_period + stoch_period + k_period + d_period} points")
+
+    # Check if we have sufficient data before attempting calculation
+    min_required_points = rsi_period + stoch_period + k_period + d_period
+    logger.info(f"🔍 STOCHRSI VALIDATION: Minimum required data points: {min_required_points}, Available: {len(df)}")
+
+    if len(df) < min_required_points:
+        logger.warning(f"🔍 STOCHRSI INSUFFICIENT DATA: Need at least {min_required_points} points, got {len(df)}. "
+                      f"This will cause {min_required_points - len(df)} NaN values at the start.")
+        # Return placeholder data to create empty subplots - use first available timestamp
+        first_timestamp = original_time_index.iloc[0] if len(original_time_index) > 0 else int(time.time())
+        return {"t": [first_timestamp], "stoch_k": [None], "stoch_d": [None]}
+
     # pandas-ta uses rsi_length, roc_length (for stoch_period), k, d
     df.ta.stochrsi(rsi_length=rsi_period, length=stoch_period, k=k_period, d=d_period, append=True)
     k_col = f'STOCHRSIk_{rsi_period}_{stoch_period}_{k_period}_{d_period}'
@@ -192,8 +290,10 @@ def calculate_stoch_rsi(df_input: pd.DataFrame, rsi_period: int, stoch_period: i
     if k_col not in df.columns or d_col not in df.columns:
         logger.warning(f"Stochastic RSI columns '{k_col}' or '{d_col}' not found in DataFrame after calculation. "
                       f"This might be due to insufficient data for the indicator periods. "
-                      f"Available columns: {df.columns.tolist()}")
-        return {"t": [], "stoch_k": [], "stoch_d": []}  # Return empty data structure
+                      f"Available columns: {df.columns.tolist()}. Returning empty subplots.")
+        # Return placeholder data to create empty subplots - use first available timestamp
+        first_timestamp = original_time_index.iloc[0] if len(original_time_index) > 0 else int(time.time())
+        return {"t": [first_timestamp], "stoch_k": [None], "stoch_d": [None]}
 
     return _extract_results(df, [k_col, d_col], original_time_index)
 
@@ -203,22 +303,29 @@ def calculate_jma_indicator(df_input: pd.DataFrame, length: int = 7, phase: int 
         import jurikIndicator  # Import here to avoid circular dependency issues
         if not hasattr(jurikIndicator, 'calculate_jma'):
 
-            logger.error("jurikIndicator.py does not have the 'calculate_jma' function.")
-            return {"t": [], "jma": []}
+            logger.error("jurikIndicator.py does not have the 'calculate_jma' function. Returning empty subplots.")
+            # Return placeholder data to create empty subplots - use first available timestamp
+            first_timestamp = original_time_index.iloc[0] if len(original_time_index) > 0 else int(time.time())
+            return {"t": [first_timestamp], "jma": [None], "jma_up": [None], "jma_down": [None]}
         df = df_input.copy()
         original_time_index = df.index.to_series()
         jma_series = jurikIndicator.calculate_jma(df['close'], length, phase, power)
         df['jma'] = jma_series
         if 'jma' not in df.columns:
-            return {"t": [], "jma": [], "jma_up": [], "jma_down": []}
+            logger.warning("JMA column not found in DataFrame after calculation. Returning empty subplots.")
+            # Return placeholder data to create empty subplots - use first available timestamp
+            first_timestamp = original_time_index.iloc[0] if len(original_time_index) > 0 else int(time.time())
+            return {"t": [first_timestamp], "jma": [None], "jma_up": [None], "jma_down": [None]}
 
         df['jma_up'] = np.where(df['jma'] > df['jma'].shift(1), df['jma'], np.nan)
         df['jma_down'] = np.where(df['jma'] < df['jma'].shift(1), df['jma'], np.nan)
 
         return _extract_results(df, ['jma', 'jma_up', 'jma_down'], original_time_index)
     except ImportError:
-        logger.error("Could not import jurikIndicator.py module.")
-        return {"t": [], "jma": []}
+        logger.error("Could not import jurikIndicator.py module. Returning empty subplots.")
+        # Return placeholder data to create empty subplots - use first available timestamp
+        first_timestamp = original_time_index.iloc[0] if len(original_time_index) > 0 else int(time.time())
+        return {"t": [first_timestamp], "jma": [None], "jma_up": [None], "jma_down": [None]}
 
 def calculate_rsi_sma(df_input: pd.DataFrame, sma_period: int, rsi_values: List[float]) -> Dict[str, Any]:
     df = df_input.copy()
