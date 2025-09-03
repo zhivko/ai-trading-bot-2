@@ -3837,3 +3837,7 @@ starlette.websockets.WebSocketDisconnect: (1001, '')
 2025-09-03 16:09:18,709 - logging_config - INFO - indicators.py:80 - 🔍 GAP ANALYSIS: Full time range maintained: 2024-09-21 00:00:00 to 2025-09-03 00:00:00
 2025-09-03 16:09:18,709 - logging_config - INFO - websocket_handlers.py:405 - 🔍 SERVER DEBUG: Indicators calculation completed for BTCUSDT
 2025-09-03 16:09:18,709 - logging_config - INFO - websocket_handlers.py:406 - 🔍 SERVER DEBUG: Indicators data keys: ['macd', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10']
+2025-09-03 16:09:29,964 - logging_config - INFO - drawing_endpoints.py:37 - PUT /update_drawing/BTCUSDT/fef4177f-74e7-44bd-aa3b-9f362208d9cd request received
+2025-09-03 16:09:29,966 - logging_config - INFO - drawing_manager.py:115 - Drawing fef4177f-74e7-44bd-aa3b-9f362208d9cd updated.
+2025-09-03 16:09:29,966 - logging_config - INFO - drawing_endpoints.py:44 - PUT /update_drawing/BTCUSDT/fef4177f-74e7-44bd-aa3b-9f362208d9cd request completed successfully
+2025-09-03 16:09:56,134 - logging_config - INFO - background_tasks.py:75 - 📊 STARTING OPEN INTEREST: Data fetch cycle

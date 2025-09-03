@@ -195,9 +195,6 @@ function initializePlotlyEventHandlers(gd) {
     const DEBOUNCE_DELAY = 500; // ms
 
     gd.on('plotly_relayouting', function(eventData) {
-        console.log('[DRAGGING] plotly_relayouting fired with eventData:', eventData);
-        console.log('[DRAGGING] plotly_relayouting - All keys:', Object.keys(eventData));
-
         // Clean up duplicate drag helpers that might interfere with dragging
         if (window.d3) {
             d3.selectAll('g[drag-helper="true"]').remove();
@@ -208,13 +205,6 @@ function initializePlotlyEventHandlers(gd) {
         const hasShapeChanges = eventKeys.some(key => key.startsWith('shapes['));
         const hasAxisRangeChanges = eventKeys.some(key => key.includes('axis.range'));
         const isDragModeChange = eventKeys.includes('dragmode');
-
-        console.log('[DRAGGING] Analysis:', {
-            hasShapeChanges,
-            hasAxisRangeChanges,
-            isDragModeChange,
-            currentDragMode: gd.layout.dragmode
-        });
 
         // Only set dragging flag for actual shape interactions, NOT dragmode changes
         if (hasShapeChanges && !isDragModeChange) {
@@ -242,7 +232,6 @@ function initializePlotlyEventHandlers(gd) {
             // Allow line coloring in draw mode by not setting isDraggingShape
         } else {
             // For axis range changes or unknown events, don't set dragging flag
-            console.log('[DRAGGING] No shape changes detected, clearing dragging flag');
             window.isDraggingShape = false;
         }
     });
