@@ -471,6 +471,7 @@ function initializePlotlyEventHandlers(gd) {
 
             // Additional check: warn if we have an id but it's still being processed
             if (shapeInLayout.id && !shapeInLayout._savingInProgress) {
+                /*
                 console.warn('[plotly_relayout] WARNING: Shape already has id but is being considered for processing:', {
                     name: shapeInLayout.name,
                     id: shapeInLayout.id,
@@ -478,6 +479,7 @@ function initializePlotlyEventHandlers(gd) {
                     isSystemShape: shapeInLayout.isSystemShape,
                     isAlreadyProcessedDrawing: isAlreadyProcessedDrawing
                 });
+                */
                 continue; // Skip this shape entirely
             }
 
