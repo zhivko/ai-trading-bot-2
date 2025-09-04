@@ -58,6 +58,8 @@ async function sendShapeUpdateToServer(shapeToUpdate, symbol) {
     }
 }
 
+window.sendShapeUpdateToServer = sendShapeUpdateToServer; // Export to global scope
+
 function getPlotlyRefsFromSubplotName(subplotName) {
     const currentSymbol = window.symbolSelect.value; // Assumes symbolSelect is global
     const hasActiveIndicators = window.activeIndicatorsState && window.activeIndicatorsState.length > 0;

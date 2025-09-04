@@ -172,7 +172,8 @@ if (typeof VISUAL_UPDATE_DEBOUNCE_DELAY === 'undefined') {
     window.VISUAL_UPDATE_DEBOUNCE_DELAY = 30; // Default value if not defined yet
 }
 window.debouncedUpdateShapeVisuals = debounce(updateShapeVisuals, VISUAL_UPDATE_DEBOUNCE_DELAY);
-console.log('[DEBUG] debouncedUpdateShapeVisuals defined and available globally');
+window.updateShapeVisuals = updateShapeVisuals; // Export updateShapeVisuals to global scope
+console.log('[DEBUG] debouncedUpdateShapeVisuals and updateShapeVisuals defined and available globally');
 
 function logEventToPanel(message, type = 'INFO') {
     if (!window.eventOutput) {
