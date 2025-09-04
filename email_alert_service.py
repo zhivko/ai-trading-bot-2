@@ -23,6 +23,9 @@ import base64
 
 logger = logging.getLogger(__name__)
 
+# Diagnostic log to confirm module import
+logger.info("Email alert service module imported successfully.")
+
 @dataclass
 class SMTPConfig:
     server: str
@@ -36,6 +39,7 @@ class EmailAlertService:
     def __init__(self, smtp_config: SMTPConfig):
         self.smtp_config = smtp_config
         self.active_alerts: Dict[str, List[str]] = {}
+        logger.info("EmailAlertService initialized.")
 
     async def get_all_drawings(self, redis: Redis) -> List[Dict]:
         """Retrieve all drawings from Redis, injecting user_email from the key."""
@@ -317,7 +321,7 @@ class EmailAlertService:
         return [None] * len(timestamps)
 
     async def check_price_alerts(self):
-        #logger.info("Starting check_price_alerts cycle.")
+        logger.info("Starting check_price_alerts cycle.")
         try:
             redis = await get_redis_connection()
             drawings = await self.get_all_drawings(redis)
@@ -496,13 +500,16 @@ class EmailAlertService:
             self.active_alerts[symbol].remove(line_id)
 
     async def monitor_alerts(self):
+        logger.info("Email alert service monitor_alerts started.")
         while True:
             await self.check_price_alerts()
             await asyncio.sleep(60)
 
 def get_smtp_config() -> SMTPConfig:
+    logger.info("Loading SMTP config...")
     try:
         creds = BybitCredentials.from_file(Path("c:/git/VidWebServer/authcreds.json"))
+        logger.info("SMTP config loaded successfully.")
     except (FileNotFoundError, json.JSONDecodeError) as e:
         logger.error(f"Failed to load credentials: {e}")
         raise
