@@ -5887,3 +5887,10 @@ starlette.websockets.WebSocketDisconnect: (1001, '')
 2025-09-04 14:30:11,335 - logging_config - INFO - websocket_handlers.py:398 - ✅ CACHE HIT: Found 400 klines in Redis cache for BTCUSDT
 2025-09-04 14:30:11,335 - logging_config - INFO - websocket_handlers.py:402 - Calculating indicators for BTCUSDT: 6 indicators, 400 klines
 2025-09-04 14:30:11,336 - logging_config - INFO - redis_utils.py:265 - Found 273 cached Open Interest entries for BTCUSDT 1d between 1722470400 and 1758585600
+2025-09-04 14:30:55,967 - logging_config - INFO - background_tasks.py:75 - 📊 STARTING OPEN INTEREST: Data fetch cycle
+2025-09-04 14:31:07,355 - logging_config - INFO - drawing_endpoints.py:120 - GET /get_shape_properties/BTCUSDT/aaa9cbc1-8786-4628-8661-0f156269f3e6 request received
+2025-09-04 14:31:07,355 - logging_config - INFO - drawing_endpoints.py:148 - No properties found for drawing aaa9cbc1-8786-4628-8661-0f156269f3e6, returning empty dict
+2025-09-04 14:31:10,949 - logging_config - INFO - drawing_endpoints.py:67 - POST /save_shape_properties/BTCUSDT/aaa9cbc1-8786-4628-8661-0f156269f3e6 request received with properties: {'buyOnCross': False, 'sellOnCross': False, 'sendEmailOnCross': True}
+2025-09-04 14:31:10,951 - logging_config - INFO - drawing_manager.py:115 - Drawing aaa9cbc1-8786-4628-8661-0f156269f3e6 updated.
+2025-09-04 14:31:10,951 - logging_config - INFO - drawing_endpoints.py:116 - Shape aaa9cbc1-8786-4628-8661-0f156269f3e6 properties updated successfully.
+2025-09-04 14:32:08,779 - logging_config - INFO - background_tasks.py:75 - 📊 STARTING OPEN INTEREST: Data fetch cycle

@@ -19,3 +19,5 @@ data/*.*
 .env
 *.log
 /node_modules
+/logs/trading_view.log
+/puppeteer_*.*
