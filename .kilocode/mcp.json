@@ -25,7 +25,8 @@
         "puppeteer_hover",
         "puppeteer_navigate",
         "puppeteer_evaluate</tool name>\n<arguments>\n{\n  \"script\": \"document.getElementById('symbol-select').value\"\n}\n</arguments>\n</use_mcp_tool>",
-        "puppeteer_evaluate"
+        "puppeteer_evaluate",
+        "puppeteer_navigate</tool name>\n<arguments>\n{\n  \"url\": \"http://192.168.1.52:5000\",\n  \"launchOptions\": {\n    \"defaultViewport\": {\n      \"width\": 1920,\n      \"height\": 1080\n    }\n  }\n}\n</arguments>\n</use_mcp_tool>"
       ]
     }
   }

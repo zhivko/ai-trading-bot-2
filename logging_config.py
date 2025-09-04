@@ -45,6 +45,10 @@ watchfiles_logger.setLevel(logging.WARNING)
 sse_logger = logging.getLogger('sse_starlette.sse')
 sse_logger.setLevel(logging.WARNING)
 
+# Configure urllib3 logger to WARNING level to reduce HTTP request debug logs
+urllib3_logger = logging.getLogger('urllib3.connectionpool')
+urllib3_logger.setLevel(logging.WARNING)
+
 # Configure bybit_price_feed logger to INFO level for file output
 bybit_logger = logging.getLogger('bybit_price_feed')
 bybit_logger.setLevel(logging.INFO)

@@ -1894,32 +1894,29 @@ function createLayoutForIndicators(activeIndicatorIds) {
             range: window.currentYAxisRange ? window.currentYAxisRange : undefined,
             showticklabels: true,
             showgrid: true,
-            side: 'left'
+            side: 'left',
+            domain: activeIndicatorIds.length > 0 ? [0, (3 / (3 + activeIndicatorIds.length))] : [0, 1] // Set explicit domain for price chart
         },
         showlegend: false,
         hovermode: 'x unified',
-        margin: { l: 50, r: 10, b: 20, t: 30 }
+        margin: { l: 50, r: 10, b: 20, t: 40 }
     };
 
     if (activeIndicatorIds.length > 0) {
-        // Optimized space usage with 3:1 ratio - ensure full height utilization
-        // Calculate from bottom up to eliminate any remaining blank space
-        const totalUnits = 2 + activeIndicatorIds.length; // Price gets 2 units, each indicator gets 1 unit
-        const unitHeight = 1.0 / totalUnits; // Each unit's height
+        // Price chart is twice the height of each individual indicator chart
+        const numIndicators = activeIndicatorIds.length;
+        const priceChartProportion = 3; // Price chart is 3 parts
+        const totalProportions = priceChartProportion + numIndicators;
 
-        const priceChartHeight = 2 * unitHeight; // Price chart gets 3 units
-        const availableForIndicators = 1.0 - priceChartHeight;
-        const totalIndicatorSpace = availableForIndicators;
-        const indicatorHeight = totalIndicatorSpace / activeIndicatorIds.length; // Redistribute remaining space
+        const priceChartHeight = priceChartProportion / totalProportions;
+        const indicatorHeight = 1 / totalProportions;        
 
-        const priceChartDomain = [1.0 - priceChartHeight, 1.0]; // Price chart at top
-        const indicatorsStartAt = 1.0 - priceChartHeight; // Indicators start below labels
-
-        // Create grid with manual row heights - must match domain calculations exactly
-        let rowHeights = [priceChartHeight]; // Price chart height (calculated, not hardcoded)
-        for (let i = 0; i < activeIndicatorIds.length; i++) {
+        // Create grid with manual row heights
+        let rowHeights = [priceChartHeight];
+        for (let i = 0; i < numIndicators; i++) {
             rowHeights.push(indicatorHeight);
         }
+        
 
         baseLayout.grid = {
             rows: rowHeights.length,
@@ -1935,9 +1932,17 @@ function createLayoutForIndicators(activeIndicatorIds) {
         // Let Plotly handle domain calculation automatically with pattern: 'domain'
         console.log(`DEBUG: Price chart domain handled automatically by grid pattern`);
 
-        // Let Plotly handle domain calculation automatically with pattern: 'domain'
+        // Set manual domains for each y-axis to ensure proper height allocation
         activeIndicatorIds.forEach((indicatorId, index) => {
             const yAxisName = `yaxis${index + 2}`;
+            const indicatorIndex = index; // 0-based index for indicators
+            const totalIndicators = activeIndicatorIds.length;
+
+            // Calculate domain for this indicator
+            // Price chart takes first portion, then each indicator gets equal share of remaining space
+            const priceDomainEnd = priceChartProportion / totalProportions;
+            const indicatorDomainStart = priceDomainEnd + (indicatorIndex * indicatorHeight);
+            const indicatorDomainEnd = priceDomainEnd + ((indicatorIndex + 1) * indicatorHeight);
 
             baseLayout[yAxisName] = {
                 title: {
@@ -1958,14 +1963,14 @@ function createLayoutForIndicators(activeIndicatorIds) {
                 },
                 autorange: true,
                 fixedrange: false, // Allow zoom on indicator y-axes
-                // Remove manual domain setting - let Plotly handle with grid pattern
+                domain: [indicatorDomainStart, indicatorDomainEnd], // Set explicit domain
                 side: 'left'
             };
-            console.log(`DEBUG: ${indicatorId} y-axis created without manual domain (using grid pattern)`);
+            console.log(`DEBUG: ${indicatorId} y-axis created with domain [${indicatorDomainStart.toFixed(3)}, ${indicatorDomainEnd.toFixed(3)}]`);
         });
 
-        // Domain coverage handled automatically by Plotly with pattern: 'domain'
-        console.log(`DEBUG: Domain coverage handled automatically by grid pattern`);
+        // Domain coverage handled by explicit domain settings for each y-axis
+        console.log(`DEBUG: Domain coverage handled by explicit domain settings`);
     } else {
         // No indicators - let Plotly handle domain automatically
         console.log(`DEBUG: No indicators, domain handled automatically`);

@@ -494,7 +494,6 @@ def fetch_open_interest_from_bybit(symbol: str, interval: str, start_ts: int, en
         batch_count += 1
         # Bybit get_open_interest limit is 200 per request
         batch_end = min(current_start + (200 * interval_seconds) - 1, end_ts)
-        logger.debug(f"Fetching OI batch #{batch_count} for {symbol} {interval}: {datetime.fromtimestamp(current_start, timezone.utc)} to {datetime.fromtimestamp(batch_end, timezone.utc)}")
 
         try:
             response = session.get_open_interest(
@@ -518,7 +517,6 @@ def fetch_open_interest_from_bybit(symbol: str, interval: str, start_ts: int, en
             logger.info(f"No more Open Interest data available from Bybit for {symbol} {interval} at batch #{batch_count}")
             break
 
-        logger.debug(f"Received {len(list_data)} Open Interest entries from Bybit for {symbol} {interval} batch #{batch_count}")
         total_entries_received += len(list_data)
 
         # Data is usually newest first, reverse to get chronological order
@@ -529,8 +527,6 @@ def fetch_open_interest_from_bybit(symbol: str, interval: str, start_ts: int, en
                 "open_interest": float(item["openInterest"])
             })
         all_oi_data.extend(batch_oi)
-
-        logger.debug(f"Processed batch #{batch_count} for {symbol} {interval}: {len(batch_oi)} Open Interest entries, last timestamp: {datetime.fromtimestamp(batch_oi[-1]['time'], timezone.utc) if batch_oi else 'N/A'}")
 
         if not batch_oi or len(list_data) < 200: # No more data or last page
             logger.debug(f"Stopping Open Interest batch fetch for {symbol} {interval}: received {len(list_data)} entries (less than 200) or no data processed")

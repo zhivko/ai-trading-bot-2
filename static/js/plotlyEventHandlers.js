@@ -331,6 +331,7 @@ function initializePlotlyEventHandlers(gd) {
                         });
                     }
 
+                    /*
                     console.log('🚨 CHART RANGE CHANGE DETECTED 🚨', {
                         xRangeChanged: hasXRangeChange,
                         yRangeChanged: hasYRangeChange,
@@ -342,6 +343,7 @@ function initializePlotlyEventHandlers(gd) {
                         timestamp: new Date().toISOString(),
                         eventData: eventData
                     });
+                    */
 
                     // Specific logging for server comparison
                     if (xMinTimestamp && xMaxTimestamp) {

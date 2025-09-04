@@ -109,7 +109,6 @@ AVAILABLE_INDICATORS = [
     {"id": "stochrsi_14_3", "name": "Stochastic RSI (14,3)", "params": {"rsi_period": 14, "stoch_period": 14, "k_period": 3, "d_period": 3}},
     {"id": "stochrsi_40_4", "name": "Stochastic RSI (40,4)", "params": {"rsi_period": 40, "stoch_period": 40, "k_period": 4, "d_period": 4}},
     {"id": "stochrsi_60_10", "name": "Stochastic RSI (60,10)", "params": {"rsi_period": 60, "stoch_period": 60, "k_period": 10, "d_period": 10}},
-    {"id": "stochrsi_14_3", "name": "Stochastic RSI (14,3)", "params": {"rsi_period": 14, "stoch_period": 14, "k_period": 3, "d_period": 3}},  # Default for TradingAgent2
     {"id": "open_interest", "name": "Open Interest", "params": {}},
     {"id": "jma", "name": "Jurik MA", "params": {"length": 7, "phase": 50, "power": 2}},
 ]
