@@ -39,9 +39,11 @@ function updateOrAddCrosshairVLine(gd, xDataValue, doRelayout = true) {
 
 function colorTheLine(eventParam)
 {
+        /*
         console.groupCollapsed('[NativeMousemove] Event Processing');
         console.log('[DEBUG] colorTheLine called with event:', eventParam ? 'event provided' : 'no event');
         console.log('[colorTheLine] Current dragmode:', window.gd ? window.gd.layout.dragmode : 'N/A');
+        */
 
         // Reset newHoveredShapeId at the start of each call
         window.newHoveredShapeId = null;
@@ -122,8 +124,8 @@ function colorTheLine(eventParam)
             }
         }
 
-        console.log(`[colorTheLine] Chart div rect: left=${rect.left}, top=${rect.top}, width=${rect.width}, height=${rect.height}`);
-        console.log(`[colorTheLine] Mouse relative to div: x=${mouseX_div}, y=${mouseY_div}`);
+        //console.log(`[colorTheLine] Chart div rect: left=${rect.left}, top=${rect.top}, width=${rect.width}, height=${rect.height}`);
+        //console.log(`[colorTheLine] Mouse relative to div: x=${mouseX_div}, y=${mouseY_div}`);
 
         if (!window.gd._fullLayout || typeof window.gd._fullLayout.height === 'undefined' || !window.gd._fullLayout.yaxis || typeof window.gd._fullLayout.yaxis._length === 'undefined') {
             // console.log("[colorTheLine] Chart layout not ready, skipping hover detection");
@@ -169,9 +171,9 @@ function colorTheLine(eventParam)
 
         const hoveredSubplotRefs = getSubplotRefsAtPaperCoords(mouseX_paper, mouseY_paper, window.gd._fullLayout);
         if (hoveredSubplotRefs) {
-            console.log(`[NativeMousemove] Hover detected in subplot: xref=${hoveredSubplotRefs.xref}, yref=${hoveredSubplotRefs.yref}`);
+            //console.log(`[NativeMousemove] Hover detected in subplot: xref=${hoveredSubplotRefs.xref}, yref=${hoveredSubplotRefs.yref}`);
         } else {
-            console.log(`[NativeMousemove] Hover detected outside any known subplot area.`);
+            //console.log(`[NativeMousemove] Hover detected outside any known subplot area.`);
             if (window.hoveredShapeBackendId !== null) {
                 window.hoveredShapeBackendId = null;
                 if (typeof updateShapeVisuals === 'function') {
@@ -181,12 +183,12 @@ function colorTheLine(eventParam)
         }
 
         const currentShapes = window.gd.layout.shapes || [];
-        console.log(`[colorTheLine] Checking ${currentShapes.length} shapes for hover detection`);
+        //console.log(`[colorTheLine] Checking ${currentShapes.length} shapes for hover detection`);
         for (let i = 0; i < currentShapes.length; i++) {
             const shape = currentShapes[i];
-            console.log(`[colorTheLine] Shape ${i}: type=${shape.type}, id=${shape.id}, isSystemShape=${shape.isSystemShape}`);
+            //console.log(`[colorTheLine] Shape ${i}: type=${shape.type}, id=${shape.id}, isSystemShape=${shape.isSystemShape}`);
             if (shape.type === 'line' && shape.id && !shape.isSystemShape) { // Ignore system shapes
-                console.log(`[colorTheLine] Processing shape ${i} (ID: ${shape.id}) for hover detection`);
+                //console.log(`[colorTheLine] Processing shape ${i} (ID: ${shape.id}) for hover detection`);
                 const xrefKeyForFilter = getAxisLayoutKey(shape.xref, 'xaxis'); // Assumes getAxisLayoutKey is global
                 const yrefKeyForFilter = getAxisLayoutKey(shape.yref, 'yaxis');
                 const shapeXaxisForFilter = window.gd._fullLayout[xrefKeyForFilter];
@@ -248,28 +250,30 @@ function colorTheLine(eventParam)
             }
         }
 
-        console.log(`[DEBUG] colorTheLine Final: hoveredShapeBackendId=${window.hoveredShapeBackendId}, newHoveredShapeId=${window.newHoveredShapeId}`);
+        //console.log(`[DEBUG] colorTheLine Final: hoveredShapeBackendId=${window.hoveredShapeBackendId}, newHoveredShapeId=${window.newHoveredShapeId}`);
         if (window.hoveredShapeBackendId !== window.newHoveredShapeId) {
-            console.log(`[DEBUG] colorTheLine Updated hoveredShapeBackendId to: ${window.newHoveredShapeId}`);
+            //console.log(`[DEBUG] colorTheLine Updated hoveredShapeBackendId to: ${window.newHoveredShapeId}`);
                 window.hoveredShapeBackendId = window.newHoveredShapeId;
                 if(window.hoveredShapeBackendId) {
-                    console.log(`[DEBUG] colorTheLine Calling findAndupdateSelectedShapeInfoPanel with ID: ${window.hoveredShapeBackendId}`);
+                    //console.log(`[DEBUG] colorTheLine Calling findAndupdateSelectedShapeInfoPanel with ID: ${window.hoveredShapeBackendId}`);
                     findAndupdateSelectedShapeInfoPanel(window.hoveredShapeBackendId);
                 }
+                /*
                 console.log(`[DEBUG] colorTheLine Calling debouncedUpdateShapeVisuals`);
                 console.log(`[DEBUG] colorTheLine - typeof debouncedUpdateShapeVisuals:`, typeof debouncedUpdateShapeVisuals);
                 console.log(`[DEBUG] colorTheLine - typeof window.debouncedUpdateShapeVisuals:`, typeof window.debouncedUpdateShapeVisuals);
                 console.log(`[DEBUG] colorTheLine - debouncedUpdateShapeVisuals exists:`, !!window.debouncedUpdateShapeVisuals);
+                */
 
                 // Call updateShapeVisuals directly for immediate color changes
                 if (typeof updateShapeVisuals === 'function') {
-                    console.log(`[DEBUG] colorTheLine - calling updateShapeVisuals directly for immediate update`);
+                    //console.log(`[DEBUG] colorTheLine - calling updateShapeVisuals directly for immediate update`);
                     updateShapeVisuals();
                 } else {
-                    console.warn('[DEBUG] colorTheLine - updateShapeVisuals not available!');
+                    //console.warn('[DEBUG] colorTheLine - updateShapeVisuals not available!');
                 }
         } else {
-            console.log(`[DEBUG] colorTheLine No change in hovered shape ID`);
+            //console.log(`[DEBUG] colorTheLine No change in hovered shape ID`);
         }
 
         // Only clear shape ID if we're sure no shape should be hovered (mouse outside chart area)

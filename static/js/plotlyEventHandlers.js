@@ -220,12 +220,8 @@ function initializePlotlyEventHandlers(gd) {
                 console.log('[DRAGGING] Switched to drawline mode for shape editing');
             }
 
-            // 🚨 DISABLE LIVE DATA when dragging shapes to prevent interference
-            if (window.liveDataCheckbox && window.liveDataCheckbox.checked) {
-                console.log('[DRAGGING] Disabling live data during shape dragging to prevent interference');
-                window.liveDataCheckbox.checked = false;
-                window.liveDataCheckbox.dispatchEvent(new Event('change'));
-            }
+            // 🚨 Live data is always enabled now - no need to disable during dragging
+            console.log('[DRAGGING] Live data remains enabled during shape dragging');
         } else if (isDragModeChange) {
             // Handle dragmode changes separately - don't set dragging flag
             console.log('[DRAGMODE] Dragmode changed to:', eventData.dragmode);
@@ -402,12 +398,8 @@ function initializePlotlyEventHandlers(gd) {
 
         // Check if dragmode changed to 'drawline'
         if (eventData['dragmode'] === 'drawline') {
-            if (window.liveDataCheckbox && window.liveDataCheckbox.checked) {
-                window.liveDataCheckbox.checked = false;
-                // Optionally, trigger the change event if other listeners depend on it
-                window.liveDataCheckbox.dispatchEvent(new Event('change'));
-                console.log('Live data unchecked due to drawline mode activation.');
-            }
+            // Live data remains enabled during drawline mode
+            console.log('Live data remains enabled during drawline mode activation.');
         }
 
         if(eventData.shape) {

@@ -39,11 +39,16 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
 
     let lineIndex = shapes.findIndex(shape => shape.name === REALTIME_PRICE_LINE_NAME); // Assumes REALTIME_PRICE_LINE_NAME is global
     try {
+        // Determine the correct y-axis reference for the price chart
+        // When indicators are present, price chart is on yaxis1, otherwise on y
+        const hasIndicators = window.gd && window.gd.data && window.gd.data.some(trace => trace.type !== 'candlestick');
+        const yref = hasIndicators ? 'yaxis1' : 'y';
+
         const lineDefinition = {
                 type: 'line',
                 name: REALTIME_PRICE_LINE_NAME,
                 isSystemShape: true, // Mark as a system shape
-                yref: 'y',
+                yref: yref,
                 x0ref: 'x',
                 x1ref: 'paper',
                 x0: new Date(candleEndTimeMs),
@@ -71,7 +76,7 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
             name: REALTIME_PRICE_TEXT_ANNOTATION_NAME, // From config.js
             text: price.toFixed(2), // Format the price, adjust precision as needed
             xref: 'paper',   // Relative to the entire plotting area
-            yref: 'y',       // Relative to the y-axis data scale of the main price chart
+            yref: yref,      // Use the same y-axis reference as the line
             x: 1,            // Position slightly to the right of the plot area (e.g., 101%)
             y: price,        // Y position is the price itself
             showarrow: false,
@@ -163,6 +168,43 @@ function removeRealtimePriceLine(gd, doRelayout = false) {
     return removed;
 }
 
+function handleRealtimeKlineForCombined(dataPoint) {
+    console.log('🔴 Combined WebSocket: handleRealtimeKlineForCombined called with data:', dataPoint);
+
+    if (!dataPoint) {
+        console.warn('🔴 Combined WebSocket: No data point provided to handleRealtimeKlineForCombined');
+        return;
+    }
+
+    // Check if chart is ready
+    const gd = document.getElementById('chart');
+    if (!gd || !gd.layout) {
+        console.warn('🔴 Combined WebSocket: Chart not ready for live price line');
+        return;
+    }
+
+    // Extract price data
+    const livePrice = dataPoint.ohlc ? dataPoint.ohlc.close : dataPoint.close;
+    if (typeof livePrice !== 'number' || isNaN(livePrice)) {
+        console.warn('🔴 Combined WebSocket: Invalid live price:', livePrice);
+        return;
+    }
+
+    // Get candle timing information
+    const candleStartTimeMs = dataPoint.time * 1000;
+    const candleEndTimeMs = candleStartTimeMs + (getTimeframeSecondsJS(combinedResolution) * 1000);
+
+    console.log('🔴 Combined WebSocket: Drawing live price line for EXISTING candle:', {
+        livePrice,
+        candleStartTimeMs,
+        candleEndTimeMs,
+        resolution: combinedResolution
+    });
+
+    // Draw the live price line
+    updateOrAddRealtimePriceLine(gd, livePrice, candleStartTimeMs, candleEndTimeMs, true);
+}
+
 function setupCombinedWebSocket(symbol, indicators = [], resolution = '1h', fromTs = null, toTs = null) {
     // Close existing connection if symbol changed
     if (combinedWebSocket && combinedSymbol !== symbol) {
@@ -251,11 +293,11 @@ function setupCombinedWebSocket(symbol, indicators = [], resolution = '1h', from
     combinedWebSocket.onclose = (event) => {
         // console.log(`Combined WebSocket: Connection closed for ${symbol}. Reason: '${event.reason}', Code: ${event.code}`);
 
-        // Attempt to reconnect if live data is still enabled
-        if (window.liveDataCheckbox && window.liveDataCheckbox.checked && event.code !== 1000) {
+        // Attempt to reconnect if not a clean close
+        if (event.code !== 1000) {
             // console.log(`Combined WebSocket: Attempting to reconnect to ${symbol} in 5 seconds...`);
             delay(5000).then(() => {
-                if (window.liveDataCheckbox.checked && window.symbolSelect.value === symbol) {
+                if (window.symbolSelect.value === symbol) {
                     setupCombinedWebSocket(symbol, indicators, resolution, fromTs, toTs);
                 }
             });
@@ -294,6 +336,10 @@ function setupWebSocketMessageHandler() {
                 case 'live':
                     console.log('🔴 Processing live data');
                     handleLiveData(message);
+                    break;
+                case 'live_price':
+                    console.log('💰 Processing live price update');
+                    handleLivePriceUpdate(message);
                     break;
                 case 'drawings':
                     console.log('🎨 Processing drawings data');
@@ -555,6 +601,39 @@ function handleLiveData(message) {
 
     // Process live data and update chart
     updateChartWithLiveData(message.data, message.symbol);
+
+    // Handle live price line drawing (always enabled now)
+    handleRealtimeKlineForCombined(message.data);
+}
+
+function handleLivePriceUpdate(message) {
+    console.log(`💰 Combined WebSocket: Received live price update for ${message.symbol}: ${message.price}`);
+
+    if (!message.price || typeof message.price !== 'number') {
+        console.warn('💰 Combined WebSocket: Invalid live price format');
+        return;
+    }
+
+    // Check if chart is ready
+    const gd = document.getElementById('chart');
+    if (!gd || !gd.layout) {
+        console.warn('💰 Combined WebSocket: Chart not ready for live price update');
+        return;
+    }
+
+    // Get candle timing information for the live price line
+    const currentTime = message.timestamp || Math.floor(Date.now() / 1000);
+    const candleStartTimeMs = currentTime * 1000;
+    const candleEndTimeMs = candleStartTimeMs + (getTimeframeSecondsJS(combinedResolution) * 1000);
+
+    console.log('💰 Combined WebSocket: Drawing live price line for price update:', {
+        price: message.price,
+        timestamp: currentTime,
+        resolution: combinedResolution
+    });
+
+    // Draw the live price line
+    updateOrAddRealtimePriceLine(gd, message.price, candleStartTimeMs, candleEndTimeMs, true);
 }
 
 function handleDrawingsData(message) {
@@ -1390,7 +1469,7 @@ function updateChartWithLiveData(dataPoint, symbol) {
     }
 
     // Update price line if it exists
-    // updateOrAddRealtimePriceLine(gd, price, timestamp.getTime(), timestamp.getTime() + (getTimeframeSecondsJS(combinedResolution) * 1000));
+    updateOrAddRealtimePriceLine(gd, price, timestamp.getTime(), timestamp.getTime() + (getTimeframeSecondsJS(combinedResolution) * 1000));
 
     // console.log(`Combined WebSocket: Updated live data for ${symbol} at ${timestamp.toISOString()}`);
 }

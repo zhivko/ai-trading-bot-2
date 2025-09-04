@@ -136,7 +136,6 @@ function stopReplay(reason = "User stopped replay.") {
     window.symbolSelect.disabled = false;
     window.resolutionSelect.disabled = false;
     window.rangeSelect.disabled = false;
-    window.liveDataCheckbox.disabled = false;
     document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]').forEach(cb => cb.disabled = false);
     document.getElementById('replay-from').disabled = false;
     document.getElementById('replay-to').disabled = false;
@@ -191,11 +190,6 @@ async function initializeReplayControls() {
         document.getElementById('replay-to').disabled = true;
         document.getElementById('replay-speed').disabled = true;
 
-        if (window.liveDataCheckbox.checked) {
-            window.liveDataCheckbox.checked = false; // Turn off live data
-            closeWebSocket("Starting replay mode.");
-        }
-        window.liveDataCheckbox.disabled = true;
 
         // Prepare initial chart view: Load data up to replayStartTimeSec
         const lookbackCandles = 100; // Number of candles to show before replay starts

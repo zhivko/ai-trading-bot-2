@@ -1,6 +1,7 @@
 # Utility API endpoints
 
 import json
+import time
 from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from config import SUPPORTED_SYMBOLS, DEFAULT_SYMBOL_SETTINGS, REDIS_LAST_SELECTED_SYMBOL_KEY
@@ -256,6 +257,51 @@ async def get_last_selected_symbol(request: Request):
     except Exception as e:
         logger.error(f"Error getting last selected symbol: {e}. Falling back to BTCUSDT.", exc_info=True)
         return JSONResponse({"status": "success", "symbol": "BTCUSDT"})
+
+async def get_live_price(request: Request):
+    """Get live price for a specific symbol from Redis."""
+    from auth import require_authentication
+
+    # Require authentication for live price access
+    require_authentication(request.session)
+
+    email = request.session.get("email")
+    if not email:
+        return JSONResponse({"status": "error", "message": "User not authenticated"}, status_code=401)
+
+    symbol = request.query_params.get("symbol")
+    if not symbol:
+        logger.warning("GET /get_live_price: Symbol query parameter is missing.")
+        return JSONResponse({"status": "error", "message": "Symbol query parameter is required"}, status_code=400)
+
+    if symbol not in SUPPORTED_SYMBOLS:
+        logger.warning(f"GET /get_live_price: Unsupported symbol: {symbol}")
+        return JSONResponse({"status": "error", "message": "Unsupported symbol"}, status_code=400)
+
+    try:
+        redis_conn = await get_redis_connection()
+        live_price_key = f"live:{symbol}"
+        price_str = await redis_conn.get(live_price_key)
+
+        if price_str:
+            price = float(price_str)
+            logger.debug(f"Retrieved live price for {symbol}: {price}")
+            return JSONResponse({
+                "status": "success",
+                "symbol": symbol,
+                "price": price,
+                "timestamp": int(time.time())
+            })
+        else:
+            logger.info(f"No live price found in Redis for {symbol}")
+            return JSONResponse({
+                "status": "error",
+                "message": f"No live price available for {symbol}"
+            }, status_code=404)
+
+    except Exception as e:
+        logger.error(f"Error retrieving live price for {symbol}: {e}", exc_info=True)
+        return JSONResponse({"status": "error", "message": "Error retrieving live price"}, status_code=500)
 
 async def stream_logs_endpoint(request: Request):
     from logging_config import log_file_path

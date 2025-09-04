@@ -61,7 +61,7 @@ function saveSettings() {
     });
     settings.activeIndicators = activeIndicators;
     console.log('[DEBUG settingsManager] Saving activeIndicators array:', activeIndicators);
-    settings.liveDataEnabled = window.liveDataCheckbox.checked;
+    settings.liveDataEnabled = true; // Always enabled now
     settings.showAgentTrades = document.getElementById('showAgentTradesCheckbox').checked;
 
     // Add streamDeltaTime from the slider
@@ -337,11 +337,8 @@ async function loadSettings(symbolOverride = null) {
         // Try to restore indicators immediately, or retry if DOM not ready
         restoreIndicators();
 
-        if (typeof settings.liveDataEnabled === 'boolean') {
-            window.liveDataCheckbox.checked = settings.liveDataEnabled;
-        } else {
-            window.liveDataCheckbox.checked = false;
-        }
+        // Live data is always enabled now
+        console.log('[DEBUG settingsManager] Live data is always enabled');
 
         // Load Agent Trades checkbox state
         if (typeof settings.showAgentTrades === 'boolean') {
@@ -433,7 +430,7 @@ async function loadSettings(symbolOverride = null) {
         window.currentXAxisRange = null; window.currentYAxisRange = null;
         window.xAxisMinDisplay.textContent = 'Auto'; window.xAxisMaxDisplay.textContent = 'Auto';
         window.yAxisMinDisplay.textContent = 'Auto'; window.yAxisMaxDisplay.textContent = 'Auto';
-        window.liveDataCheckbox.checked = false;
+        // Live data is always enabled now
         document.getElementById('replay-from').value = '';
         document.getElementById('replay-to').value = '';
         document.getElementById('replay-speed').value = '1';

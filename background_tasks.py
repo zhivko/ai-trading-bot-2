@@ -10,6 +10,7 @@ from redis_utils import (
 from redis_utils import fetch_klines_from_bybit
 from indicators import fetch_open_interest_from_bybit
 from logging_config import logger
+from bybit_price_feed import start_bybit_price_feed
 
 async def fetch_and_publish_klines():
     logger.info("🚀 STARTING BACKGROUND TASK: fetch_and_publish_klines")

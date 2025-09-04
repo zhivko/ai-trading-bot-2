@@ -1,4 +1,4 @@
-# Refactored TradingView Application
+"""  """# Refactored TradingView Application
 # Main FastAPI application that imports and combines all modules
 
 import os
@@ -31,6 +31,7 @@ from logging_config import logger
 from auth import creds, get_session
 from redis_utils import init_redis
 from background_tasks import fetch_and_publish_klines
+from bybit_price_feed import start_bybit_price_feed
 
 # Import email alert service
 from email_alert_service import alert_service
@@ -56,7 +57,7 @@ from endpoints.trading_endpoints import (
 )
 from endpoints.utility_endpoints import (
     settings_endpoint, set_last_selected_symbol,
-    get_last_selected_symbol, stream_logs_endpoint
+    get_last_selected_symbol, stream_logs_endpoint, get_live_price
 )
 from endpoints.indicator_endpoints import indicator_history_endpoint
 
@@ -85,12 +86,22 @@ async def lifespan(app_instance: FastAPI):
         # logger.info("✅ BACKGROUND TASK STARTED: fetch_and_publish_klines task created and running")
         # logger.info(f"📊 TASK STATUS: {app_instance.state.fetch_klines_task}")
 
+        # Start Bybit price feed task (only if not disabled)
+        if os.getenv("DISABLE_BYBIT_PRICE_FEED", "false").lower() != "true":
+            logger.info("🔧 STARTING BACKGROUND TASK: Creating Bybit price feed task...")
+            app_instance.state.price_feed_task = await start_bybit_price_feed()
+            # logger.info("✅ BACKGROUND TASK STARTED: Bybit price feed task created and running")
+        else:
+            logger.info("🚫 Bybit price feed disabled via DISABLE_BYBIT_PRICE_FEED environment variable")
+            app_instance.state.price_feed_task = None
+
         # Start email alert monitoring service
         app_instance.state.email_alert_task = asyncio.create_task(alert_service.monitor_alerts())
         # logger.info("Email alert monitoring service started.")
     except Exception as e:
         logger.error(f"Failed to initialize Redis or start background tasks: {e}", exc_info=True)
         app_instance.state.fetch_klines_task = None
+        app_instance.state.price_feed_task = None
         app_instance.state.email_alert_task = None
     yield
     logger.info("Application shutdown...")
@@ -106,6 +117,20 @@ async def lifespan(app_instance: FastAPI):
             logger.info("✅ TASK SUCCESSFULLY CANCELLED: fetch_and_publish_klines task cancelled cleanly")
         except Exception as e:
             logger.error(f"💥 ERROR DURING TASK SHUTDOWN: fetch_and_publish_klines: {e}", exc_info=True)
+
+    price_feed_task = getattr(app_instance.state, 'price_feed_task', None)
+    if price_feed_task:
+        # logger.info("Cancelling Bybit price feed task...")
+        price_feed_task.cancel()
+        try:
+            await price_feed_task
+            logger.info(f"price_feed_task status: Done={price_feed_task.done()}, Cancelled={price_feed_task.cancelled()}, Exception={price_feed_task.exception()}")
+        except asyncio.CancelledError:
+            logger.info("Bybit price feed task successfully cancelled.")
+        except Exception as e:
+            logger.error(f"Error during Bybit price feed task shutdown: {e}", exc_info=True)
+    else:
+        logger.info("Bybit price feed task was not started (disabled or failed to start)")
 
     email_alert_task = getattr(app_instance.state, 'email_alert_task', None)
     if email_alert_task:
@@ -213,6 +238,7 @@ app.get("/get_buy_signals/{symbol}")(get_buy_signals_endpoint)
 app.route('/settings', methods=['GET', 'POST'])(settings_endpoint)
 app.post("/set_last_symbol/{symbol}")(set_last_selected_symbol)
 app.get("/get_last_symbol")(get_last_selected_symbol)
+app.get("/get_live_price")(get_live_price)
 app.get("/stream/logs")(stream_logs_endpoint)
 
 # Indicator endpoints
@@ -229,6 +255,7 @@ async def background_tasks_health():
     """Check the status of background tasks."""
     fetch_task = getattr(app.state, 'fetch_klines_task', None)
     email_task = getattr(app.state, 'email_alert_task', None)
+    price_feed_task = getattr(app.state, 'price_feed_task', None)
 
     health_status = {
         "timestamp": datetime.now().isoformat(),
@@ -239,6 +266,13 @@ async def background_tasks_health():
                 "done": fetch_task.done() if fetch_task else None,
                 "cancelled": fetch_task.cancelled() if fetch_task else None,
                 "exception": str(fetch_task.exception()) if fetch_task and fetch_task.exception() else None
+            },
+            "price_feed_task": {
+                "exists": price_feed_task is not None,
+                "running": price_feed_task is not None and not price_feed_task.done(),
+                "done": price_feed_task.done() if price_feed_task else None,
+                "cancelled": price_feed_task.cancelled() if price_feed_task else None,
+                "exception": str(price_feed_task.exception()) if price_feed_task and price_feed_task.exception() else None
             },
             "email_alert_task": {
                 "exists": email_task is not None,

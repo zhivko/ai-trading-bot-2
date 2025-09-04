@@ -3,6 +3,7 @@
 import json
 from typing import Optional, Dict, Any, List
 from redis.asyncio import Redis as AsyncRedis
+from redis import Redis as SyncRedis
 from config import (
     REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_PASSWORD, REDIS_TIMEOUT,
     REDIS_RETRY_COUNT, REDIS_RETRY_DELAY
@@ -12,13 +13,15 @@ from logging_config import logger
 from config import KlineData, timeframe_config, session, get_timeframe_seconds
 from datetime import datetime, timezone
 
-# Global Redis client instance
+# Global Redis client instances
 redis_client: Optional[AsyncRedis] = None
+sync_redis_client = None  # Synchronous Redis client for use in threads
 
 async def init_redis():
-    """Initialize Redis connection."""
-    global redis_client
+    """Initialize Redis connections (both async and sync)."""
+    global redis_client, sync_redis_client
     try:
+        # Initialize async Redis client
         redis_client = AsyncRedis(
             host=REDIS_HOST,
             port=REDIS_PORT,
@@ -29,12 +32,27 @@ async def init_redis():
             retry_on_timeout=True  # Enable retrying on socket timeouts
         )
         await redis_client.ping()
-        logger.info("Successfully connected to Redis")
+        logger.info("Successfully connected to Redis (async)")
+
+        # Initialize sync Redis client
+        sync_redis_client = SyncRedis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            db=REDIS_DB,
+            password=REDIS_PASSWORD,
+            decode_responses=True,
+            socket_timeout=REDIS_TIMEOUT,
+            retry_on_timeout=True
+        )
+        sync_redis_client.ping()
+        logger.info("Successfully connected to Redis (sync)")
+
         return redis_client
     except Exception as e:
         logger.error(f"Failed to connect to Redis: {e}")
         logger.error("Run this to start it on wsl2: cmd /c wsl --exec sudo service redis-server start && Exit /B 5")
         redis_client = None
+        sync_redis_client = None
         raise
 
 async def get_redis_connection() -> AsyncRedis:
@@ -50,6 +68,40 @@ async def get_redis_connection() -> AsyncRedis:
     if redis_client is None:
         raise Exception("Redis client is None after attempting initialization.")
     return redis_client
+
+def init_sync_redis():
+    """Initialize synchronous Redis connection for use in threads."""
+    global sync_redis_client
+    try:
+        sync_redis_client = SyncRedis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            db=REDIS_DB,
+            password=REDIS_PASSWORD,
+            decode_responses=True,
+            socket_timeout=REDIS_TIMEOUT,
+            retry_on_timeout=True
+        )
+        sync_redis_client.ping()
+        logger.info("Successfully connected to Redis (sync)")
+        return sync_redis_client
+    except Exception as e:
+        logger.error(f"Failed to connect to Redis (sync): {e}")
+        sync_redis_client = None
+        raise
+
+def get_sync_redis_connection() -> SyncRedis:
+    """Get a synchronous Redis connection for use in threads."""
+    global sync_redis_client
+    if sync_redis_client is None:
+        try:
+            sync_redis_client = init_sync_redis()
+        except Exception:
+            logger.critical("CRITICAL: Redis sync connection could not be established.")
+            raise
+    if sync_redis_client is None:
+        raise Exception("Redis sync client is None after attempting initialization.")
+    return sync_redis_client
 
 def get_redis_key(symbol: str, resolution: str, timestamp: int) -> str:
     from config import TRADING_TIMEFRAME

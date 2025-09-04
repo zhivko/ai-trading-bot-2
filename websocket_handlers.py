@@ -8,7 +8,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 from pybit.unified_trading import WebSocket as BybitWS
 from config import SUPPORTED_SYMBOLS, DEFAULT_SYMBOL_SETTINGS, AVAILABLE_INDICATORS
-from redis_utils import get_redis_connection, publish_live_data_tick, get_cached_klines, get_cached_open_interest, get_stream_key
+from redis_utils import get_redis_connection, publish_live_data_tick, get_cached_klines, get_cached_open_interest, get_stream_key, get_sync_redis_connection
 from logging_config import logger
 from indicators import _prepare_dataframe, calculate_macd, calculate_rsi, calculate_stoch_rsi, calculate_open_interest, calculate_jma_indicator, get_timeframe_seconds
 from datetime import datetime, timezone
@@ -71,12 +71,15 @@ async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str)
         except WebSocketDisconnect:
             logger.info(f"Client (live stream {symbol}) disconnected while trying to send data.")
         except Exception as e:
-            if "Cannot call \"send\" once a close message has been sent" in str(e):
-                pass
-            elif "Cannot call \"send\" after WebSocket has been closed" in str(e):
-                pass
-            elif "closed connection before send could complete." in str(e):
-                pass
+            error_str = str(e)
+            if "Cannot call \"send\" once a close message has been sent" in error_str:
+                logger.debug(f"WebSocket send failed - close message already sent for {symbol}")
+            elif "Cannot call \"send\" after WebSocket has been closed" in error_str:
+                logger.debug(f"WebSocket send failed - connection already closed for {symbol}")
+            elif "closed connection before send could complete" in error_str:
+                logger.debug(f"WebSocket send failed - connection closed before completion for {symbol}")
+            elif "Data should not be empty" in error_str:
+                logger.debug(f"WebSocket send failed - empty buffer for {symbol}")
             else:
                 logger.error(f"Unexpected RuntimeError sending data to client (live stream {symbol}): {e}")
 
@@ -110,13 +113,32 @@ async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str)
                             should_send = True
 
                         if should_send:
+                            # Get live price from Redis using synchronous connection
+                            live_price = None
+                            try:
+                                sync_redis = get_sync_redis_connection()
+                                live_price_key = f"live:{symbol}"
+                                price_str = sync_redis.get(live_price_key)
+                                logger.debug(f"Redis get result for key '{live_price_key}': {price_str}")
+                                if price_str:
+                                    live_price = float(price_str)
+                                    logger.info(f"✅ Retrieved live price from Redis for {symbol}: {live_price}")
+                                else:
+                                    logger.warning(f"⚠️ No live price found in Redis for {symbol} (key: {live_price_key})")
+                            except Exception as e:
+                                logger.error(f"❌ Failed to get live price from Redis for {symbol}: {e}", exc_info=True)
+
                             live_data = {
                                 "symbol": ticker_data.get("symbol", symbol),
                                 "time": int(message_timestamp_ms) // 1000,
                                 "price": float(ticker_data["lastPrice"]),
                                 "vol": float(ticker_data.get("volume24h", 0)),
+                                "live_price": live_price  # Add live price from Redis
                             }
-                            loop.call_soon_threadsafe(asyncio.create_task, send_to_client(live_data))
+                            asyncio.run_coroutine_threadsafe(
+                                send_to_client(live_data),
+                                loop
+                            )
                             client_stream_state["last_sent_timestamp"] = current_server_timestamp_sec
                     except Exception as e:
                         logger.error(f"Error processing or scheduling send for Bybit ticker data for {symbol}: {e} - Data: {ticker_data}")
@@ -298,6 +320,8 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                 logger.debug(f"WebSocket send failed - connection already closed for {active_symbol}")
             elif "closed connection before send could complete" in error_str:
                 logger.debug(f"WebSocket send failed - connection closed before completion for {active_symbol}")
+            elif "Data should not be empty" in error_str:
+                logger.debug(f"WebSocket send failed - empty buffer for {active_symbol}")
             elif "[Errno 22] Invalid argument" in error_str:
                 logger.error(f"Socket error sending data to client (combined data {active_symbol}): {e}", exc_info=True)
             else:
@@ -504,12 +528,43 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
 
             logger.info(f"Starting live stream for {active_symbol} from Redis stream: {stream_key}")
 
+            # Track last live price update time for periodic updates
+            last_live_price_update = 0
+            live_price_update_interval = 5  # Send live price update every 5 seconds
+
             while client_state["live_mode"] and websocket.client_state == WebSocketState.CONNECTED:
                 try:
+                    current_time = time.time()
+
+                    # Send periodic live price updates (every 5 seconds) for all resolutions
+                    if current_time - last_live_price_update >= live_price_update_interval:
+                        try:
+                            sync_redis = get_sync_redis_connection()
+                            live_price_key = f"live:{active_symbol}"
+                            price_str = sync_redis.get(live_price_key)
+
+                            if price_str:
+                                live_price = float(price_str)
+                                logger.debug(f"✅ Combined WebSocket - Periodic live price update for {active_symbol}: {live_price}")
+
+                                # Send live price update
+                                await send_to_client({
+                                    "type": "live_price",
+                                    "symbol": active_symbol,
+                                    "price": live_price,
+                                    "timestamp": int(current_time)
+                                })
+
+                                last_live_price_update = current_time
+                            else:
+                                logger.debug(f"⚠️ Combined WebSocket - No live price available for periodic update {active_symbol}")
+                        except Exception as e:
+                            logger.debug(f"Failed to send periodic live price update for {active_symbol}: {e}")
+
                     # Read from Redis stream with error handling
                     try:
                         messages = await redis.xreadgroup(
-                            group_name, consumer_id, {stream_key: ">"}, count=10, block=5000
+                            group_name, consumer_id, {stream_key: ">"}, count=10, block=1000  # Reduced block time
                         )
                     except Exception as e:
                         logger.error(f"Failed to read from Redis stream for {active_symbol}: {e}", exc_info=True)
@@ -567,7 +622,22 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                                         else:
                                             current_indicators = {}
 
-                                        # Create live data point with indicators
+                                        # Get live price from Redis using synchronous connection
+                                        live_price = None
+                                        try:
+                                            sync_redis = get_sync_redis_connection()
+                                            live_price_key = f"live:{active_symbol}"
+                                            price_str = sync_redis.get(live_price_key)
+                                            logger.debug(f"Combined WebSocket - Redis get result for key '{live_price_key}': {price_str}")
+                                            if price_str:
+                                                live_price = float(price_str)
+                                                logger.info(f"✅ Combined WebSocket - Retrieved live price from Redis for {active_symbol}: {live_price}")
+                                            else:
+                                                logger.warning(f"⚠️ Combined WebSocket - No live price found in Redis for {active_symbol} (key: {live_price_key})")
+                                        except Exception as e:
+                                            logger.error(f"❌ Combined WebSocket - Failed to get live price from Redis for {active_symbol}: {e}", exc_info=True)
+
+                                        # Create live data point with indicators and live price
                                         live_data_point = {
                                             "time": kline_data["time"],
                                             "ohlc": {
@@ -577,7 +647,8 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                                                 "close": kline_data["close"],
                                                 "volume": kline_data["vol"]
                                             },
-                                            "indicators": current_indicators
+                                            "indicators": current_indicators,
+                                            "live_price": live_price  # Add live price from Redis
                                         }
 
                                         try:
@@ -883,14 +954,16 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                             if should_send_historical:
                                 logger.info(f"Sending historical data for {active_symbol} - time range changed: {time_range_changed}, historical_sent: {client_state['historical_sent']}")
                                 await send_historical_data()
-                            else:
-                                logger.info(f"NOT sending historical data for {active_symbol} - conditions not met")
 
-                                # Switch to live mode after sending historical data
+                            # Always activate live mode regardless of historical data status
+                            if not client_state["live_mode"]:
                                 client_state["live_mode"] = True
+                                logger.info(f"✅ LIVE MODE ACTIVATED for {active_symbol} (always active)")
 
                                 # Start live streaming task
                                 live_task = asyncio.create_task(stream_live_data())
+                            else:
+                                logger.info(f"LIVE MODE already active for {active_symbol}")
 
                         except Exception as e:
                             logger.error(f"Error processing config message for {active_symbol}: {e}", exc_info=True)

@@ -9,7 +9,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.xAxisMaxDisplay = document.getElementById('x-axis-max-display');
     window.yAxisMinDisplay = document.getElementById('y-axis-min-display');
     window.yAxisMaxDisplay = document.getElementById('y-axis-max-display');
-    window.liveDataCheckbox = document.getElementById('live-data-checkbox');
     window.selectedShapeInfoDiv = document.getElementById('selected-shape-info');
     window.deleteShapeBtn = document.getElementById('delete-shape-btn');
     window.editShapeBtn = document.getElementById('edit-shape-btn');
@@ -24,8 +23,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.localOllamaModelDiv = document.getElementById('local-ollama-model-selection-div');
     window.localOllamaModelSelect = document.getElementById('local-ollama-model-select');
 
-    window.streamDeltaSlider = document.getElementById('stream-delta-slider');
-    window.streamDeltaValueDisplay = document.getElementById('stream-delta-value');
     // Initialize debounced functions
     window.debouncedUpdateShapeVisuals = debounce(updateShapeVisuals, VISUAL_UPDATE_DEBOUNCE_DELAY); // VISUAL_UPDATE_DEBOUNCE_DELAY from config.js
     window.debouncedUpdateCrosshair = debounce(updateOrAddCrosshairVLine, 100); // updateOrAddCrosshairVLine from chartInteractions.js
@@ -379,62 +376,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }); // Replaced .onchange with addEventListener('change',...)
 
-    window.liveDataCheckbox.addEventListener('change', () => {
-        const selectedSymbol = window.symbolSelect.value;
-        if (!selectedSymbol) return;
-
-        if (window.liveDataCheckbox.checked) {
-            console.log("Live data enabled by user. Setting dragmode to 'pan'.");
-            // Note: Live data settings are saved appropriately when needed
-
-            // Setup combined WebSocket with live data
-            const resolution = window.resolutionSelect.value;
-            const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
-
-            // Calculate time range for live data
-            // Use current time for range calculations
-            const currentTime = new Date().getTime();
-            let wsFromTs = new Date(currentTime - 30 * 86400 * 1000).toISOString(); // 30 days before current time
-            let wsToTs = new Date(currentTime + 30 * 86400 * 1000).toISOString(); // 30 days after current time
-
-            // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use saved X-axis range if available
-            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for live data WebSocket`);
-            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange:`, window.currentXAxisRange);
-            if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
-                wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
-                wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
-                console.log(`[main.js] ✅ TIMESTAMP SYNC: Using saved X-axis range for live data WebSocket:`, {
-                    savedRange: window.currentXAxisRange,
-                    wsFromTs: wsFromTs,
-                    wsToTs: wsToTs
-                });
-            } else {
-                console.log(`[main.js] ⚠️ TIMESTAMP SYNC: No valid currentXAxisRange for live data, using calculated range`);
-            }
-
-            console.log('[WEBSOCKET DEBUG] About to setup WebSocket with:', {
-                selectedSymbol,
-                activeIndicators,
-                resolution,
-                wsFromTs,
-                wsToTs,
-                wsFromTsType: typeof wsFromTs,
-                wsToTsType: typeof wsToTs,
-                wsFromTsDate: wsFromTs instanceof Date ? wsFromTs.toISOString() : (typeof wsFromTs === 'number' ? new Date(wsFromTs * 1000).toISOString() : 'N/A'),
-                wsToTsDate: wsToTs instanceof Date ? wsToTs.toISOString() : (typeof wsToTs === 'number' ? new Date(wsToTs * 1000).toISOString() : 'N/A')
-            });
-    
-            setupCombinedWebSocket(selectedSymbol, activeIndicators, resolution, wsFromTs, wsToTs);
-
-            if (window.gd) {
-                Plotly.relayout(window.gd, { dragmode: 'pan' });
-            }
-        } else {
-            console.log("Live data disabled by user.");
-            closeCombinedWebSocket("Live data disabled by user via checkbox.");
-            saveSettings();
-        }
-    });
 
     const indicatorCheckboxes = document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]');
     indicatorCheckboxes.forEach(checkbox => {
@@ -513,11 +454,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // Event listener for Stream Delta Time slider
-    window.streamDeltaSlider.addEventListener('input', () => {
-        window.streamDeltaValueDisplay.textContent = window.streamDeltaSlider.value;
-        saveSettings(); // from settingsManager.js
-    });
 
     // Event listener for "Delete line" button
     if (window.deleteShapeBtn) {

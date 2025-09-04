@@ -11,11 +11,18 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
 
     let lineIndex = shapes.findIndex(shape => shape.name === REALTIME_PRICE_LINE_NAME); // Assumes REALTIME_PRICE_LINE_NAME is global
     try {
+        // Determine the correct y-axis reference for the price chart
+        // When indicators are present, price chart is on yaxis1, otherwise on y
+        const hasIndicators = gd && gd.data && gd.data.some(trace => trace.type !== 'candlestick');
+        const yref = hasIndicators ? 'yaxis1' : 'y';
+
+        console.log('[PriceLine] Using y-axis reference:', yref, '(hasIndicators:', hasIndicators, ')');
+
         const lineDefinition = {
                 type: 'line',
                 name: REALTIME_PRICE_LINE_NAME,
                 isSystemShape: true, // Mark as a system shape
-                yref: 'y',
+                yref: yref,
                 x0ref: 'x',
                 x1ref: 'paper',
                 x0: new Date(candleEndTimeMs),
@@ -36,14 +43,14 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
             // Optionally remove any existing price annotation if the new price is invalid
             gd.layout.annotations = gd.layout.annotations.filter(ann => ann.name !== REALTIME_PRICE_TEXT_ANNOTATION_NAME);
             if (doRelayout) Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations });
-            return; 
+            return;
         }
 
         const annotationDefinition = {
             name: REALTIME_PRICE_TEXT_ANNOTATION_NAME, // From config.js
             text: price.toFixed(2), // Format the price, adjust precision as needed
             xref: 'paper',   // Relative to the entire plotting area
-            yref: 'y',       // Relative to the y-axis data scale of the main price chart
+            yref: yref,      // Use the same y-axis reference as the line
             x: 1,            // Position slightly to the right of the plot area (e.g., 101%)
             y: price,        // Y position is the price itself
             showarrow: false,
@@ -198,6 +205,13 @@ function handleRealtimeKline(klineData) {
 
     const liveUpdateTimeSec = Number(klineData.time);
     const livePrice = parseFloat(klineData.price !== undefined ? klineData.price : klineData.close);
+    const livePriceFromRedis = klineData.live_price ? parseFloat(klineData.live_price) : null;
+
+    console.log('🔴 Live price data received:', {
+        websocketPrice: livePrice,
+        redisPrice: livePriceFromRedis,
+        usingRedisPrice: livePriceFromRedis !== null
+    });
 
     if (isNaN(livePrice) || isNaN(liveUpdateTimeSec)) {
         console.warn("WebSocket: Invalid price or time in live data", klineData);
@@ -255,7 +269,9 @@ function handleRealtimeKline(klineData) {
                 return;
             }
 
-            updateOrAddRealtimePriceLine(gd, livePrice, candleStartTimeMsForLine, candleEndTimeMsForLine, false);
+            // Use live price from Redis if available, otherwise use the WebSocket price
+            const priceToUse = livePriceFromRedis !== null ? livePriceFromRedis : livePrice;
+            updateOrAddRealtimePriceLine(gd, priceToUse, candleStartTimeMsForLine, candleEndTimeMsForLine, false);
             Plotly.extendTraces(gd, newCandleData, [priceTraceIndex], MAX_LIVE_CANDLES);
             Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations });
         } else if (currentPeriodStartSec === lastCandleOpenTimeSec) {
@@ -284,7 +300,9 @@ function handleRealtimeKline(klineData) {
             candleTrace.low[lastCandleIndex] = Math.min(currentLow, livePrice);
             candleTrace.close[lastCandleIndex] = livePrice;
 
-            updateOrAddRealtimePriceLine(gd, livePrice, candleStartTimeMsForLine, candleEndTimeMsForLine, false);
+            // Use live price from Redis if available, otherwise use the WebSocket price
+            const priceToUse = livePriceFromRedis !== null ? livePriceFromRedis : livePrice;
+            updateOrAddRealtimePriceLine(gd, priceToUse, candleStartTimeMsForLine, candleEndTimeMsForLine, false);
 
             // Ensure arrays are copied to trigger reactivity
             candleTrace.high = [...candleTrace.high];
@@ -304,11 +322,8 @@ function handleRealtimeKline(klineData) {
 }
 
 function setupWebSocket(symbolToStream) {
-    if (!window.liveDataCheckbox.checked) { // Assumes liveDataCheckbox is global
-        console.log('WebSocket: Live data checkbox is unchecked. Connection not initiated for', symbolToStream);
-        closeWebSocket("Live data disabled by checkbox.");
-        return;
-    }
+    // Live data is always enabled now
+    console.log('WebSocket: Setting up live data connection for', symbolToStream);
 
     if (liveWebSocket) { // Assumes liveWebSocket is global from state.js
         if (currentSymbolForStream !== symbolToStream || liveWebSocket.readyState !== WebSocket.OPEN) { // Assumes currentSymbolForStream is global
@@ -380,11 +395,11 @@ function setupWebSocket(symbolToStream) {
             }
         }
 
-        // Attempt to reconnect if live data is still checked, not a clean close, and symbol matches
-        if (window.liveDataCheckbox.checked && event.code !== 1000 && window.symbolSelect.value === symbolToStream && !liveWebSocket) {
+        // Attempt to reconnect if not a clean close and symbol matches
+        if (event.code !== 1000 && window.symbolSelect.value === symbolToStream && !liveWebSocket) {
             console.log(`WebSocket: Attempting to reconnect to ${symbolToStream} in 5 seconds...`);
             setTimeout(() => {
-                if (window.liveDataCheckbox.checked && window.symbolSelect.value === symbolToStream && !liveWebSocket) {
+                if (window.symbolSelect.value === symbolToStream && !liveWebSocket) {
                     console.log(`WebSocket: Reconnecting to ${symbolToStream}.`);
                     setupWebSocket(symbolToStream);
                 } else {
