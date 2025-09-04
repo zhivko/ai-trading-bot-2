@@ -63,21 +63,9 @@ def _extract_results(df: pd.DataFrame, columns: List[str], original_time_index: 
     temp_df = df[columns].copy()
     temp_df['original_time'] = original_time_index
 
-    # DEBUG: Log gap analysis before dropping NaN rows
-    logger.info(f"🔍 GAP ANALYSIS: Before NaN drop - DataFrame has {len(temp_df)} rows")
-    logger.info(f"🔍 GAP ANALYSIS: Original time range: {temp_df['original_time'].min()} to {temp_df['original_time'].max()}")
-    logger.info(f"🔍 GAP ANALYSIS: First 5 timestamps: {temp_df['original_time'].head(5).tolist()}")
-    logger.info(f"🔍 GAP ANALYSIS: Last 5 timestamps: {temp_df['original_time'].tail(5).tolist()}")
-
-    # Check NaN counts for each column
-    for col in columns:
-        nan_count = temp_df[col].isna().sum()
-        logger.info(f"🔍 GAP ANALYSIS: Column '{col}' has {nan_count} NaN values out of {len(temp_df)} total rows")
-
     # PRESERVE ALL TIMESTAMPS - Don't drop rows with NaN values to maintain alignment with price data
     # This fixes the gap issue where indicators start later than price data
-    logger.info(f"🔍 GAP ANALYSIS: PRESERVING ALL TIMESTAMPS - No rows dropped")
-    logger.info(f"🔍 GAP ANALYSIS: Full time range maintained: {temp_df['original_time'].min()} to {temp_df['original_time'].max()}")
+    logger.debug(f"Indicator extraction: {len(temp_df)} rows, columns: {columns}")
 
     data_dict["t"] = (temp_df['original_time'].astype('int64') // 10**9).tolist()  # Convert ns to s
     for col in columns:
@@ -141,10 +129,7 @@ def calculate_macd(df_input: pd.DataFrame, short_period: int, long_period: int, 
     if 'volume' in df_clean.columns:
         df_clean['volume'] = df_clean['volume'].fillna(0)
 
-    logger.info(f"🔍 MACD GAP DEBUG: Original data points: {len(df)}, Cleaned data points: {len(df_clean)}")
-    logger.info(f"🔍 MACD GAP DEBUG: Required minimum: {long_period + signal_period} points")
-    logger.info(f"🔍 MACD GAP DEBUG: Data timeframe: {df_clean.index.min()} to {df_clean.index.max()}")
-    logger.info(f"🔍 MACD GAP DEBUG: Gap from original start: {(df_clean.index.min() - original_time_index.min()).total_seconds() / 86400:.1f} days")
+    logger.debug(f"MACD calculation: {len(df)} -> {len(df_clean)} points after cleaning")
 
     if len(df_clean) < long_period + signal_period:
         logger.warning(f"🔍 MACD GAP CAUSE: Insufficient data for MACD calculation. Need at least {long_period + signal_period} points, got {len(df_clean)}. This creates a {((original_time_index.min() + pd.Timedelta(seconds=(long_period + signal_period) * get_timeframe_seconds('1h'))) - original_time_index.min()).total_seconds() / 86400:.1f} day gap.")
@@ -199,10 +184,7 @@ def calculate_rsi(df_input: pd.DataFrame, period: int = 14) -> Dict[str, Any]:
     if 'volume' in df_clean.columns:
         df_clean['volume'] = df_clean['volume'].fillna(0)
 
-    logger.info(f"🔍 RSI GAP DEBUG: Original data points: {len(df)}, Cleaned data points: {len(df_clean)}")
-    logger.info(f"🔍 RSI GAP DEBUG: Required minimum: {period + 14} points (RSI period {period} + SMA 14)")
-    logger.info(f"🔍 RSI GAP DEBUG: Data timeframe: {df_clean.index.min()} to {df_clean.index.max()}")
-    logger.info(f"🔍 RSI GAP DEBUG: Gap from original start: {(df_clean.index.min() - original_time_index.min()).total_seconds() / 86400:.1f} days")
+    logger.debug(f"RSI calculation: {len(df)} -> {len(df_clean)} points after cleaning")
 
     if len(df_clean) < period + 14:  # Need enough data for RSI + SMA
         logger.warning(f"🔍 RSI GAP CAUSE: Insufficient data for RSI calculation. Need at least {period + 14} points, got {len(df_clean)}. This creates a {((original_time_index.min() + pd.Timedelta(seconds=(period + 14) * get_timeframe_seconds('1h'))) - original_time_index.min()).total_seconds() / 86400:.1f} day gap.")
@@ -210,69 +192,38 @@ def calculate_rsi(df_input: pd.DataFrame, period: int = 14) -> Dict[str, Any]:
         first_timestamp = original_time_index.iloc[0] if len(original_time_index) > 0 else int(time.time())
         return {"t": [first_timestamp], "rsi": [None], "rsi_sma14": [None]}
 
-    # DEBUG: Log input data
-    logger.debug(f"[DEBUG RSI] Input DataFrame length: {len(df_clean)}, period: {period}")
-    if len(df_clean) > 0:
-        logger.debug(f"[DEBUG RSI] Sample close prices: {df_clean['close'].head(5).tolist()}")
-        logger.debug(f"[DEBUG RSI] Close price range: min={df_clean['close'].min():.2f}, max={df_clean['close'].max():.2f}")
-
     try:
         # 1️⃣ Compute the raw RSI
         df_clean.ta.rsi(length=period, append=True)
     except Exception as e:
         logger.error(f"pandas-ta RSI calculation failed: {e}")
-        logger.error(f"DataFrame info: shape={df_clean.shape}, columns={df_clean.columns.tolist()}. Returning empty subplots.")
         # Return placeholder data to create empty subplots - use first available timestamp
         first_timestamp = original_time_index.iloc[0] if len(original_time_index) > 0 else int(time.time())
         return {"t": [first_timestamp], "rsi": [None], "rsi_sma14": [None]}
 
     rsi_col = f"RSI_{period}"
     if rsi_col not in df_clean.columns:
-        logger.warning(
-            f"RSI column '{rsi_col}' not found – maybe not enough data. Returning empty subplots."
-        )
+        logger.warning(f"RSI column '{rsi_col}' not found – maybe not enough data")
         # Return placeholder data to create empty subplots - use first available timestamp
         first_timestamp = original_time_index.iloc[0] if len(original_time_index) > 0 else int(time.time())
         return {"t": [first_timestamp], "rsi": [None], "rsi_sma14": [None]}
-
-    # DEBUG: Log RSI values
-    logger.debug(f"[DEBUG RSI] RSI column created: {rsi_col}")
-    if len(df_clean) > 0:
-        logger.debug(f"[DEBUG RSI] Sample RSI values: {df_clean[rsi_col].head(5).tolist()}")
-        logger.debug(f"[DEBUG RSI] RSI range: min={df_clean[rsi_col].min():.2f}, max={df_clean[rsi_col].max():.2f}")
 
     # 2️⃣ Compute SMA‑14 of that RSI
     sma_col = f"RSI_{period}_sma14"
     df_clean[sma_col] = df_clean[rsi_col].rolling(window=14).mean()
 
-    # DEBUG: Log SMA values
-    logger.debug(f"[DEBUG RSI] SMA column created: {sma_col}")
-    if len(df_clean) > 0:
-        logger.info(f"[DEBUG RSI] Sample SMA values: {df_clean[sma_col].head(5).tolist()}")
-        logger.info(f"[DEBUG RSI] SMA range: min={df_clean[sma_col].min():.2f}, max={df_clean[sma_col].max():.2f}")
-
     # 3️⃣ Return both columns via _extract_results
-    logger.info(f"[DEBUG RSI] Columns before _extract_results: {df_clean.columns.tolist()}")
-    logger.info(f"[DEBUG RSI] RSI column sample: {df_clean[rsi_col].head(5).tolist()}")
-    logger.info(f"[DEBUG RSI] SMA column sample: {df_clean[sma_col].head(5).tolist()}")
-    logger.info(f"[DEBUG RSI] SMA NaN count: {df_clean[sma_col].isna().sum()}")
-
     result = _extract_results(df_clean, [rsi_col, sma_col], original_time_index)
-    logger.info(f"[DEBUG RSI] Final result keys: {list(result.keys())}")
-    logger.info(f"[DEBUG RSI] Final result length: {len(result.get('t', []))}")
+    logger.debug(f"RSI calculation completed: {len(result.get('t', []))} points")
     return result
 
 def calculate_stoch_rsi(df_input: pd.DataFrame, rsi_period: int, stoch_period: int, k_period: int, d_period: int) -> Dict[str, Any]:
     df = df_input.copy()
     original_time_index = df.index.to_series()
 
-    logger.info(f"🔍 STOCHRSI GAP DEBUG: Input data points: {len(df)}")
-    logger.info(f"🔍 STOCHRSI GAP DEBUG: Parameters: RSI={rsi_period}, Stoch={stoch_period}, K={k_period}, D={d_period}")
-    logger.info(f"🔍 STOCHRSI GAP DEBUG: Estimated warmup period: RSI({rsi_period}) + Stoch({stoch_period}) + smoothing = ~{rsi_period + stoch_period + k_period + d_period} points")
-
     # Check if we have sufficient data before attempting calculation
     min_required_points = rsi_period + stoch_period + k_period + d_period
-    logger.info(f"🔍 STOCHRSI VALIDATION: Minimum required data points: {min_required_points}, Available: {len(df)}")
+    logger.debug(f"StochRSI validation: need {min_required_points} points, have {len(df)}")
 
     if len(df) < min_required_points:
         logger.warning(f"🔍 STOCHRSI INSUFFICIENT DATA: Need at least {min_required_points} points, got {len(df)}. "

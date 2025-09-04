@@ -1,10 +1,10 @@
-function debounce(func, delay) {
+async function debounce(func, delayMs) {
     let timeoutId;
     return function(...args) {
         clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => {
-            func.apply(this, args);
-        }, delay);
+        timeoutId = setTimeout(async () => {
+            await func.apply(this, args);
+        }, delayMs);
     };
 }
 
@@ -60,3 +60,11 @@ function getTimeframeSecondsJS(resolution) {
     const multipliers = {"1m": 60, "5m": 5 * 60, "1h": 60 * 60, "1d": 24 * 60 * 60, "1w": 7 * 24 * 60 * 60 };
     return multipliers[resolution];
 }
+
+// Promise-based delay function to replace setTimeout
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Make delay globally available
+window.delay = delay;

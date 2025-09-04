@@ -195,9 +195,9 @@ async function loadSettings(symbolOverride = null) {
             window.resolutionSelect.value = settings.resolution;
             console.log('[DEBUG settingsManager] Applied saved resolution to UI:', settings.resolution);
             // Reset flag after a short delay to allow any event processing
-            setTimeout(() => {
+            delay(10).then(() => {
                 isProgrammaticallySettingResolution = false;
-            }, 10);
+            });
         }
 
         // Set range programmatically (without triggering change event)
@@ -206,9 +206,9 @@ async function loadSettings(symbolOverride = null) {
             window.rangeSelect.value = settings.range;
             console.log('[DEBUG settingsManager] Applied saved range to UI:', settings.range);
             // Reset flag after a short delay to allow any event processing
-            setTimeout(() => {
+            delay(10).then(() => {
                 isProgrammaticallySettingRange = false;
-            }, 10);
+            });
         }
 
         if (settings.xAxisMin !== null && settings.xAxisMax !== null && typeof settings.xAxisMin !== 'undefined') {
@@ -318,7 +318,7 @@ async function loadSettings(symbolOverride = null) {
             allIndicatorCheckboxes.forEach(checkbox => checkbox.checked = false);
 
             // Then check the active ones
-            if (settings.activeIndicators && Array.isArray(settings.activeIndicators)) {
+            if (settings.activeIndicators && Array.isArray(settings.activeIndicators) && settings.activeIndicators.length > 0) {
                 console.log('[DEBUG settingsManager] Restoring active indicators:', settings.activeIndicators);
                 settings.activeIndicators.forEach(indicatorValue => {
                     const checkbox = document.querySelector(`#indicator-checkbox-list input[type="checkbox"][value="${indicatorValue}"]`);
@@ -329,11 +329,7 @@ async function loadSettings(symbolOverride = null) {
                         console.warn('[DEBUG settingsManager] Indicator checkbox not found for:', indicatorValue);
                     }
                 });
-            } else {
-                console.log('[DEBUG settingsManager] No activeIndicators in settings or not an array');
             }
-
-            // Reset flag after restoration is complete
             isRestoringIndicators = false;
             console.log('[DEBUG settingsManager] Finished restoring indicators, allowing saves again');
         };

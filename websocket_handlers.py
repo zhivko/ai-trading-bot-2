@@ -15,6 +15,15 @@ from datetime import datetime, timezone
 from drawing_manager import get_drawings
 
 async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str):
+    # SECURITY FIX: Validate symbol BEFORE accepting WebSocket connection
+    # This prevents accepting connections for invalid/malicious symbols
+    if symbol not in SUPPORTED_SYMBOLS:
+        logger.warning(f"SECURITY: Unsupported symbol '{symbol}' requested for live data WebSocket - rejecting before accept")
+        # Don't accept the connection for invalid symbols
+        await websocket.close(code=1008, reason="Unsupported symbol")
+        return
+
+    # Accept the WebSocket connection only for valid symbols
     await websocket.accept()
     logger.info(f"WebSocket connection accepted for live data: {symbol}")
 
@@ -49,11 +58,6 @@ async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str)
 
     # Get the current asyncio event loop
     loop = asyncio.get_running_loop()
-
-    if symbol not in SUPPORTED_SYMBOLS:
-        logger.warning(f"Unsupported symbol requested for live stream: {symbol}")
-        await websocket.close(code=1008, reason="Unsupported symbol")
-        return
 
     bybit_ws_client = BybitWS(
         testnet=False,
@@ -253,6 +257,16 @@ async def stream_klines(symbol: str, resolution: str, request):
 
 async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: str):
     """Combined WebSocket endpoint that streams historical OHLC data with indicators and live data from Redis."""
+
+    # SECURITY FIX: Validate symbol BEFORE accepting WebSocket connection
+    # This prevents accepting connections for invalid/malicious symbols like ".ENV"
+    if symbol not in SUPPORTED_SYMBOLS:
+        logger.warning(f"SECURITY: Unsupported symbol '{symbol}' requested for combined data WebSocket - rejecting before accept")
+        # Don't accept the connection for invalid symbols
+        await websocket.close(code=1008, reason="Unsupported symbol")
+        return
+
+    # Accept the WebSocket connection only for valid symbols
     await websocket.accept()
     logger.info(f"WebSocket connection accepted for combined data: {symbol}")
 
@@ -266,12 +280,6 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
         "live_mode": False,  # Whether we're in live streaming mode
         "last_sent_timestamp": 0.0,
     }
-
-    # Validate URL path symbol
-    if symbol not in SUPPORTED_SYMBOLS:
-        logger.warning(f"Unsupported symbol requested for combined data: {symbol}")
-        await websocket.close(code=1008, reason="Unsupported symbol")
-        return
 
     # Initialize active_symbol with URL path symbol (will be updated from message if provided)
     active_symbol = symbol
@@ -327,13 +335,6 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                         email=user_email
                     )
 
-                    logger.info(f"get_drawings() returned: {drawings}")
-                    logger.info(f"Drawings type: {type(drawings)}")
-                    print(f"Drawings console output: {json.dumps(drawings, indent=2)}")
-                    if drawings:
-                        logger.info(f"Drawings length: {len(drawings)}")
-                        logger.info(f"First drawing sample: {drawings[0] if drawings else 'None'}")
-
                     if drawings and len(drawings) > 0:
                         logger.info(f"Sending {len(drawings)} existing drawings for {active_symbol}")
                         drawing_message = {
@@ -341,7 +342,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                             "symbol": active_symbol,
                             "data": drawings
                         }
-                        logger.info(f"Sending drawing message: {drawing_message}")
+                        logger.info(f"Sending drawing ({len(drawings)}) message: {drawing_message}")
                         await send_to_client(drawing_message)
                         logger.info(f"Successfully sent drawings message to client")
                     else:
@@ -356,7 +357,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
 
             # Get historical klines from Redis with error handling
             try:
-                logger.info(f"🔍 REDIS QUERY: Requesting klines for {active_symbol}, resolution={client_state['resolution']}, from_ts={client_state['from_ts']}, to_ts={client_state['to_ts']}")
+                logger.debug(f"Requesting klines for {active_symbol}: {len(klines) if 'klines' in locals() else 0} points")
                 klines = await get_cached_klines(active_symbol, client_state["resolution"], client_state["from_ts"], client_state["to_ts"])
                 logger.info(f"✅ REDIS SUCCESS: Retrieved {len(klines) if klines else 0} klines from Redis for {active_symbol}")
             except Exception as e:
@@ -398,12 +399,9 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
 
             # Calculate indicators with error handling
             try:
-                logger.info(f"🔍 SERVER DEBUG: About to calculate indicators for {active_symbol}")
-                logger.info(f"🔍 SERVER DEBUG: Indicators requested: {client_state['indicators']}")
-                logger.info(f"🔍 SERVER DEBUG: Klines count: {len(klines)}")
+                logger.info(f"Calculating indicators for {active_symbol}: {len(client_state['indicators'])} indicators, {len(klines)} klines")
                 indicators_data = await calculate_indicators_for_data(klines, client_state["indicators"])
-                logger.info(f"🔍 SERVER DEBUG: Indicators calculation completed for {active_symbol}")
-                logger.info(f"🔍 SERVER DEBUG: Indicators data keys: {list(indicators_data.keys()) if indicators_data else 'None'}")
+                logger.debug(f"Indicators calculation completed: {len(indicators_data) if indicators_data else 0} results")
             except Exception as e:
                 logger.error(f"Failed to calculate indicators for {active_symbol}: {e}", exc_info=True)
                 logger.error(f"📊 INDICATOR CALCULATION FAILURE CONTEXT:")
@@ -613,9 +611,9 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
 
     async def calculate_indicators_for_data(klines: List[Dict], indicators: List[str]) -> Dict[str, Any]:
         """Calculate indicators for the given klines data."""
-        logger.info(f"🔍 SERVER DEBUG: calculate_indicators_for_data called with {len(klines) if klines else 0} klines and indicators: {indicators}")
+        logger.debug(f"calculate_indicators_for_data: {len(klines) if klines else 0} klines, {len(indicators) if indicators else 0} indicators")
         if not klines or not indicators:
-            logger.info(f"🔍 SERVER DEBUG: Early return - no klines or no indicators")
+            logger.debug("Early return - no klines or no indicators")
             return {}
 
         # Prepare DataFrame with error handling

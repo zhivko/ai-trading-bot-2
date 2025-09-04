@@ -17,18 +17,13 @@ const REALTIME_PRICE_TEXT_ANNOTATION_NAME = 'realtimePriceTextAnnotation';
 // Function to detect mobile devices using modern browser APIs
 function isMobileDevice() {
     // Log client resolution information
-    /*
-    console.log('Client Resolution Info:');
+    console.log('[DEBUG] Mobile Detection Info:');
     console.log('  window.innerWidth:', window.innerWidth);
     console.log('  window.innerHeight:', window.innerHeight);
     console.log('  screen.width:', screen.width);
     console.log('  screen.height:', screen.height);
-    console.log('  screen.availWidth:', screen.availWidth);
-    console.log('  screen.availHeight:', screen.availHeight);
     console.log('  devicePixelRatio:', window.devicePixelRatio);
     console.log('  navigator.userAgent:', navigator.userAgent);
-
-   */
 
     // Use the modern User-Agent Client Hints API if available
     if (navigator.userAgentData && typeof navigator.userAgentData.mobile === 'boolean') {
@@ -45,7 +40,10 @@ function isMobileDevice() {
     // Final fallback: Check user agent for mobile devices (legacy method)
     const userAgentMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     console.log('  userAgent mobile pattern match:', userAgentMobile);
-    return userAgentMobile;
+
+    const isMobile = userAgentMobile;
+    console.log('[DEBUG] Final mobile detection result:', isMobile);
+    return isMobile;
 }
 
 

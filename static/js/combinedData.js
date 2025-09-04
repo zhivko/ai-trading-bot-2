@@ -11,6 +11,7 @@ let combinedToTs = null;
 let accumulatedHistoricalData = [];
 let isAccumulatingHistorical = false;
 let historicalDataSymbol = '';
+let accumulationTimeout = null;
 
 // Real-time price line management functions
 function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTimeMs, doRelayout = false) {
@@ -190,6 +191,10 @@ function setupCombinedWebSocket(symbol, indicators = [], resolution = '1h', from
             window.historicalDataTimeout = null;
         }
         // console.log('Combined WebSocket: Reset historical data accumulation state for new request');
+    } else {
+        // For time range updates (panning/zooming), preserve accumulation state
+        // Don't reset isAccumulatingHistorical to allow continued accumulation
+        console.log('Combined WebSocket: Preserving accumulation state for time range update');
     }
 
     // console.log('Combined WebSocket: Setup called with:', {
@@ -249,11 +254,11 @@ function setupCombinedWebSocket(symbol, indicators = [], resolution = '1h', from
         // Attempt to reconnect if live data is still enabled
         if (window.liveDataCheckbox && window.liveDataCheckbox.checked && event.code !== 1000) {
             // console.log(`Combined WebSocket: Attempting to reconnect to ${symbol} in 5 seconds...`);
-            setTimeout(() => {
+            delay(5000).then(() => {
                 if (window.liveDataCheckbox.checked && window.symbolSelect.value === symbol) {
                     setupCombinedWebSocket(symbol, indicators, resolution, fromTs, toTs);
                 }
-            }, 5000);
+            });
         }
     };
 }
@@ -386,8 +391,7 @@ function handleHistoricalData(message) {
     });
 
     // Check if chart is ready
-    const chartElement = document.getElementById('chart');
-    console.log('🔍 DEBUG: Chart element exists:', !!chartElement);
+    console.log('🔍 DEBUG: Chart element exists:', !!document.getElementById('chart'));
     console.log('🔍 DEBUG: Window.gd exists:', !!window.gd);
     console.log('🔍 DEBUG: Window.gd.data exists:', !!(window.gd && window.gd.data));
 
@@ -422,13 +426,54 @@ function handleHistoricalData(message) {
         accumulatedHistoricalData = [];
         isAccumulatingHistorical = true;
         historicalDataSymbol = message.symbol;
+
+        // Clear any existing timeout
+        if (accumulationTimeout) {
+            clearTimeout(accumulationTimeout);
+            accumulationTimeout = null;
+        }
+
+        // Set up timeout to reset accumulation after 30 seconds
+        accumulationTimeout = setTimeout(() => {
+            console.log(`Combined WebSocket: Accumulation timeout reached for ${historicalDataSymbol}, resetting state`);
+            accumulatedHistoricalData = [];
+            isAccumulatingHistorical = false;
+            historicalDataSymbol = '';
+            accumulationTimeout = null;
+        }, 30000);
+
         console.log(`Combined WebSocket: Starting new historical data accumulation for ${message.symbol}`);
+    } else {
+        // Continue existing accumulation - check if this data makes sense to add
+        if (accumulatedHistoricalData.length > 0 && message.data.length > 0) {
+            const currentMinTime = Math.min(...accumulatedHistoricalData.map(d => d.time));
+            const currentMaxTime = Math.max(...accumulatedHistoricalData.map(d => d.time));
+            const newMinTime = Math.min(...message.data.map(d => d.time));
+            const newMaxTime = Math.max(...message.data.map(d => d.time));
+
+            // Check if new data overlaps or extends current data reasonably
+            const overlapThreshold = 3600; // 1 hour overlap threshold
+            const hasOverlap = (newMinTime <= currentMaxTime + overlapThreshold) && (newMaxTime >= currentMinTime - overlapThreshold);
+            const extendsRange = newMinTime < currentMinTime || newMaxTime > currentMaxTime;
+
+            if (!hasOverlap && !extendsRange) {
+                // Data doesn't overlap and doesn't extend range - might be a new request
+                console.log(`Combined WebSocket: New data doesn't overlap with existing range, treating as continuation`);
+            }
+        }
+
+        console.log(`Combined WebSocket: Continuing historical data accumulation for ${message.symbol} (${accumulatedHistoricalData.length} points already accumulated)`);
     }
 
-    // Add this batch to accumulated data
+    // Add this batch to accumulated data with proper merging to avoid duplicates
     const previousCount = accumulatedHistoricalData.length;
-    accumulatedHistoricalData = accumulatedHistoricalData.concat(message.data);
-    console.log(`📊 Combined WebSocket: Accumulated ${accumulatedHistoricalData.length} total data points so far (added ${message.data.length}, previous: ${previousCount})`);
+    const combinedData = accumulatedHistoricalData.concat(message.data);
+
+    // Merge data to remove duplicates and handle overlaps properly
+    const mergedData = mergeHistoricalData(combinedData);
+    accumulatedHistoricalData = mergedData;
+
+    console.log(`📊 Combined WebSocket: Accumulated ${accumulatedHistoricalData.length} total data points so far (added ${message.data.length}, previous: ${previousCount}, merged: ${combinedData.length - accumulatedHistoricalData.length} duplicates removed)`);
 
     // DEBUG: Check data integrity
     console.log('🔍 DEBUG: Data accumulation details:');
@@ -442,49 +487,55 @@ function handleHistoricalData(message) {
         clearTimeout(window.historicalDataTimeout);
     }
 
-    // Set a timeout to process accumulated data after a delay (assuming all batches received)
-    window.historicalDataTimeout = setTimeout(() => {
-        // Check if chart is fully ready before processing (element, Plotly gd, and full layout exist)
-        const chartElement = document.getElementById('chart');
-        if (!chartElement || !window.gd || !window.gd._fullLayout) {
-            console.log('📊 Combined WebSocket: Chart not fully ready (element, gd, or _fullLayout missing), retrying with requestAnimationFrame');
-            // Retry using requestAnimationFrame for better determinism
-            requestAnimationFrame(() => {
-                console.log(`📊 Combined WebSocket: Processing accumulated historical data: ${accumulatedHistoricalData.length} points for ${historicalDataSymbol}`);
-                console.log('🔍 DEBUG: About to call updateChartWithHistoricalData with:', {
-                    dataPoints: accumulatedHistoricalData.length,
-                    symbol: historicalDataSymbol,
-                    firstTimestamp: accumulatedHistoricalData[0]?.time,
-                    lastTimestamp: accumulatedHistoricalData[accumulatedHistoricalData.length - 1]?.time
-                });
+    // Check if chart is fully ready before processing (element, Plotly gd, and full layout exist)
+    const chartElement = document.getElementById('chart');
+    if (!chartElement || !window.gd || !window.gd._fullLayout) {
+        console.log('📊 Combined WebSocket: Chart not fully ready (element, gd, or _fullLayout missing), retrying with requestAnimationFrame');
+        // Retry using requestAnimationFrame for better determinism
+        requestAnimationFrame(() => {
+            console.log(`📊 Combined WebSocket: Processing accumulated historical data: ${accumulatedHistoricalData.length} points for ${historicalDataSymbol}`);
+            console.log('🔍 DEBUG: About to call updateChartWithHistoricalData with:', {
+                dataPoints: accumulatedHistoricalData.length,
+                symbol: historicalDataSymbol,
+                firstTimestamp: accumulatedHistoricalData[0]?.time,
+                lastTimestamp: accumulatedHistoricalData[accumulatedHistoricalData.length - 1]?.time
+            });
 
+            // Only update chart if we have accumulated a significant amount of data
+            if (accumulatedHistoricalData.length >= 50) {
                 // Process accumulated historical data and update chart
                 updateChartWithHistoricalData(accumulatedHistoricalData, historicalDataSymbol);
+            } else {
+                console.log(`📊 Combined WebSocket: Skipping chart update in requestAnimationFrame - only ${accumulatedHistoricalData.length} points accumulated so far`);
+            }
 
-                // Reset accumulation state
-                accumulatedHistoricalData = [];
-                isAccumulatingHistorical = false;
-                historicalDataSymbol = '';
-            });
-            return;
-        }
-
-        console.log(`📊 Combined WebSocket: Processing accumulated historical data: ${accumulatedHistoricalData.length} points for ${historicalDataSymbol}`);
-        console.log('🔍 DEBUG: About to call updateChartWithHistoricalData with:', {
-            dataPoints: accumulatedHistoricalData.length,
-            symbol: historicalDataSymbol,
-            firstTimestamp: accumulatedHistoricalData[0]?.time,
-            lastTimestamp: accumulatedHistoricalData[accumulatedHistoricalData.length - 1]?.time
+            // Don't reset accumulation state here - let the main handler decide when to reset
+            console.log(`Combined WebSocket: Processed ${accumulatedHistoricalData.length} points in requestAnimationFrame for ${historicalDataSymbol}`);
         });
+        return;
+    }
 
+    console.log(`📊 Combined WebSocket: Processing accumulated historical data: ${accumulatedHistoricalData.length} points for ${historicalDataSymbol}`);
+    console.log('🔍 DEBUG: About to call updateChartWithHistoricalData with:', {
+        dataPoints: accumulatedHistoricalData.length,
+        symbol: historicalDataSymbol,
+        firstTimestamp: accumulatedHistoricalData[0]?.time,
+        lastTimestamp: accumulatedHistoricalData[accumulatedHistoricalData.length - 1]?.time
+    });
+
+    // Only update chart if we have accumulated a significant amount of data
+    // This prevents chart flickering from small batches
+    if (accumulatedHistoricalData.length >= 50) {
         // Process accumulated historical data and update chart
         updateChartWithHistoricalData(accumulatedHistoricalData, historicalDataSymbol);
+    } else {
+        console.log(`📊 Combined WebSocket: Skipping chart update - only ${accumulatedHistoricalData.length} points accumulated so far`);
+    }
 
-        // Reset accumulation state
-        accumulatedHistoricalData = [];
-        isAccumulatingHistorical = false;
-        historicalDataSymbol = '';
-    }, 500); // 500ms delay to allow for more batches
+    // For time range updates (panning/zooming), don't reset accumulation state after each batch
+    // Only reset when we detect a truly new request or timeout
+    // The accumulation will continue until timeout or a new symbol/resolution request
+    console.log(`Combined WebSocket: Accumulation state preserved for ${historicalDataSymbol} - ${accumulatedHistoricalData.length} points accumulated so far`);
 }
 
 function handleLiveData(message) {
@@ -722,6 +773,36 @@ function convertDrawingToShape(drawing) {
     }
 }
 
+function mergeHistoricalData(dataPoints) {
+    if (!dataPoints || dataPoints.length === 0) {
+        return [];
+    }
+
+    // Sort by timestamp to ensure proper ordering
+    const sortedData = dataPoints.sort((a, b) => a.time - b.time);
+
+    // Remove duplicates by timestamp, keeping the most recent data
+    const mergedData = [];
+    const seenTimestamps = new Set();
+
+    for (const point of sortedData) {
+        if (!seenTimestamps.has(point.time)) {
+            seenTimestamps.add(point.time);
+            mergedData.push(point);
+        } else {
+            // If we have a duplicate timestamp, replace the existing one with the new one
+            // This ensures we keep the most recent data for the same timestamp
+            const existingIndex = mergedData.findIndex(p => p.time === point.time);
+            if (existingIndex !== -1) {
+                mergedData[existingIndex] = point;
+            }
+        }
+    }
+
+    console.log(`🔄 Merged ${dataPoints.length} points into ${mergedData.length} unique points (${dataPoints.length - mergedData.length} duplicates removed)`);
+    return mergedData;
+}
+
 function updateChartWithHistoricalData(dataPoints, symbol) {
     console.log('📈 Combined WebSocket: Processing historical data for chart update');
     console.log('📈 Combined WebSocket: Data points received:', dataPoints.length);
@@ -792,15 +873,16 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
 
     console.log('🔍 DEBUG: Processing indicator data from dataPoints...');
     console.log('🔍 DEBUG: Number of dataPoints:', dataPoints.length);
+    console.log('🔍 DEBUG: combinedIndicators:', combinedIndicators);
 
     dataPoints.forEach((point, pointIndex) => {
-        // console.log(`🔍 DEBUG: DataPoint ${pointIndex}: time=${point.time}, has indicators:`, !!point.indicators);
+        //console.log(`🔍 DEBUG: DataPoint ${pointIndex}: time=${point.time}, has indicators:`, !!point.indicators);
         if (point.indicators) {
-            // console.log(`🔍 DEBUG: DataPoint ${pointIndex} indicators keys:`, Object.keys(point.indicators));
+            //console.log(`🔍 DEBUG: DataPoint ${pointIndex} indicators keys:`, Object.keys(point.indicators));
             Object.keys(point.indicators).forEach(indicatorId => {
-                // console.log(`🔍 DEBUG: Processing indicator ${indicatorId} for dataPoint ${pointIndex}`);
+                //console.log(`🔍 DEBUG: Processing indicator ${indicatorId} for dataPoint ${pointIndex}`);
                 if (!indicatorsData[indicatorId]) {
-                    // console.log(`🔍 DEBUG: Creating new indicatorsData entry for ${indicatorId}`);
+                    //console.log(`🔍 DEBUG: Creating new indicatorsData entry for ${indicatorId}`);
                     indicatorsData[indicatorId] = {
                         timestamps: [],
                         values: {}
@@ -811,7 +893,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
 
                 // Store all indicator values for this point
                 Object.keys(point.indicators[indicatorId]).forEach(key => {
-                    // console.log(`🔍 DEBUG: Processing indicator ${indicatorId} key ${key} with value:`, point.indicators[indicatorId][key]);
+                    //console.log(`🔍 DEBUG: Processing indicator ${indicatorId} key ${key} with value:`, point.indicators[indicatorId][key]);
                     if (!indicatorsData[indicatorId].values[key]) {
                         indicatorsData[indicatorId].values[key] = [];
                     }
@@ -819,7 +901,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                 });
             });
         } else {
-            //console.log(`🔍 DEBUG: DataPoint ${pointIndex} has no indicators object`);
+            console.log(`🔍 DEBUG: DataPoint ${pointIndex} has no indicators object`);
         }
     });
 
@@ -1047,6 +1129,12 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     // Update chart with all traces
     const allTraces = [priceTrace, ...indicatorTraces];
 
+    console.log('📊 Combined WebSocket: Final trace counts:');
+    console.log('  Price trace: 1');
+    console.log('  Indicator traces:', indicatorTraces.length);
+    console.log('  Total traces:', allTraces.length);
+    console.log('  Indicator trace names:', indicatorTraces.map(t => t.name));
+
     // Check if we need to create a new layout or can reuse existing one
     let layout;
     if (window.gd && window.gd.layout && window.gd.layout.grid) {
@@ -1109,10 +1197,35 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     }
 
     console.log('🔄 Using Plotly.react with user\'s zoom/pan settings preserved...');
-    Plotly.react(chartElement, allTraces, layout);
-    console.log('✅ Plotly.react completed successfully with user settings preserved');
-    console.log('[CHART_UPDATE] combinedData.js historical data - chart update completed at', new Date().toISOString());
-    console.log('📊 User zoom/pan settings maintained - no forced autorange');
+    console.log('📊 Plotly.react input details:');
+    console.log('  Chart element exists:', !!chartElement);
+    console.log('  All traces count:', allTraces.length);
+    console.log('  Trace names:', allTraces.map(t => t.name));
+    console.log('  Layout has grid:', !!layout.grid);
+    console.log('  Layout grid rows:', layout.grid ? layout.grid.rows : 'N/A');
+
+    Plotly.react(chartElement, allTraces, layout).then(() => {
+        console.log('✅ Plotly.react completed successfully with user settings preserved');
+        console.log('[CHART_UPDATE] combinedData.js historical data - chart update completed at', new Date().toISOString());
+        console.log('📊 User zoom/pan settings maintained - no forced autorange');
+
+        // Debug: Check what traces are actually in the chart after update
+        if (window.gd && window.gd.data) {
+            console.log('🔍 POST-REACT: Chart traces after update:', window.gd.data.length);
+            window.gd.data.forEach((trace, index) => {
+                console.log(`  Trace ${index}: ${trace.name} (${trace.x ? trace.x.length : 0} points)`);
+            });
+        }
+
+        // Apply autoscale after chart update to ensure all data is visible
+        // DISABLED: Autoscale after historical data causes infinite loop
+        // if (window.applyAutoscale && window.gd) {
+        //     console.log('🔄 Applying autoscale after historical data update');
+        //     window.applyAutoscale(window.gd);
+        // }
+    }).catch((error) => {
+        console.error('❌ Error during Plotly.react:', error);
+    });
 
     console.log('📊 Chart should now display all merged historical data');
 
@@ -1201,7 +1314,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     }
 
     // Verify event handlers are still attached after Plotly.react
-    setTimeout(() => {
+    delay(100).then(() => {
         if (window.gd && window.gd._ev) {
             const relayoutHandlers = window.gd._ev._events?.plotly_relayout;
             // console.log('Combined WebSocket: Event handlers after Plotly.react:', relayoutHandlers?.length || 0);
@@ -1213,7 +1326,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                 }
             }
         }
-    }, 100);
+    });
 
     // console.log(`Combined WebSocket: Updated chart with ${dataPoints.length} historical points and ${validTraces.length - 1} valid indicator traces (${allTraces.length - validTraces.length} traces filtered out due to NaN values)`);
 }
@@ -1694,7 +1807,7 @@ function createLayoutForIndicators(activeIndicatorIds) {
                 new Date(window.currentXAxisRange[0] < 2e9 ? window.currentXAxisRange[0] * 1000 : window.currentXAxisRange[0]),
                 new Date(window.currentXAxisRange[1] < 2e9 ? window.currentXAxisRange[1] * 1000 : window.currentXAxisRange[1])
             ] : undefined,
-            showticklabels: false // Hide x-axis labels (can be enabled later by setting to true)
+            showticklabels: true // Show x-axis labels (timestamps)
         },
         yaxis: {
             title: `${combinedSymbol.replace('USDT', '/USDT')} Price`,
@@ -1818,6 +1931,7 @@ window.closeCombinedWebSocket = closeCombinedWebSocket;
 window.updateCombinedIndicators = updateCombinedIndicators;
 window.updateCombinedResolution = updateCombinedResolution;
 window.setupWebSocketMessageHandler = setupWebSocketMessageHandler;
+window.mergeHistoricalData = mergeHistoricalData;
 
 // DEBUG: Add debugging function for chart diagnosis
 window.debugChartState = function() {

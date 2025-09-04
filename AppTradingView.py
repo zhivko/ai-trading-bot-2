@@ -20,6 +20,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.errors import RateLimitExceeded
 
 # Import configuration and utilities
 from config import SECRET_KEY, STATIC_DIR, TEMPLATES_DIR, PROJECT_ROOT
@@ -27,7 +31,6 @@ from logging_config import logger
 from auth import creds, get_session
 from redis_utils import init_redis
 from background_tasks import fetch_and_publish_klines
-from time_sync import sync_time_with_ntp
 
 # Import email alert service
 from email_alert_service import alert_service
@@ -120,6 +123,12 @@ async def lifespan(app_instance: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
+# Add rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
 # Add ProxyHeadersMiddleware to trust headers from Nginx
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["IP_OF_NGINX_SERVER_A", "192.168.1.20"])
 
@@ -140,14 +149,19 @@ templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 # Main chart page endpoint
 @app.get("/")
+@limiter.limit("30/minute")
 async def chart_page(request: Request):
     client_host = request.client.host if request.client else "Unknown"
     authenticated = False
 
+    # Enhanced security logging for debugging
     logger.info(f"Chart page request from {client_host}. Current session state: authenticated={request.session.get('authenticated')}, email={request.session.get('email')}")
+    logger.info(f"Security debug - Headers: X-Forwarded-For={request.headers.get('x-forwarded-for')}, X-Real-IP={request.headers.get('x-real-ip')}, User-Agent={request.headers.get('user-agent')}")
+    logger.info(f"Security debug - Session ID: {request.session.get('_session_id', 'None')}, Client IP: {client_host}")
 
     # Check if this is a local testing request (from 192.168.1.52)
     is_local_test = client_host == "192.168.1.52"
+    logger.info(f"Security debug - Is local test: {is_local_test} (client_host == '192.168.1.52')")
 
     if request.session.get('email') is None:
         if is_local_test:
@@ -277,11 +291,6 @@ async def oauth_callback(request: Request, code: str):
             raise HTTPException(status_code=500, detail="Client ID or secret not found in client_secret.json")
 
 
-
-        if not client_id or not client_secret:
-            logger.error(f"Client ID or secret not found in {client_secrets_file}")
-            raise HTTPException(status_code=500, detail="Client ID or secret not found in client_secret.json")
-
         # 1. Configure the OAuth 2.0 flow
         flow = Flow.from_client_secrets_file(
             client_secrets_file=client_secrets_file,  # Replace with the path to your client_secret.json file
@@ -339,6 +348,7 @@ async def oauth_callback(request: Request, code: str):
 
 # Symbol-specific chart page endpoint (must be last to avoid conflicts with API routes)
 @app.get("/{symbol}")
+@limiter.limit("20/minute")
 async def symbol_chart_page(symbol: str, request: Request):
     """Handle requests to /symbol pages and serve the main chart page."""
     # Skip if this is an API route or static file
@@ -370,9 +380,12 @@ async def symbol_chart_page(symbol: str, request: Request):
     '''
 
     logger.info(f"Symbol chart page request for {symbol} from {client_host}. Current session state: authenticated={request.session.get('authenticated')}, email={request.session.get('email')}")
+    logger.info(f"Security debug - Headers: X-Forwarded-For={request.headers.get('x-forwarded-for')}, X-Real-IP={request.headers.get('x-real-ip')}, User-Agent={request.headers.get('user-agent')}")
+    logger.info(f"Security debug - Session ID: {request.session.get('_session_id', 'None')}, Client IP: {client_host}")
 
     # Check if this is a local testing request (from 192.168.1.52)
     is_local_test = client_host == "192.168.1.52"
+    logger.info(f"Security debug - Is local test: {is_local_test} (client_host == '192.168.1.52')")
 
     if request.session.get('email') is None:
         if is_local_test:

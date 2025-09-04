@@ -39,13 +39,16 @@ function updateOrAddCrosshairVLine(gd, xDataValue, doRelayout = true) {
 
 function colorTheLine(eventParam)
 {
-        console.log('[DEBUG] colorTheLine called with event:', eventParam ? 'event provided' : 'no event');
         console.groupCollapsed('[NativeMousemove] Event Processing');
+        console.log('[DEBUG] colorTheLine called with event:', eventParam ? 'event provided' : 'no event');
         console.log('[colorTheLine] Current dragmode:', window.gd ? window.gd.layout.dragmode : 'N/A');
+
+        // Reset newHoveredShapeId at the start of each call
+        window.newHoveredShapeId = null;
 
         // Skip if a shape is currently being dragged
         if (window.isDraggingShape) {
-            // console.log('[DEBUG] colorTheLine skipping because shape is being dragged');
+            console.log('[DEBUG] colorTheLine skipping because shape is being dragged');
             return;
         }
 
@@ -56,7 +59,9 @@ function colorTheLine(eventParam)
             //console.log('[NativeMousemove] Exiting early: Chart not ready.');
             if (window.hoveredShapeBackendId !== null) { // Assumes hoveredShapeBackendId is global from state.js
                 window.hoveredShapeBackendId = null;
-                debouncedUpdateShapeVisuals(); // Assumes debouncedUpdateShapeVisuals is global
+                if (typeof updateShapeVisuals === 'function') {
+                    updateShapeVisuals();
+                }
             }
             //console.groupEnd();
             return;
@@ -148,7 +153,9 @@ function colorTheLine(eventParam)
             // console.log("[colorTheLine] Mouse is outside the chart's plotting area. Ignoring.");
             if (window.hoveredShapeBackendId !== null) {
                 window.hoveredShapeBackendId = null;
-                debouncedUpdateShapeVisuals();
+                if (typeof debouncedUpdateShapeVisuals === 'function') {
+                    debouncedUpdateShapeVisuals();
+                }
             }
             return;
         }
@@ -167,7 +174,9 @@ function colorTheLine(eventParam)
             console.log(`[NativeMousemove] Hover detected outside any known subplot area.`);
             if (window.hoveredShapeBackendId !== null) {
                 window.hoveredShapeBackendId = null;
-                debouncedUpdateShapeVisuals();
+                if (typeof updateShapeVisuals === 'function') {
+                    updateShapeVisuals();
+                }
             }
         }
 
@@ -177,6 +186,7 @@ function colorTheLine(eventParam)
             const shape = currentShapes[i];
             console.log(`[colorTheLine] Shape ${i}: type=${shape.type}, id=${shape.id}, isSystemShape=${shape.isSystemShape}`);
             if (shape.type === 'line' && shape.id && !shape.isSystemShape) { // Ignore system shapes
+                console.log(`[colorTheLine] Processing shape ${i} (ID: ${shape.id}) for hover detection`);
                 const xrefKeyForFilter = getAxisLayoutKey(shape.xref, 'xaxis'); // Assumes getAxisLayoutKey is global
                 const yrefKeyForFilter = getAxisLayoutKey(shape.yref, 'yaxis');
                 const shapeXaxisForFilter = window.gd._fullLayout[xrefKeyForFilter];
@@ -241,16 +251,34 @@ function colorTheLine(eventParam)
         console.log(`[DEBUG] colorTheLine Final: hoveredShapeBackendId=${window.hoveredShapeBackendId}, newHoveredShapeId=${window.newHoveredShapeId}`);
         if (window.hoveredShapeBackendId !== window.newHoveredShapeId) {
             console.log(`[DEBUG] colorTheLine Updated hoveredShapeBackendId to: ${window.newHoveredShapeId}`);
-            window.hoveredShapeBackendId = window.newHoveredShapeId;
-            if(window.hoveredShapeBackendId) findAndupdateSelectedShapeInfoPanel(window.hoveredShapeBackendId)
-            debouncedUpdateShapeVisuals();
+                window.hoveredShapeBackendId = window.newHoveredShapeId;
+                if(window.hoveredShapeBackendId) {
+                    console.log(`[DEBUG] colorTheLine Calling findAndupdateSelectedShapeInfoPanel with ID: ${window.hoveredShapeBackendId}`);
+                    findAndupdateSelectedShapeInfoPanel(window.hoveredShapeBackendId);
+                }
+                console.log(`[DEBUG] colorTheLine Calling debouncedUpdateShapeVisuals`);
+                console.log(`[DEBUG] colorTheLine - typeof debouncedUpdateShapeVisuals:`, typeof debouncedUpdateShapeVisuals);
+                console.log(`[DEBUG] colorTheLine - typeof window.debouncedUpdateShapeVisuals:`, typeof window.debouncedUpdateShapeVisuals);
+                console.log(`[DEBUG] colorTheLine - debouncedUpdateShapeVisuals exists:`, !!window.debouncedUpdateShapeVisuals);
+
+                // Call updateShapeVisuals directly for immediate color changes
+                if (typeof updateShapeVisuals === 'function') {
+                    console.log(`[DEBUG] colorTheLine - calling updateShapeVisuals directly for immediate update`);
+                    updateShapeVisuals();
+                } else {
+                    console.warn('[DEBUG] colorTheLine - updateShapeVisuals not available!');
+                }
+        } else {
+            console.log(`[DEBUG] colorTheLine No change in hovered shape ID`);
         }
 
         // Only clear shape ID if we're sure no shape should be hovered (mouse outside chart area)
         if (isOutsideBounds && window.hoveredShapeBackendId !== null) {
             // console.log(`[colorTheLine] Mouse outside bounds, clearing hovered shape`);
             window.hoveredShapeBackendId = null;
-            debouncedUpdateShapeVisuals();
+            if (typeof updateShapeVisuals === 'function') {
+                updateShapeVisuals();
+            }
         }
 
         // Crosshair logic - disabled on mobile devices for better touch performance
@@ -305,7 +333,7 @@ function colorTheLine(eventParam)
             if (window.cursorTimeDisplay) window.cursorTimeDisplay.textContent = 'N/A';
             if (window.cursorPriceDisplay) window.cursorPriceDisplay.textContent = 'N/A';
         }
-        //console.groupEnd(); // Close group at the end of the function
+        console.groupEnd(); // Close group at the end of the function
 }
 
 function getSubplotRefsAtPaperCoords(paperX, paperY, fullLayout) {
@@ -422,15 +450,28 @@ function removeCrosshairVLine(gd, doRelayout = true) {
 }
 
 function handleShapeClick(event) {
+    console.log('[DEBUG] handleShapeClick called with event:', event);
+    console.log('[DEBUG] handleShapeClick - event type:', event.type, 'target:', event.target);
+
     // Only handle clicks if we're not in drawing mode and not dragging
-    if (window.isDraggingShape || !window.gd) return;
+    if (window.isDraggingShape || !window.gd) {
+        console.log('[DEBUG] handleShapeClick early return - isDraggingShape:', window.isDraggingShape, 'window.gd exists:', !!window.gd);
+        return;
+    }
+
+    console.log('[DEBUG] handleShapeClick - Starting shape click processing');
 
     // Check if click is on a shape by finding the closest shape to the click position
     const rect = window.chartDiv.getBoundingClientRect();
     const mouseX_div = event.clientX - rect.left;
     const mouseY_div = event.clientY - rect.top;
 
-    if (!window.gd._fullLayout) return;
+    console.log('[DEBUG] handleShapeClick - mouse coordinates:', { clientX: event.clientX, clientY: event.clientY, mouseX_div, mouseY_div });
+
+    if (!window.gd._fullLayout) {
+        console.log('[DEBUG] handleShapeClick - no _fullLayout, returning');
+        return;
+    }
 
     // Convert DOM coordinates to Plotly paper coordinates
     const mouseX_paper = mouseX_div;
@@ -438,19 +479,25 @@ function handleShapeClick(event) {
 
     // Find the closest shape to the click position
     const currentShapes = window.gd.layout.shapes || [];
+    console.log('[DEBUG] handleShapeClick - checking', currentShapes.length, 'shapes');
     let closestShape = null;
     let minDistance = Infinity;
     const CLICK_THRESHOLD = 20; // pixels
 
     for (let i = 0; i < currentShapes.length; i++) {
         const shape = currentShapes[i];
+        console.log(`[DEBUG] handleShapeClick - shape ${i}: type=${shape.type}, id=${shape.id}, isSystemShape=${shape.isSystemShape}`);
         if (shape.type === 'line' && shape.id && !shape.isSystemShape) {
+            console.log(`[DEBUG] handleShapeClick - processing clickable shape ${i} (ID: ${shape.id})`);
             const xrefKey = getAxisLayoutKey(shape.xref, 'xaxis');
             const yrefKey = getAxisLayoutKey(shape.yref, 'yaxis');
             const shapeXaxis = window.gd._fullLayout[xrefKey];
             const shapeYaxis = window.gd._fullLayout[yrefKey];
 
-            if (!shapeXaxis || !shapeYaxis || typeof shapeXaxis.d2p !== 'function' || typeof shapeYaxis.d2p !== 'function') continue;
+            if (!shapeXaxis || !shapeYaxis || typeof shapeXaxis.d2p !== 'function' || typeof shapeYaxis.d2p !== 'function') {
+                console.log(`[DEBUG] handleShapeClick - invalid axes for shape ${i}`);
+                continue;
+            }
 
             let shapeX0Val = (shapeXaxis.type === 'date') ? ((shape.x0 instanceof Date) ? shape.x0.getTime() : new Date(shape.x0).getTime()) : Number(shape.x0);
             let shapeX1Val = (shapeXaxis.type === 'date') ? ((shape.x1 instanceof Date) ? shape.x1.getTime() : new Date(shape.x1).getTime()) : Number(shape.x1);
@@ -463,20 +510,28 @@ function handleShapeClick(event) {
             const p0 = { x: shapeXaxis._offset + p0x, y: shapeYaxis._offset + p0y };
             const p1 = { x: shapeXaxis._offset + p1x, y: shapeYaxis._offset + p1y };
 
+            console.log(`[DEBUG] handleShapeClick - shape ${i} pixel endpoints: p0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}), p1=(${p1.x.toFixed(2)},${p1.y.toFixed(2)}), mouse=(${mouseX_paper.toFixed(2)},${mouseY_paper.toFixed(2)})`);
+
             if (!isNaN(p0.x) && !isNaN(p0.y) && !isNaN(p1.x) && !isNaN(p1.y)) {
                 const distSq = distToSegmentSquared({ x: mouseX_paper, y: mouseY_paper }, p0, p1);
+                console.log(`[DEBUG] handleShapeClick - shape ${i} distance squared: ${distSq.toFixed(2)}, threshold: ${(CLICK_THRESHOLD * CLICK_THRESHOLD)}`);
                 if (distSq < CLICK_THRESHOLD * CLICK_THRESHOLD && distSq < minDistance) {
                     minDistance = distSq;
                     closestShape = shape;
+                    console.log(`[DEBUG] handleShapeClick - shape ${i} is now closest`);
                 }
+            } else {
+                console.log(`[DEBUG] handleShapeClick - shape ${i} has NaN coordinates`);
             }
         }
     }
 
     // Handle shape selection
     if (closestShape) {
+        console.log('[DEBUG] handleShapeClick - found closest shape:', closestShape.id);
         const isCtrlPressed = event.ctrlKey || event.metaKey; // Support both Ctrl (Windows/Linux) and Cmd (Mac)
         const shapeId = closestShape.id;
+        console.log('[DEBUG] handleShapeClick - isCtrlPressed:', isCtrlPressed, 'shapeId:', shapeId);
 
         if (isCtrlPressed) {
             // Multi-select: toggle selection
@@ -499,19 +554,38 @@ function handleShapeClick(event) {
             }
         }
 
-        // Update visual feedback
-        debouncedUpdateShapeVisuals();
+        // Log selection state after update
+        console.log('[DEBUG] handleShapeClick - Selection state after update:', {
+            selectedIds: window.getSelectedShapeIds(),
+            selectedCount: window.getSelectedShapeCount(),
+            lastSelected: window.lastSelectedShapeId,
+            isShapeSelected: window.isShapeSelected(shapeId)
+        });
+
+        // Update visual feedback by calling colorTheLine to handle the color change
+        console.log('[DEBUG] handleShapeClick - calling colorTheLine for immediate color update at', new Date().toISOString());
+        if (typeof colorTheLine === 'function') {
+            // Pass the click event to colorTheLine for coordinate handling if needed
+            colorTheLine(event);
+        } else {
+            console.error('[DEBUG] handleShapeClick - colorTheLine not available!');
+        }
 
         // Update info panel
+        console.log('[DEBUG] handleShapeClick - calling updateSelectedShapeInfoPanel with activeShape:', window.activeShapeForPotentialDeletion);
         updateSelectedShapeInfoPanel(window.activeShapeForPotentialDeletion);
 
         // Prevent event bubbling to avoid conflicts
         event.stopPropagation();
     } else {
+        console.log('[DEBUG] handleShapeClick - no closest shape found, clicked on empty space');
         // Clicked on empty space - deselect all shapes
         if (window.getSelectedShapeCount() > 0) {
             window.deselectAllShapes();
-            debouncedUpdateShapeVisuals();
+            console.log('[DEBUG] handleShapeClick - deselected all shapes, calling colorTheLine');
+            if (typeof colorTheLine === 'function') {
+                colorTheLine(event);
+            }
             updateSelectedShapeInfoPanel(null);
             console.log('Deselected all shapes (clicked on empty space)');
         }
@@ -519,10 +593,15 @@ function handleShapeClick(event) {
 }
 
 function initializeChartInteractions() {
+    console.log('[DEBUG] initializeChartInteractions called');
+    console.log('[DEBUG] window.chartDiv exists:', !!window.chartDiv);
+    console.log('[DEBUG] window.chartDiv element:', window.chartDiv);
+
     // Double-click handling is now done by plotlyEventHandlers.js plotly_click event
     // addDoubleClickHandler(); // Disabled to prevent conflicts
 
     // Add shape selection click handler
+    console.log('[DEBUG] Adding click event listener for shape selection');
     window.chartDiv.addEventListener('click', handleShapeClick, { capture: true, passive: true });
 
     // Throttle mousemove events to prevent excessive processing
@@ -530,24 +609,68 @@ function initializeChartInteractions() {
     let isMouseDown = false;
     let isTouchActive = false;
 
+    console.log('[DEBUG] Initial variable state - mousemoveThrottleTimer:', mousemoveThrottleTimer, 'isMouseDown:', isMouseDown, 'isTouchActive:', isTouchActive);
+
+    // Make throttling state global for debugging
+    window.mousemoveThrottleTimer = mousemoveThrottleTimer;
+    window.isMouseDown = isMouseDown;
+    window.isTouchActive = isTouchActive;
+
+    console.log('[DEBUG] Adding mousedown event listener');
     window.chartDiv.addEventListener('mousedown', function() {
         isMouseDown = true;
+        console.log('[DEBUG] Mouse down detected, isMouseDown =', isMouseDown);
     }, { capture: true, passive: true });
 
+    console.log('[DEBUG] Adding mouseup event listener');
     window.chartDiv.addEventListener('mouseup', function() {
         isMouseDown = false;
+        console.log('[DEBUG] Mouse up detected, isMouseDown =', isMouseDown);
     }, { capture: true, passive: true });
 
-    window.chartDiv.addEventListener('mousemove', function(event) {
+    // Add a simple mousemove test to see if events are firing at all
+    window.chartDiv.addEventListener('mousemove', function(e) {
+        console.log('[DEBUG] SIMPLE MOUSEMOVE TEST - event fired, coordinates:', e.clientX, e.clientY);
+    }, { capture: false, passive: true });
+
+    // Add a test function to manually trigger colorTheLine
+    window.testColorTheLine = function() {
+        console.log('[DEBUG] Manually testing colorTheLine function');
+        if (window.lastMouseEvent) {
+            console.log('[DEBUG] Using last mouse event for test');
+            colorTheLine(window.lastMouseEvent);
+        } else {
+            console.log('[DEBUG] No last mouse event, creating test event at center');
+            const rect = window.chartDiv.getBoundingClientRect();
+            const testEvent = {
+                clientX: rect.left + rect.width / 2,
+                clientY: rect.top + rect.height / 2,
+                target: window.chartDiv
+            };
+            colorTheLine(testEvent);
+        }
+    };
+
+    console.log('[DEBUG] Adding mousemove event listener');
+    window.chartDiv.addEventListener('mousemove', async function(event) {
+        console.log('[DEBUG] MOUSEMOVE EVENT FIRED on chart div - coordinates:', event.clientX, event.clientY);
+
         // Only process mousemove when mouse is not pressed (to avoid interfering with drags)
-        if (isMouseDown) return;
+        if (isMouseDown) {
+            console.log('[DEBUG] Skipping mousemove - mouse is down');
+            return;
+        }
 
-        if (mousemoveThrottleTimer) return; // Skip if already processing
+        if (mousemoveThrottleTimer) {
+            console.log('[DEBUG] Skipping mousemove - throttling active');
+            return; // Skip if already processing
+        }
 
-        mousemoveThrottleTimer = setTimeout(() => {
-            colorTheLine(event); // Pass the event for coordinate detection
-            mousemoveThrottleTimer = null;
-        }, 16); // ~60fps throttling
+        mousemoveThrottleTimer = true; // Set flag
+        await delay(16); // ~60fps throttling
+        console.log('[DEBUG] Calling colorTheLine from mousemove event');
+        colorTheLine(event); // Pass the event for coordinate detection
+        mousemoveThrottleTimer = null;
     }, { capture: true, passive: true });
 
     // Touch event handling for mobile devices
@@ -569,7 +692,7 @@ function initializeChartInteractions() {
         colorTheLine(mouseEvent);
     }, { capture: true, passive: false });
 
-    window.chartDiv.addEventListener('touchmove', function(event) {
+    window.chartDiv.addEventListener('touchmove', async function(event) {
         if (!isTouchActive) return;
 
         // Throttle touchmove events
@@ -578,20 +701,20 @@ function initializeChartInteractions() {
         // Prevent default to avoid scrolling/zooming
         event.preventDefault();
 
-        mousemoveThrottleTimer = setTimeout(() => {
-            // Convert touch to mouse-like event
-            const touch = event.touches[0] || event.changedTouches[0];
-            const mouseEvent = {
-                clientX: touch.clientX,
-                clientY: touch.clientY,
-                target: event.target,
-                preventDefault: () => {},
-                stopPropagation: () => {}
-            };
+        mousemoveThrottleTimer = true; // Set flag
+        await delay(16); // ~60fps throttling
+        // Convert touch to mouse-like event
+        const touch = event.touches[0] || event.changedTouches[0];
+        const mouseEvent = {
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            target: event.target,
+            preventDefault: () => {},
+            stopPropagation: () => {}
+        };
 
-            colorTheLine(mouseEvent);
-            mousemoveThrottleTimer = null;
-        }, 16); // ~60fps throttling
+        colorTheLine(mouseEvent);
+        mousemoveThrottleTimer = null;
     }, { capture: true, passive: false });
 
     window.chartDiv.addEventListener('touchend', function(event) {
@@ -607,7 +730,9 @@ function initializeChartInteractions() {
         // This prevents shapes from staying highlighted after touch ends
         if (window.hoveredShapeBackendId !== null) {
             window.hoveredShapeBackendId = null;
-            debouncedUpdateShapeVisuals();
+            if (typeof updateShapeVisuals === 'function') {
+                updateShapeVisuals();
+            }
         }
     }, { capture: true, passive: true });
 
@@ -623,14 +748,18 @@ function initializeChartInteractions() {
         // Clear hover state when touch is cancelled
         if (window.hoveredShapeBackendId !== null) {
             window.hoveredShapeBackendId = null;
-            debouncedUpdateShapeVisuals();
+            if (typeof updateShapeVisuals === 'function') {
+                updateShapeVisuals();
+            }
         }
     }, { capture: true, passive: true });
 
     window.chartDiv.addEventListener('mouseleave', function() {
         if (window.hoveredShapeBackendId !== null) { // From state.js
             window.hoveredShapeBackendId = null;
-            debouncedUpdateShapeVisuals(); // From main.js
+            if (typeof updateShapeVisuals === 'function') {
+                updateShapeVisuals();
+            }
         }
         // DISABLED: Crosshair interferes with panning
         /*
@@ -649,7 +778,9 @@ function initializeChartInteractions() {
             if (window.getSelectedShapeCount() > 0) {
                 event.preventDefault();
                 window.deselectAllShapes();
-                debouncedUpdateShapeVisuals();
+                if (typeof updateShapeVisuals === 'function') {
+                    updateShapeVisuals();
+                }
                 updateSelectedShapeInfoPanel(null);
                 console.log('Deselected all shapes via Escape key');
             }
@@ -666,7 +797,9 @@ function initializeChartInteractions() {
 
             if (shapeIds.length > 0) {
                 shapeIds.forEach(id => window.selectShape(id, true));
-                debouncedUpdateShapeVisuals();
+                if (typeof updateShapeVisuals === 'function') {
+                    updateShapeVisuals();
+                }
                 updateSelectedShapeInfoPanel(window.activeShapeForPotentialDeletion);
                 console.log('Selected all shapes via Ctrl+A');
             }
@@ -705,7 +838,9 @@ function initializeChartInteractions() {
                                 shape: shape
                             };
                         }
-                    debouncedUpdateShapeVisuals();
+                    if (typeof updateShapeVisuals === 'function') {
+                        updateShapeVisuals();
+                    }
                     updateSelectedShapeInfoPanel(window.activeShapeForPotentialDeletion);
                     console.log('Navigated to shape:', window.lastSelectedShapeId);
                 }
@@ -773,7 +908,9 @@ function initializeChartInteractions() {
 
                     // Clear selection regardless of success/failure
                     window.deselectAllShapes();
-                    debouncedUpdateShapeVisuals();
+                    if (typeof updateShapeVisuals === 'function') {
+                        updateShapeVisuals();
+                    }
                     updateSelectedShapeInfoPanel(null);
 
                     // Show error message if some deletions failed
@@ -786,7 +923,9 @@ function initializeChartInteractions() {
                     console.error('Error during batch shape deletion:', error);
                     alert(`Failed to delete shapes: ${error.message}`);
                     window.deselectAllShapes();
-                    debouncedUpdateShapeVisuals();
+                    if (typeof updateShapeVisuals === 'function') {
+                        updateShapeVisuals();
+                    }
                     updateSelectedShapeInfoPanel(null);
                 }
             }

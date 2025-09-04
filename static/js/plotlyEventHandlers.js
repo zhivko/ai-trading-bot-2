@@ -261,11 +261,11 @@ function initializePlotlyEventHandlers(gd) {
                     const clickedShapeId = shape.id;
                     console.log(`[DEBUG] Clicked on shape ID: ${clickedShapeId}`);
 
-                    // Update UI for click (selection)
-                    if(clickedShapeId) {
-                        findAndupdateSelectedShapeInfoPanel(clickedShapeId);
+                    // Update UI for click (selection) - handled by handleShapeClick in chartInteractions.js
+                    // findAndupdateSelectedShapeInfoPanel(clickedShapeId); // Removed to avoid conflict
+                    if (typeof updateShapeVisuals === 'function') {
+                        updateShapeVisuals();
                     }
-                    debouncedUpdateShapeVisuals();
 
                     break; // Stop after finding first shape
                 }
@@ -278,10 +278,10 @@ function initializePlotlyEventHandlers(gd) {
         // Safe console logging for Puppeteer compatibility
         try {
             if (typeof console !== 'undefined' && console.log) {
-                console.log('[DEBUG] plotly_relayout event fired with data:', eventData);
+                // console.log('[DEBUG] plotly_relayout event fired with data:', eventData);
             }
         } catch (e) {
-            alert('[DEBUG] plotly_relayout event fired');
+            // alert('[DEBUG] plotly_relayout event fired');
         }
 
         // 🚨 PANNING DETECTION 🚨 - Check for ANY range changes
@@ -386,9 +386,9 @@ function initializePlotlyEventHandlers(gd) {
             updatePanningStatus(true);
 
             // Reset status after 3 seconds
-            setTimeout(() => {
+            delay(3000).then(() => {
                 updatePanningStatus(false);
-            }, 3000);
+            });
         } else {
             // Log non-range events too for debugging
             try {
@@ -439,7 +439,7 @@ function initializePlotlyEventHandlers(gd) {
                 //     }
                 // --- Debounced save on drag end ---
                 clearTimeout(shapeDragEndTimer);
-                shapeDragEndTimer = setTimeout(async () => {
+                shapeDragEndTimer = delay(DEBOUNCE_DELAY).then(async () => {
                     console.log(`[plotly_relayout] Drag end detected for shape ${interactedShape.id}, attempting to save.`);
 
                     // It's possible the shape was deleted or changed, so we get the latest version
@@ -455,7 +455,7 @@ function initializePlotlyEventHandlers(gd) {
                             await updateShapeVisuals(); // This should handle restoring the color
                         }
                     }
-                }, DEBOUNCE_DELAY);
+                });
 
                 const selectionChanged = !window.activeShapeForPotentialDeletion || window.activeShapeForPotentialDeletion.id !== interactedShape.id;
                 if (selectionChanged) {
@@ -693,7 +693,7 @@ function initializePlotlyEventHandlers(gd) {
             // Debounce chart update if ranges were changed by user panning/zooming,
             // or if autorange occurred (which means we need to reload based on dropdowns)
             clearTimeout(window.fetchDataDebounceTimer); // fetchDataDebounceTimer from state.js
-            window.fetchDataDebounceTimer = setTimeout(() => {
+            window.fetchDataDebounceTimer = delay(DEBOUNCE_DELAY).then(() => {
                 console.log('[plotly_relayout] Debounced chart update due to axis range change.');
                 // Update combined WebSocket with new time range
                 const symbol = window.symbolSelect ? window.symbolSelect.value : null;
@@ -729,13 +729,13 @@ function initializePlotlyEventHandlers(gd) {
                         if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
                             setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
                         } else {
-                            setTimeout(() => {
+                            delay(100).then(() => {
                                 setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
-                            }, 100);
+                            });
                         }
                     }
                 }
-            }, FETCH_DEBOUNCE_DELAY); // FETCH_DEBOUNCE_DELAY from config.js
+            }); // FETCH_DEBOUNCE_DELAY from config.js
         } else if (rangesChangedByEvent && !userModifiedRanges) {
             console.log('[plotly_relayout] Ranges changed programmatically. User modified:', userModifiedRanges, 'New X-Range:', window.currentXAxisRange, 'New Y-Range:', window.currentYAxisRange);
             // Don't save settings for programmatic changes
@@ -753,12 +753,12 @@ function initializePlotlyEventHandlers(gd) {
             }
 
             // Re-trigger hover detection after drag completion to restore line coloring
-            setTimeout(() => {
+            delay(100).then(() => {
                 if (window.colorTheLine) {
                     window.colorTheLine();
                     console.log('[DRAGGING] Re-triggered hover detection after drag completion');
                 }
-            }, 100); // Small delay to ensure relayout is complete
+            }); // Small delay to ensure relayout is complete
         }
     });
 
@@ -929,8 +929,8 @@ function checkIfHistoricalDataNeeded(fromTs, toTs, resolution) {
     console.log('[checkIfHistoricalDataNeeded] Current data time range:', {
         currentDataMin: new Date(currentDataMin * 1000).toISOString(),
         currentDataMax: new Date(currentDataMax * 1000).toISOString(),
-        requestedFrom: new Date(fromTs * 1000).toISOString(),
-        requestedTo: new Date(toTs * 1000).toISOString()
+        requestedFrom: new Date(fromTs).toISOString(),
+        requestedTo: new Date(toTs).toISOString()
     });
 
     // Check if the requested range extends beyond current data
@@ -942,8 +942,8 @@ function checkIfHistoricalDataNeeded(fromTs, toTs, resolution) {
     const needsLaterData = extendedToTs > currentDataMax;
 
     console.log('[checkIfHistoricalDataNeeded] Range analysis:', {
-        extendedFromTs: new Date(extendedFromTs * 1000).toISOString(),
-        extendedToTs: new Date(extendedToTs * 1000).toISOString(),
+        extendedFromTs: new Date(extendedFromTs).toISOString(),
+        extendedToTs: new Date(extendedToTs).toISOString(),
         needsEarlierData,
         needsLaterData
     });
@@ -999,7 +999,7 @@ window.testPanningDetection = function() {
     }
 
     // Also trigger a manual test event
-    setTimeout(() => {
+    delay(1000).then(() => {
         try {
             if (window.gd && window.gd.emit) {
                 const testEventData = {
@@ -1016,7 +1016,7 @@ window.testPanningDetection = function() {
         } catch (e) {
             alert('🧪 Manual test event failed: ' + e.message);
         }
-    }, 1000);
+    });
 };
 
 // Function to update the panning status indicator in the UI
