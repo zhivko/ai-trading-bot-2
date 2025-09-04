@@ -548,7 +548,7 @@ function handleHistoricalData(message) {
             });
 
             // Only update chart if we have accumulated a significant amount of data
-            if (accumulatedHistoricalData.length >= 50) {
+            if (accumulatedHistoricalData.length >= 10) {
                 // Process accumulated historical data and update chart
                 updateChartWithHistoricalData(accumulatedHistoricalData, historicalDataSymbol);
             } else {
@@ -571,7 +571,7 @@ function handleHistoricalData(message) {
 
     // Only update chart if we have accumulated a significant amount of data
     // This prevents chart flickering from small batches
-    if (accumulatedHistoricalData.length >= 50) {
+    if (accumulatedHistoricalData.length >= 10) {
         // Process accumulated historical data and update chart
         updateChartWithHistoricalData(accumulatedHistoricalData, historicalDataSymbol);
     } else {
@@ -990,7 +990,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     // Create traces for each indicator with separate subplots
     // FORCE MACD to be first by hardcoding the exact order we want
     const forcedIndicatorOrder = ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10', 'open_interest', 'jma'];
-    const indicatorTypes = forcedIndicatorOrder.filter(indicatorId => combinedIndicators.includes(indicatorId) && indicatorsData[indicatorId]);
+    const indicatorTypes = forcedIndicatorOrder.filter(indicatorId => combinedIndicators.includes(indicatorId));
 
     // console.log('FORCED INDICATOR ORDER - Processing in this exact sequence:', indicatorTypes);
     // console.log('FORCED INDICATOR ORDER - MACD should be index 0 (first):', indicatorTypes[0] === 'macd');
@@ -1039,6 +1039,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
 
     indicatorTypes.forEach((indicatorId, index) => {
         const indicatorData = indicatorsData[indicatorId];
+        if (!indicatorData) return; // Skip if no data for this indicator
         const yAxisName = `y${index + 2}`; // y2, y3, y4, etc.
 
         /*
@@ -1257,7 +1258,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         console.log('🔄 Reusing existing layout instead of recreating');
     } else {
         // Create new layout only if we don't have one
-        layout = createLayoutForIndicators(indicatorTypes);
+        layout = createLayoutForIndicators(indicatorTypes, Object.keys(indicatorsData));
         console.log('🆕 Creating new layout (first time or layout missing)');
     }
 
@@ -1567,7 +1568,7 @@ function calculateIndicatorsClientSide(newIndicatorIds) {
     if (calculatedTraces.length > 0) {
         // Add calculated traces to the chart
         const updatedData = [...window.gd.data, ...calculatedTraces];
-        const updatedLayout = createLayoutForIndicators([...new Set([...getCurrentActiveIndicators(), ...newIndicatorIds])]);
+        const updatedLayout = createLayoutForIndicators([...new Set([...getCurrentActiveIndicators(), ...newIndicatorIds])], getCurrentActiveIndicators());
 
         Plotly.react(chartElement, updatedData, updatedLayout);
         // console.log(`Combined WebSocket: Added ${calculatedTraces.length} client-side calculated traces`);
@@ -1850,7 +1851,7 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
     });
 
     // Create layout for updated traces
-    const layout = createLayoutForIndicators(activeIndicatorIds);
+    const layout = createLayoutForIndicators(activeIndicatorIds, Object.keys(tracesByIndicator));
 
     // console.log('Combined WebSocket: Updated traces count:', updatedTraces.length);
     // console.log('Combined WebSocket: Active indicator IDs:', activeIndicatorIds);
@@ -1873,7 +1874,7 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
     }
 }
 
-function createLayoutForIndicators(activeIndicatorIds) {
+function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) {
     const baseLayout = {
         title: `${combinedSymbol} - ${combinedResolution.toUpperCase()}`,
         // Remove fixed height to allow full viewport height
@@ -1905,7 +1906,7 @@ function createLayoutForIndicators(activeIndicatorIds) {
     if (activeIndicatorIds.length > 0) {
         // Price chart is twice the height of each individual indicator chart
         const numIndicators = activeIndicatorIds.length;
-        const priceChartProportion = 3; // Price chart is 3 parts
+        const priceChartProportion = 4; // Price chart is 4 parts
         const totalProportions = priceChartProportion + numIndicators;
 
         const priceChartHeight = priceChartProportion / totalProportions;
@@ -1975,6 +1976,7 @@ function createLayoutForIndicators(activeIndicatorIds) {
         // No indicators - let Plotly handle domain automatically
         console.log(`DEBUG: No indicators, domain handled automatically`);
     }
+
 
     return baseLayout;
 }
