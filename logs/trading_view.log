@@ -5894,3 +5894,4 @@ starlette.websockets.WebSocketDisconnect: (1001, '')
 2025-09-04 14:31:10,951 - logging_config - INFO - drawing_manager.py:115 - Drawing aaa9cbc1-8786-4628-8661-0f156269f3e6 updated.
 2025-09-04 14:31:10,951 - logging_config - INFO - drawing_endpoints.py:116 - Shape aaa9cbc1-8786-4628-8661-0f156269f3e6 properties updated successfully.
 2025-09-04 14:32:08,779 - logging_config - INFO - background_tasks.py:75 - 📊 STARTING OPEN INTEREST: Data fetch cycle
+2025-09-04 14:33:20,590 - logging_config - INFO - background_tasks.py:75 - 📊 STARTING OPEN INTEREST: Data fetch cycle
