@@ -325,7 +325,7 @@ class EmailAlertService:
         try:
             redis = await get_redis_connection()
             drawings = await self.get_all_drawings(redis)
-            #logger.info(f"Found {len(drawings)} drawings to check.")
+            # logger.info(f"Found {len(drawings)} drawings to check.")
         except Exception as e:
             logger.error(f"Error connecting to Redis or getting drawings: {e}", exc_info=True)
             return
@@ -502,7 +502,8 @@ class EmailAlertService:
     async def monitor_alerts(self):
         logger.info("Email alert service monitor_alerts started.")
         while True:
-            await self.check_price_alerts()
+            # Start check_price_alerts in background to ensure exact 60-second intervals
+            asyncio.create_task(self.check_price_alerts())
             await asyncio.sleep(60)
 
 def get_smtp_config() -> SMTPConfig:

@@ -302,7 +302,7 @@ async def cache_klines(symbol: str, resolution: str, klines: list[Dict[str, Any]
             await pipe.execute()  # Execute any remaining commands in the pipeline
 
         # Trim the sorted set to keep a manageable number of recent klines.
-        max_sorted_set_entries = 5000  # Adjust as needed based on typical query ranges and resolutions
+        max_sorted_set_entries = 10000  # Increased from 5000 to support longer time ranges
         await redis.zremrangebyrank(sorted_set_key, 0, -(max_sorted_set_entries + 1))
         #logger.info(f"Successfully cached {len(klines_to_process)} unique klines for {symbol} {resolution}")
     except Exception as e:
@@ -347,8 +347,58 @@ async def publish_resolution_kline(symbol: str, resolution: str, kline_data: dic
         await redis.xadd(stream_key, {"data": kline_json_str}, maxlen=1000)
         await redis.zadd(sorted_set_key, {kline_json_str: kline_data["time"]})
         await redis.zremrangebyrank(sorted_set_key, 0, -1001)
+
+        # Notify clients who might need this new data
+        await notify_clients_of_new_data(symbol, resolution, kline_data)
     except Exception as e:
         logger.error(f"Error publishing resolution kline to Redis: {e}", exc_info=True)
+
+async def notify_clients_of_new_data(symbol: str, resolution: str, kline_data: dict) -> None:
+    """Notify clients whose time range includes the new kline data."""
+    try:
+        redis = await get_redis_connection()
+        kline_time = kline_data["time"]
+
+        # Find all client keys that match the symbol and resolution
+        client_pattern = "client:*"
+        client_keys = []
+        async for key in redis.scan_iter(match=client_pattern):
+            client_keys.append(key)
+
+        if not client_keys:
+            return
+
+        # Check each client to see if they need this data
+        for client_key in client_keys:
+            try:
+                client_data = await redis.hgetall(client_key)
+                if not client_data:
+                    continue
+
+                # Check if client is viewing the same symbol and resolution
+                if (client_data.get("symbol") == symbol and
+                    client_data.get("resolution") == resolution):
+
+                    from_ts = float(client_data.get("from_ts", 0))
+                    to_ts = float(client_data.get("to_ts", 0))
+
+                    # Check if the new kline falls within client's time range
+                    if from_ts <= kline_time <= to_ts:
+                        # Send notification to this client
+                        notification_key = f"notify:{client_key}"
+                        await redis.xadd(notification_key, {
+                            "type": "history_update",
+                            "data": json.dumps([kline_data])
+                        }, maxlen=50)
+
+                        logger.debug(f"Sent history update to client {client_key} for {symbol} {resolution} at {kline_time}")
+
+            except Exception as e:
+                logger.error(f"Error processing client {client_key}: {e}")
+                continue
+
+    except Exception as e:
+        logger.error(f"Error in notify_clients_of_new_data: {e}", exc_info=True)
 
 async def publish_live_data_tick(symbol: str, live_data: dict) -> None:
     try:
@@ -371,7 +421,7 @@ def fetch_klines_from_bybit(symbol: str, resolution: str, start_ts: int, end_ts:
     while current_start < end_ts:
         batch_count += 1
         batch_end = min(current_start + (1000 * timeframe_seconds) -1 , end_ts)
-        logger.debug(f"Fetching batch #{batch_count} for {symbol} {resolution}: {datetime.fromtimestamp(current_start, timezone.utc)} to {datetime.fromtimestamp(batch_end, timezone.utc)}")
+        # logger.debug(f"Fetching batch #{batch_count} for {symbol} {resolution}: {datetime.fromtimestamp(current_start, timezone.utc)} to {datetime.fromtimestamp(batch_end, timezone.utc)}")
 
         try:
             response = session.get_kline(
@@ -392,7 +442,7 @@ def fetch_klines_from_bybit(symbol: str, resolution: str, start_ts: int, end_ts:
             logger.info(f"No more data available from Bybit for {symbol} {resolution} at batch #{batch_count}")
             break
 
-        logger.debug(f"Received {len(bars)} bars from Bybit for {symbol} {resolution} batch #{batch_count}")
+        # logger.debug(f"Received {len(bars)} bars from Bybit for {symbol} {resolution} batch #{batch_count}")
         total_bars_received += len(bars)
 
         batch_klines = [format_kline_data(bar) for bar in reversed(bars)]
@@ -403,10 +453,10 @@ def fetch_klines_from_bybit(symbol: str, resolution: str, start_ts: int, end_ts:
             break
 
         last_fetched_ts = batch_klines[-1]["time"]
-        logger.debug(f"Processed batch #{batch_count} for {symbol} {resolution}: {len(batch_klines)} klines, last timestamp: {datetime.fromtimestamp(last_fetched_ts, timezone.utc)}")
+        # logger.debug(f"Processed batch #{batch_count} for {symbol} {resolution}: {len(batch_klines)} klines, last timestamp: {datetime.fromtimestamp(last_fetched_ts, timezone.utc)}")
 
         if len(bars) < 1000 or last_fetched_ts >= batch_end:
-            logger.debug(f"Stopping batch fetch for {symbol} {resolution}: received {len(bars)} bars (less than 1000) or reached batch end")
+            # logger.debug(f"Stopping batch fetch for {symbol} {resolution}: received {len(bars)} bars (less than 1000) or reached batch end")
             break
         current_start = last_fetched_ts + timeframe_seconds
 

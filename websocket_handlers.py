@@ -306,6 +306,80 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
     # Initialize active_symbol with URL path symbol (will be updated from message if provided)
     active_symbol = symbol
 
+    # Register client in Redis for smart notifications
+    client_id = f"client:{id(websocket)}"
+    notification_stream_key = f"notify:{client_id}"
+    try:
+        redis = await get_redis_connection()
+        await redis.hset(client_id, {
+            "symbol": active_symbol,
+            "resolution": client_state["resolution"],
+            "from_ts": str(client_state["from_ts"] or 0),
+            "to_ts": str(client_state["to_ts"] or 0),
+            "last_update": str(time.time())
+        })
+        # Set TTL for client data (24 hours)
+        await redis.expire(client_id, 86400)
+        logger.info(f"Registered client {client_id} for smart notifications")
+    except Exception as e:
+        logger.error(f"Failed to register client {client_id} in Redis: {e}")
+
+    # Start notification listener task
+    async def listen_for_notifications():
+        """Listen for smart notifications from Redis and forward to client."""
+        try:
+            redis = await get_redis_connection()
+            group_name = f"notify:{client_id}"
+            consumer_id = f"consumer:{id(websocket)}"
+
+            # Create consumer group if it doesn't exist
+            try:
+                await redis.xgroup_create(notification_stream_key, group_name, id='0', mkstream=True)
+            except Exception as e:
+                if "BUSYGROUP" not in str(e):
+                    logger.error(f"Failed to create notification consumer group for {client_id}: {e}")
+                    return
+
+            logger.info(f"Started notification listener for client {client_id}")
+
+            while websocket.client_state == WebSocketState.CONNECTED:
+                try:
+                    # Read notifications with 1 second timeout
+                    messages = await redis.xreadgroup(
+                        group_name, consumer_id, {notification_stream_key: ">"}, count=10, block=1000
+                    )
+
+                    if messages:
+                        for _stream_name, message_list in messages:
+                            for message_id, message_data_dict in message_list:
+                                try:
+                                    notification_json = message_data_dict.get('data')
+                                    if notification_json:
+                                        notification = json.loads(notification_json)
+
+                                        # Forward notification to client
+                                        await send_to_client(notification)
+                                        logger.debug(f"Forwarded notification to client {client_id}: {notification.get('type')}")
+
+                                        # Acknowledge the message
+                                        await redis.xack(notification_stream_key, group_name, message_id)
+
+                                except Exception as e:
+                                    logger.error(f"Error processing notification {message_id} for {client_id}: {e}")
+                                    continue
+
+                    await asyncio.sleep(0.1)
+
+                except Exception as e:
+                    logger.error(f"Error in notification listener loop for {client_id}: {e}")
+                    await asyncio.sleep(1)
+
+        except Exception as e:
+            logger.error(f"Error in notification listener for {client_id}: {e}")
+
+    # Start the notification listener task
+    notification_task = asyncio.create_task(listen_for_notifications())
+
     async def send_to_client(data_to_send: Dict[str, Any]):
         try:
             if websocket.client_state == WebSocketState.CONNECTED:
@@ -545,7 +619,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
 
                             if price_str:
                                 live_price = float(price_str)
-                                logger.debug(f"✅ Combined WebSocket - Periodic live price update for {active_symbol}: {live_price}")
+                                # logger.debug(f"✅ Combined WebSocket - Periodic live price update for {active_symbol}: {live_price}")
 
                                 # Send live price update
                                 await send_to_client({
@@ -628,10 +702,10 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                                             sync_redis = get_sync_redis_connection()
                                             live_price_key = f"live:{active_symbol}"
                                             price_str = sync_redis.get(live_price_key)
-                                            logger.debug(f"Combined WebSocket - Redis get result for key '{live_price_key}': {price_str}")
+                                            #logger.debug(f"Combined WebSocket - Redis get result for key '{live_price_key}': {price_str}")
                                             if price_str:
                                                 live_price = float(price_str)
-                                                logger.info(f"✅ Combined WebSocket - Retrieved live price from Redis for {active_symbol}: {live_price}")
+                                                # logger.info(f"✅ Combined WebSocket - Retrieved live price from Redis for {active_symbol}: {live_price}")
                                             else:
                                                 logger.warning(f"⚠️ Combined WebSocket - No live price found in Redis for {active_symbol} (key: {live_price_key})")
                                         except Exception as e:
@@ -883,6 +957,20 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                             logger.info(f"  indicators: {message.get('indicators')} (type: {type(message.get('indicators'))})")
                             logger.info(f"  resolution: {message.get('resolution')} (type: {type(message.get('resolution'))})")
 
+                            # Update client state in Redis for smart notifications
+                            try:
+                                redis = await get_redis_connection()
+                                await redis.hset(client_id, {
+                                    "symbol": active_symbol,
+                                    "resolution": client_state["resolution"],
+                                    "from_ts": str(client_state["from_ts"] or 0),
+                                    "to_ts": str(client_state["to_ts"] or 0),
+                                    "last_update": str(time.time())
+                                })
+                                logger.debug(f"Updated client state in Redis for {client_id}")
+                            except Exception as e:
+                                logger.error(f"Failed to update client state in Redis for {client_id}: {e}")
+
                             # Check if this is a new time range request (panning/zooming)
                             time_range_changed = (old_from_ts != client_state["from_ts"] or
                                                 old_to_ts != client_state["to_ts"])
@@ -944,26 +1032,24 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                                 except (ValueError, OSError) as e:
                                     logger.warning(f"Failed to convert timestamps to datetime for {active_symbol}: {e}")
 
-                            # Send historical data if:
-                            # 1. Time range changed (new pan/zoom request), OR
-                            # 2. Historical data hasn't been sent yet
-                            should_send_historical = (time_range_changed or not client_state["historical_sent"]) and client_state["from_ts"] and client_state["to_ts"]
+                                # Send historical data if:
+                                # 1. Time range changed (new pan/zoom request), OR
+                                # 2. Historical data hasn't been sent yet
+                                should_send_historical = (time_range_changed or not client_state["historical_sent"]) and client_state["from_ts"] and client_state["to_ts"]
 
-                            logger.info(f"Should send historical data: {should_send_historical}")
+                                # logger.info(f"Should send historical data: {should_send_historical}")
 
-                            if should_send_historical:
-                                logger.info(f"Sending historical data for {active_symbol} - time range changed: {time_range_changed}, historical_sent: {client_state['historical_sent']}")
-                                await send_historical_data()
+                                if should_send_historical:
+                                    # logger.info(f"Sending historical data for {active_symbol} - time range changed: {time_range_changed}, historical_sent: {client_state['historical_sent']}")
+                                    await send_historical_data()
 
-                            # Always activate live mode regardless of historical data status
-                            if not client_state["live_mode"]:
-                                client_state["live_mode"] = True
-                                logger.info(f"✅ LIVE MODE ACTIVATED for {active_symbol} (always active)")
+                                # Always activate live mode regardless of historical data status
+                                if not client_state["live_mode"]:
+                                    client_state["live_mode"] = True
+                                    # logger.info(f"✅ LIVE MODE ACTIVATED for {active_symbol} (always active)")
 
-                                # Start live streaming task
-                                live_task = asyncio.create_task(stream_live_data())
-                            else:
-                                logger.info(f"LIVE MODE already active for {active_symbol}")
+                                    # Start live streaming task
+                                    live_task = asyncio.create_task(stream_live_data())
 
                         except Exception as e:
                             logger.error(f"Error processing config message for {active_symbol}: {e}", exc_info=True)
@@ -1016,6 +1102,23 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                 await live_task
             except asyncio.CancelledError:
                 pass
+
+        # Cancel notification task if it exists
+        if "notification_task" in locals() and not notification_task.done():
+            notification_task.cancel()
+            try:
+                await notification_task
+            except asyncio.CancelledError:
+                pass
+
+        # Clean up client data from Redis
+        try:
+            redis = await get_redis_connection()
+            await redis.delete(client_id)
+            await redis.delete(notification_stream_key)
+            logger.info(f"Cleaned up client data for {client_id}")
+        except Exception as e:
+            logger.error(f"Failed to clean up client data for {client_id}: {e}")
 
         if websocket.client_state != WebSocketState.DISCONNECTED:
             try:

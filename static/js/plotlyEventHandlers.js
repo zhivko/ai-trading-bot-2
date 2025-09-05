@@ -288,87 +288,80 @@ function initializePlotlyEventHandlers(gd) {
         const isAnyRangeChange = hasXRangeChange || hasYRangeChange || hasAutorange;
 
         if (isAnyRangeChange) {
-            try {
-                if (typeof console !== 'undefined' && console.log) {
-                    // Extract x-axis range values for debugging
-                    const xMin = gd.layout.xaxis?.range?.[0];
-                    const xMax = gd.layout.xaxis?.range?.[1];
+            // Extract x-axis range values for debugging
+            const xMin = gd.layout.xaxis?.range?.[0];
+            const xMax = gd.layout.xaxis?.range?.[1];
 
-                    // Convert to timestamps, accounting for timezone offset
-                    // Plotly displays in local time, but we need UTC timestamps for the server
-                    // getTimezoneOffset() returns minutes, convert to milliseconds
-                    let xMinTimestamp = null;
-                    let xMaxTimestamp = null;
+            // Convert to timestamps, accounting for timezone offset
+            // Plotly displays in local time, but we need UTC timestamps for the server
+            // getTimezoneOffset() returns minutes, convert to milliseconds
+            let xMinTimestamp = null;
+            let xMaxTimestamp = null;
 
-                    if (xMin) {
-                        const minDate = new Date(xMin);
-                        // getTimezoneOffset() returns the offset in minutes from UTC to local time
-                        // For UTC+2, it returns 120 (local is 120 minutes ahead of UTC)
-                        // To get UTC timestamp from local time, we need to subtract this offset
-                        const timezoneOffsetMs = minDate.getTimezoneOffset() * 60 * 1000;
-                        xMinTimestamp = Math.floor((minDate.getTime() - timezoneOffsetMs) / 1000);
-                        console.log('[TIMESTAMP DEBUG] xMin conversion:', {
-                            xMin: xMin,
-                            minDate: minDate.toISOString(),
-                            timezoneOffsetMs: timezoneOffsetMs,
-                            timezoneOffsetMinutes: minDate.getTimezoneOffset(),
-                            xMinTimestamp: xMinTimestamp,
-                            xMinTimestampDate: new Date(xMinTimestamp * 1000).toISOString()
-                        });
-                    }
-
-                    if (xMax) {
-                        const maxDate = new Date(xMax);
-                        const timezoneOffsetMs = maxDate.getTimezoneOffset() * 60 * 1000;
-                        xMaxTimestamp = Math.floor((maxDate.getTime() - timezoneOffsetMs) / 1000);
-                        console.log('[TIMESTAMP DEBUG] xMax conversion:', {
-                            xMax: xMax,
-                            maxDate: maxDate.toISOString(),
-                            timezoneOffsetMs: timezoneOffsetMs,
-                            timezoneOffsetMinutes: maxDate.getTimezoneOffset(),
-                            xMaxTimestamp: xMaxTimestamp,
-                            xMaxTimestampDate: new Date(xMaxTimestamp * 1000).toISOString()
-                        });
-                    }
-
-                    /*
-                    console.log('🚨 CHART RANGE CHANGE DETECTED 🚨', {
-                        xRangeChanged: hasXRangeChange,
-                        yRangeChanged: hasYRangeChange,
-                        autorange: hasAutorange,
-                        xRange: [xMin, xMax],
-                        xTimestamps: [xMinTimestamp, xMaxTimestamp],
-                        xRangeHuman: xMin && xMax ? `${new Date(xMin).toISOString()} to ${new Date(xMax).toISOString()}` : 'N/A',
-                        yRange: gd.layout.yaxis?.range,
-                        timestamp: new Date().toISOString(),
-                        eventData: eventData
-                    });
-                    */
-
-                    // Specific logging for server comparison
-                    if (xMinTimestamp && xMaxTimestamp) {
-                        // xMinTimestamp and xMaxTimestamp are already in seconds (converted above)
-                        const clientRange = {
-                            xMinTimestamp,
-                            xMaxTimestamp,
-                            xMinDate: new Date(xMinTimestamp * 1000).toISOString(),
-                            xMaxDate: new Date(xMaxTimestamp * 1000).toISOString(),
-                            rangeSeconds: xMaxTimestamp - xMinTimestamp,
-                            rangeHours: (xMaxTimestamp - xMinTimestamp) / 3600
-                        };
-
-                        console.log('📊 CLIENT X-AXIS RANGE (for server comparison):', clientRange);
-
-                        // Store for comparison with server response
-                        window.lastClientRange = clientRange;
-                        console.log('💾 Stored client range for server comparison. Look for 📊 SERVER RECEIVED RANGE in server logs.');
-                    }
-                } else {
-                    alert('🚨 CHART RANGE CHANGE DETECTED 🚨');
-                }
-            } catch (e) {
-                alert('🚨 CHART RANGE CHANGE DETECTED 🚨 (console not available)');
+            if (xMin) {
+                const minDate = new Date(xMin);
+                // getTimezoneOffset() returns the offset in minutes from UTC to local time
+                // For UTC+2, it returns 120 (local is 120 minutes ahead of UTC)
+                // To get UTC timestamp from local time, we need to subtract this offset
+                const timezoneOffsetMs = minDate.getTimezoneOffset() * 60 * 1000;
+                xMinTimestamp = Math.floor((minDate.getTime() - timezoneOffsetMs) / 1000);
+                console.log('[TIMESTAMP DEBUG] xMin conversion:', {
+                    xMin: xMin,
+                    minDate: minDate.toISOString(),
+                    timezoneOffsetMs: timezoneOffsetMs,
+                    timezoneOffsetMinutes: minDate.getTimezoneOffset(),
+                    xMinTimestamp: xMinTimestamp,
+                    xMinTimestampDate: new Date(xMinTimestamp * 1000).toISOString()
+                });
             }
+
+            if (xMax) {
+                const maxDate = new Date(xMax);
+                const timezoneOffsetMs = maxDate.getTimezoneOffset() * 60 * 1000;
+                xMaxTimestamp = Math.floor((maxDate.getTime() - timezoneOffsetMs) / 1000);
+                console.log('[TIMESTAMP DEBUG] xMax conversion:', {
+                    xMax: xMax,
+                    maxDate: maxDate.toISOString(),
+                    timezoneOffsetMs: timezoneOffsetMs,
+                    timezoneOffsetMinutes: maxDate.getTimezoneOffset(),
+                    xMaxTimestamp: xMaxTimestamp,
+                    xMaxTimestampDate: new Date(xMaxTimestamp * 1000).toISOString()
+                });
+            }
+
+            /*
+            console.log('🚨 CHART RANGE CHANGE DETECTED 🚨', {
+                xRangeChanged: hasXRangeChange,
+                yRangeChanged: hasYRangeChange,
+                autorange: hasAutorange,
+                xRange: [xMin, xMax],
+                xTimestamps: [xMinTimestamp, xMaxTimestamp],
+                xRangeHuman: xMin && xMax ? `${new Date(xMin).toISOString()} to ${new Date(xMax).toISOString()}` : 'N/A',
+                yRange: gd.layout.yaxis?.range,
+                timestamp: new Date().toISOString(),
+                eventData: eventData
+            });
+            */
+
+            // Specific logging for server comparison
+            if (xMinTimestamp && xMaxTimestamp) {
+                // xMinTimestamp and xMaxTimestamp are already in seconds (converted above)
+                const clientRange = {
+                    xMinTimestamp,
+                    xMaxTimestamp,
+                    xMinDate: new Date(xMinTimestamp * 1000).toISOString(),
+                    xMaxDate: new Date(xMaxTimestamp * 1000).toISOString(),
+                    rangeSeconds: xMaxTimestamp - xMinTimestamp,
+                    rangeHours: (xMaxTimestamp - xMinTimestamp) / 3600
+                };
+
+                console.log('📊 CLIENT X-AXIS RANGE (for server comparison):', clientRange);
+
+                // Store for comparison with server response
+                window.lastClientRange = clientRange;
+                console.log('💾 Stored client range for server comparison. Look for 📊 SERVER RECEIVED RANGE in server logs.');
+            }
+
 
             // Dispatch custom event for other parts of the app to listen to
             const panEvent = new CustomEvent('chartPanned', {

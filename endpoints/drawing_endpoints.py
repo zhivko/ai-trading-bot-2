@@ -79,18 +79,22 @@ async def save_shape_properties_api_endpoint(symbol: str, drawing_id: str, prope
         logger.warning(f"Shape {drawing_id} not found for symbol {symbol}.")
         return JSONResponse({"status": "error", "message": "Shape not found"}, status_code=404)
 
-    # Create a DrawingData object from the existing drawing, then update properties
+    # Create a DrawingData object from the existing drawing, then update properties and Y values
     try:
         if not all(key in existing_drawing for key in ['symbol', 'type']):
             return JSONResponse({"status": "error", "message": "Invalid drawing format"}, status_code=400)
+
+        # Extract Y values from properties if provided
+        start_price = properties.pop('start_price', existing_drawing.get('start_price'))
+        end_price = properties.pop('end_price', existing_drawing.get('end_price'))
 
         drawing_data_instance = DrawingData(
             symbol=existing_drawing['symbol'],
             type=existing_drawing['type'],
             start_time=existing_drawing['start_time'],
             end_time=existing_drawing['end_time'],
-            start_price=existing_drawing['start_price'],
-            end_price=existing_drawing['end_price'],
+            start_price=start_price,
+            end_price=end_price,
             subplot_name=existing_drawing['subplot_name'],
             resolution=existing_drawing.get('resolution'),
             properties=existing_drawing.get('properties', {})  # Start with existing properties
@@ -113,7 +117,7 @@ async def save_shape_properties_api_endpoint(symbol: str, drawing_id: str, prope
     if not updated:
         return JSONResponse({"status": "error", "message": "Failed to update shape properties"}, status_code=500)
 
-    logger.info(f"Shape {drawing_id} properties updated successfully.")
+    logger.info(f"Shape {drawing_id} properties and Y values updated successfully.")
     return JSONResponse({"status": "success", "message": "Shape properties updated successfully"})
 
 async def get_shape_properties_api_endpoint(symbol: str, drawing_id: str, request: Request):
@@ -142,10 +146,14 @@ async def get_shape_properties_api_endpoint(symbol: str, drawing_id: str, reques
         raise HTTPException(status_code=404, detail="Drawing not found")
 
     # Extract the properties from the found drawing
-    properties = drawing.get("properties")
+    properties = drawing.get("properties", {})
 
-    if not properties:
-        logger.info(f"No properties found for drawing {drawing_id}, returning empty dict")
-        return JSONResponse(content={"status": "success", "properties": {}})
+    # Include Y values in the response
+    properties_with_y = {
+        **properties,
+        "start_price": drawing.get("start_price"),
+        "end_price": drawing.get("end_price")
+    }
 
-    return JSONResponse(content={"status": "success", "properties": properties})
+    logger.info(f"Returning shape properties for {drawing_id}: {properties_with_y}")
+    return JSONResponse(content={"status": "success", "properties": properties_with_y})

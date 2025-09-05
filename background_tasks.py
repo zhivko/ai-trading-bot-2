@@ -52,7 +52,7 @@ async def fetch_and_publish_klines():
                             start_ts = int(last_fetch.timestamp())
 
                         if start_ts < end_ts:
-                            logger.debug(f"📈 FETCHING: {resolution} klines for {symbol_val} from {datetime.fromtimestamp(start_ts, timezone.utc)} to {datetime.fromtimestamp(end_ts, timezone.utc)}")
+                            # logger.debug(f"📈 FETCHING: {resolution} klines for {symbol_val} from {datetime.fromtimestamp(start_ts, timezone.utc)} to {datetime.fromtimestamp(end_ts, timezone.utc)}")
                             klines = fetch_klines_from_bybit(symbol_val, resolution, start_ts, end_ts)
                             if klines:
                                 await cache_klines(symbol_val, resolution, klines)

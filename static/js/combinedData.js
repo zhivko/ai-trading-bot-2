@@ -7,11 +7,7 @@ let combinedResolution = '1h';
 let combinedFromTs = null;
 let combinedToTs = null;
 
-// Historical data accumulation state
-let accumulatedHistoricalData = [];
-let isAccumulatingHistorical = false;
-let historicalDataSymbol = '';
-let accumulationTimeout = null;
+// Historical data processing - direct handling without accumulation
 
 // Real-time price line management functions
 function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTimeMs, doRelayout = false) {
@@ -77,19 +73,20 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
             text: price.toFixed(2), // Format the price, adjust precision as needed
             xref: 'paper',   // Relative to the entire plotting area
             yref: yref,      // Use the same y-axis reference as the line
-            x: 1,            // Position slightly to the right of the plot area (e.g., 101%)
+            x: 1,         // Position more inside the chart area (95% from left)
             y: price,        // Y position is the price itself
             showarrow: false,
-            xanchor: 'right', // Anchor the text from its left side at the x-coordinate
+            xanchor: 'right', // Anchor the text from its right side
             yanchor: 'middle',// Vertically center the text at the y-coordinate (price)
             font: {
                 family: 'Arial, sans-serif',
-                size: 20, // Made the font size 2 times bigger
-                color: 'rgba(0,0,0,0.9)' // Match line color or choose another
+                size: 24, // Increased font size for better visibility
+                color: 'black' // Solid black for better contrast
             },
-            bgcolor: 'rgba(255, 255, 255, 0.6)', // Optional: slight background for readability
-            borderpad: 2,
-            borderwidth: 0
+            bgcolor: 'white', // Solid white background for SVG
+            bordercolor: 'black', // Black border for visibility
+            borderwidth: 2,  // Thicker border
+            borderpad: 6     // More padding
         };
 
         if (lineIndex !== -1) {
@@ -106,6 +103,7 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
        annotations.push(annotationDefinition);
        // Update the layout with the modified annotations
        gd.layout.annotations = annotations;
+       console.log('💰 LIVE PRICE: Added annotation:', annotationDefinition);
         // console.log('[PriceLine] updateOrAddRealtimePriceLine - Pushed annotation:', JSON.parse(JSON.stringify(annotationDefinition)));
         // console.log('[PriceLine] updateOrAddRealtimePriceLine - gd.layout.annotations after push:', JSON.parse(JSON.stringify(gd.layout.annotations)));
 
@@ -223,21 +221,7 @@ function setupCombinedWebSocket(symbol, indicators = [], resolution = '1h', from
     combinedFromTs = fromTs;
     combinedToTs = toTs || Math.floor(Date.now() / 1000);
 
-    // Reset historical data accumulation state for new requests
-    if (!isTimeRangeUpdate) {
-        accumulatedHistoricalData = [];
-        isAccumulatingHistorical = false;
-        historicalDataSymbol = '';
-        if (window.historicalDataTimeout) {
-            clearTimeout(window.historicalDataTimeout);
-            window.historicalDataTimeout = null;
-        }
-        // console.log('Combined WebSocket: Reset historical data accumulation state for new request');
-    } else {
-        // For time range updates (panning/zooming), preserve accumulation state
-        // Don't reset isAccumulatingHistorical to allow continued accumulation
-        console.log('Combined WebSocket: Preserving accumulation state for time range update');
-    }
+    // No accumulation state to reset - direct data processing
 
     // console.log('Combined WebSocket: Setup called with:', {
     //     symbol,
@@ -345,6 +329,10 @@ function setupWebSocketMessageHandler() {
                     console.log('🎨 Processing drawings data');
                     handleDrawingsData(message);
                     break;
+                case 'history_update':
+                    console.log('📈 Processing smart history update');
+                    handleHistoryUpdate(message);
+                    break;
                 default:
                     console.warn('⚠️ Unknown message type:', message.type);
             }
@@ -425,163 +413,223 @@ function sendCombinedConfig() {
 
 function handleHistoricalData(message) {
     console.log(`📊 Combined WebSocket: Received historical data for ${message.symbol}, ${message.data.length} points`);
-    console.log('📊 Combined WebSocket: Sample data point:', message.data[0]);
 
-    // DEBUG: Log the raw message for debugging
-    console.log('🔍 DEBUG: Raw historical message received:', {
-        type: message.type,
-        symbol: message.symbol,
-        dataLength: message.data ? message.data.length : 0,
-        firstDataPoint: message.data ? message.data[0] : null,
-        lastDataPoint: message.data ? message.data[message.data.length - 1] : null
-    });
+    if (!message.data || !Array.isArray(message.data) || message.data.length === 0) {
+        console.warn('Combined WebSocket: Invalid or empty historical data');
+        return;
+    }
 
     // Check if chart is ready
-    console.log('🔍 DEBUG: Chart element exists:', !!document.getElementById('chart'));
-    console.log('🔍 DEBUG: Window.gd exists:', !!window.gd);
-    console.log('🔍 DEBUG: Window.gd.data exists:', !!(window.gd && window.gd.data));
-
-    // DEBUG: Log timestamp ranges in the received data
-    if (message.data && message.data.length > 0) {
-        const firstTimestamp = message.data[0].time;
-        const lastTimestamp = message.data[message.data.length - 1].time;
-        console.log('📅 CLIENT RECEIVED TIMESTAMP RANGE:');
-        console.log('  First timestamp (seconds):', firstTimestamp);
-        console.log('  Last timestamp (seconds):', lastTimestamp);
-        console.log('  First timestamp (UTC):', new Date(firstTimestamp * 1000).toISOString());
-        console.log('  Last timestamp (UTC):', new Date(lastTimestamp * 1000).toISOString());
-        console.log('  First timestamp (Local):', new Date(firstTimestamp * 1000).toLocaleString());
-        console.log('  Last timestamp (Local):', new Date(lastTimestamp * 1000).toLocaleString());
-        console.log('  Data range (seconds):', lastTimestamp - firstTimestamp);
-        console.log('  Data range (hours):', ((lastTimestamp - firstTimestamp) / 3600).toFixed(1));
-    }
-
-    if (!message.data || !Array.isArray(message.data)) {
-        console.warn('Combined WebSocket: Invalid historical data format');
-        return;
-    }
-
-    if (message.data.length === 0) {
-        console.warn('Combined WebSocket: Received empty historical data array');
-        return;
-    }
-
-    // Check if this is a new accumulation session
-    if (!isAccumulatingHistorical || historicalDataSymbol !== message.symbol) {
-        // Start new accumulation
-        accumulatedHistoricalData = [];
-        isAccumulatingHistorical = true;
-        historicalDataSymbol = message.symbol;
-
-        // Clear any existing timeout
-        if (accumulationTimeout) {
-            clearTimeout(accumulationTimeout);
-            accumulationTimeout = null;
-        }
-
-        // Set up timeout to reset accumulation after 30 seconds
-        accumulationTimeout = setTimeout(() => {
-            console.log(`Combined WebSocket: Accumulation timeout reached for ${historicalDataSymbol}, resetting state`);
-            accumulatedHistoricalData = [];
-            isAccumulatingHistorical = false;
-            historicalDataSymbol = '';
-            accumulationTimeout = null;
-        }, 30000);
-
-        console.log(`Combined WebSocket: Starting new historical data accumulation for ${message.symbol}`);
-    } else {
-        // Continue existing accumulation - check if this data makes sense to add
-        if (accumulatedHistoricalData.length > 0 && message.data.length > 0) {
-            const currentMinTime = Math.min(...accumulatedHistoricalData.map(d => d.time));
-            const currentMaxTime = Math.max(...accumulatedHistoricalData.map(d => d.time));
-            const newMinTime = Math.min(...message.data.map(d => d.time));
-            const newMaxTime = Math.max(...message.data.map(d => d.time));
-
-            // Check if new data overlaps or extends current data reasonably
-            const overlapThreshold = 3600; // 1 hour overlap threshold
-            const hasOverlap = (newMinTime <= currentMaxTime + overlapThreshold) && (newMaxTime >= currentMinTime - overlapThreshold);
-            const extendsRange = newMinTime < currentMinTime || newMaxTime > currentMaxTime;
-
-            if (!hasOverlap && !extendsRange) {
-                // Data doesn't overlap and doesn't extend range - might be a new request
-                console.log(`Combined WebSocket: New data doesn't overlap with existing range, treating as continuation`);
-            }
-        }
-
-        console.log(`Combined WebSocket: Continuing historical data accumulation for ${message.symbol} (${accumulatedHistoricalData.length} points already accumulated)`);
-    }
-
-    // Add this batch to accumulated data with proper merging to avoid duplicates
-    const previousCount = accumulatedHistoricalData.length;
-    const combinedData = accumulatedHistoricalData.concat(message.data);
-
-    // Merge data to remove duplicates and handle overlaps properly
-    const mergedData = mergeHistoricalData(combinedData);
-    accumulatedHistoricalData = mergedData;
-
-    console.log(`📊 Combined WebSocket: Accumulated ${accumulatedHistoricalData.length} total data points so far (added ${message.data.length}, previous: ${previousCount}, merged: ${combinedData.length - accumulatedHistoricalData.length} duplicates removed)`);
-
-    // DEBUG: Check data integrity
-    console.log('🔍 DEBUG: Data accumulation details:');
-    console.log('  Message data length:', message.data.length);
-    console.log('  First message data point:', message.data[0]);
-    console.log('  Accumulated data length:', accumulatedHistoricalData.length);
-    console.log('  Accumulated data sample:', accumulatedHistoricalData.slice(0, 2));
-
-    // Clear any existing timeout
-    if (window.historicalDataTimeout) {
-        clearTimeout(window.historicalDataTimeout);
-    }
-
-    // Check if chart is fully ready before processing (element, Plotly gd, and full layout exist)
     const chartElement = document.getElementById('chart');
     if (!chartElement || !window.gd || !window.gd._fullLayout) {
-        console.log('📊 Combined WebSocket: Chart not fully ready (element, gd, or _fullLayout missing), retrying with requestAnimationFrame');
-        // Retry using requestAnimationFrame for better determinism
-        requestAnimationFrame(() => {
-            console.log(`📊 Combined WebSocket: Processing accumulated historical data: ${accumulatedHistoricalData.length} points for ${historicalDataSymbol}`);
-            console.log('🔍 DEBUG: About to call updateChartWithHistoricalData with:', {
-                dataPoints: accumulatedHistoricalData.length,
-                symbol: historicalDataSymbol,
-                firstTimestamp: accumulatedHistoricalData[0]?.time,
-                lastTimestamp: accumulatedHistoricalData[accumulatedHistoricalData.length - 1]?.time
-            });
-
-            // Only update chart if we have accumulated a significant amount of data
-            if (accumulatedHistoricalData.length >= 10) {
-                // Process accumulated historical data and update chart
-                updateChartWithHistoricalData(accumulatedHistoricalData, historicalDataSymbol);
-            } else {
-                console.log(`📊 Combined WebSocket: Skipping chart update in requestAnimationFrame - only ${accumulatedHistoricalData.length} points accumulated so far`);
-            }
-
-            // Don't reset accumulation state here - let the main handler decide when to reset
-            console.log(`Combined WebSocket: Processed ${accumulatedHistoricalData.length} points in requestAnimationFrame for ${historicalDataSymbol}`);
-        });
+        console.log('📊 Combined WebSocket: Chart not ready, skipping update');
         return;
     }
 
-    console.log(`📊 Combined WebSocket: Processing accumulated historical data: ${accumulatedHistoricalData.length} points for ${historicalDataSymbol}`);
-    console.log('🔍 DEBUG: About to call updateChartWithHistoricalData with:', {
-        dataPoints: accumulatedHistoricalData.length,
-        symbol: historicalDataSymbol,
-        firstTimestamp: accumulatedHistoricalData[0]?.time,
-        lastTimestamp: accumulatedHistoricalData[accumulatedHistoricalData.length - 1]?.time
-    });
+    // Get existing chart data to merge with
+    const existingTrace = window.gd.data.find(trace => trace.type === 'candlestick');
+    let existingData = [];
 
-    // Only update chart if we have accumulated a significant amount of data
-    // This prevents chart flickering from small batches
-    if (accumulatedHistoricalData.length >= 10) {
-        // Process accumulated historical data and update chart
-        updateChartWithHistoricalData(accumulatedHistoricalData, historicalDataSymbol);
-    } else {
-        console.log(`📊 Combined WebSocket: Skipping chart update - only ${accumulatedHistoricalData.length} points accumulated so far`);
+    if (existingTrace && existingTrace.x && existingTrace.x.length > 0) {
+        // Convert existing chart data back to our format
+        existingData = existingTrace.x.map((timestamp, index) => ({
+            time: timestamp.getTime() / 1000, // Convert back to seconds
+            ohlc: {
+                open: existingTrace.open[index],
+                high: existingTrace.high[index],
+                low: existingTrace.low[index],
+                close: existingTrace.close[index],
+                volume: existingTrace.volume ? existingTrace.volume[index] : 0
+            },
+            indicators: {} // Will be populated from existing chart traces
+        }));
+
+        // Extract indicator data from existing chart traces
+        const indicatorTraces = window.gd.data.filter(trace => trace.type !== 'candlestick');
+
+        // Create a map of timestamps to their indices for quick lookup
+        const timestampToIndex = new Map();
+        existingTrace.x.forEach((timestamp, index) => {
+            timestampToIndex.set(timestamp.getTime(), index);
+        });
+
+        // Process each indicator trace
+        indicatorTraces.forEach(trace => {
+            if (!trace.x || !trace.y) return;
+
+            // Determine indicator type from trace name
+            let indicatorId = null;
+            let valueKey = null;
+
+            if (trace.name === 'MACD') {
+                indicatorId = 'macd';
+                valueKey = 'macd';
+            } else if (trace.name === 'MACD Signal') {
+                indicatorId = 'macd';
+                valueKey = 'signal';
+            } else if (trace.name === 'MACD Histogram') {
+                indicatorId = 'macd';
+                valueKey = 'histogram';
+            } else if (trace.name === 'RSI') {
+                indicatorId = 'rsi';
+                valueKey = 'rsi';
+            } else if (trace.name === 'RSI_SMA14') {
+                indicatorId = 'rsi';
+                valueKey = 'rsi_sma14';
+            } else if (trace.name.startsWith('Stoch K')) {
+                // Extract variant from trace name (e.g., 'Stoch K (14,3)' -> 'stochrsi_14_3')
+                const variantMatch = trace.name.match(/Stoch K \((\d+),(\d+)\)/);
+                if (variantMatch) {
+                    indicatorId = `stochrsi_${variantMatch[1]}_${variantMatch[2]}`;
+                } else {
+                    // Fallback to first stochrsi variant if no variant found
+                    indicatorId = combinedIndicators.find(id => id.startsWith('stochrsi'));
+                }
+                valueKey = 'stoch_k';
+            } else if (trace.name.startsWith('Stoch D')) {
+                // Extract variant from trace name (e.g., 'Stoch D (14,3)' -> 'stochrsi_14_3')
+                const variantMatch = trace.name.match(/Stoch D \((\d+),(\d+)\)/);
+                if (variantMatch) {
+                    indicatorId = `stochrsi_${variantMatch[1]}_${variantMatch[2]}`;
+                } else {
+                    // Fallback to first stochrsi variant if no variant found
+                    indicatorId = combinedIndicators.find(id => id.startsWith('stochrsi'));
+                }
+                valueKey = 'stoch_d';
+            } else if (trace.name === 'JMA') {
+                indicatorId = 'jma';
+                valueKey = 'jma';
+            } else if (trace.name === 'Open Interest') {
+                indicatorId = 'open_interest';
+                valueKey = 'open_interest';
+            }
+
+            if (!indicatorId || !valueKey) return;
+
+            // Add indicator values to existing data points
+            trace.x.forEach((timestamp, traceIndex) => {
+                const timestampMs = timestamp.getTime();
+                const dataIndex = timestampToIndex.get(timestampMs);
+
+                if (dataIndex !== undefined && trace.y[traceIndex] !== null && trace.y[traceIndex] !== undefined) {
+                    if (!existingData[dataIndex].indicators[indicatorId]) {
+                        existingData[dataIndex].indicators[indicatorId] = {};
+                    }
+                    existingData[dataIndex].indicators[indicatorId][valueKey] = trace.y[traceIndex];
+                }
+            });
+        });
+
+        console.log(`📊 Found ${existingData.length} existing data points in chart with indicators extracted`);
     }
 
-    // For time range updates (panning/zooming), don't reset accumulation state after each batch
-    // Only reset when we detect a truly new request or timeout
-    // The accumulation will continue until timeout or a new symbol/resolution request
-    console.log(`Combined WebSocket: Accumulation state preserved for ${historicalDataSymbol} - ${accumulatedHistoricalData.length} points accumulated so far`);
+    // Merge new data with existing data, preserving indicators where possible
+    const mergedData = mergeDataPointsWithIndicators(existingData, message.data);
+
+    console.log(`📊 Merged ${existingData.length} existing + ${message.data.length} new = ${mergedData.length} total points`);
+
+    // Update chart with merged data
+    updateChartWithHistoricalData(mergedData, message.symbol);
+
+    console.log(`📊 Combined WebSocket: Chart updated with ${mergedData.length} merged data points`);
+}
+
+function mergeDataPoints(existingData, newData) {
+    if (!existingData || existingData.length === 0) {
+        return newData.sort((a, b) => a.time - b.time);
+    }
+
+    if (!newData || newData.length === 0) {
+        return existingData;
+    }
+
+    // Combine all data points
+    const combinedData = [...existingData, ...newData];
+
+    // Sort by timestamp to ensure proper ordering
+    const sortedData = combinedData.sort((a, b) => a.time - b.time);
+
+    // Remove duplicates by timestamp, keeping the most recent data
+    const mergedData = [];
+    const seenTimestamps = new Set();
+
+    for (const point of sortedData) {
+        if (!seenTimestamps.has(point.time)) {
+            seenTimestamps.add(point.time);
+            mergedData.push(point);
+        } else {
+            // If we have a duplicate timestamp, replace the existing one with the new one
+            // This ensures we keep the most recent data for the same timestamp
+            const existingIndex = mergedData.findIndex(p => p.time === point.time);
+            if (existingIndex !== -1) {
+                mergedData[existingIndex] = point;
+            }
+        }
+    }
+
+    const duplicatesRemoved = combinedData.length - mergedData.length;
+    if (duplicatesRemoved > 0) {
+        console.log(`🔄 Merged data: ${duplicatesRemoved} duplicates removed, ${mergedData.length} unique points`);
+    }
+
+    return mergedData;
+}
+
+function mergeDataPointsWithIndicators(existingData, newData) {
+    if (!existingData || existingData.length === 0) {
+        return newData.sort((a, b) => a.time - b.time);
+    }
+
+    if (!newData || newData.length === 0) {
+        return existingData;
+    }
+
+    // Create a map of existing data by timestamp for quick lookup
+    const existingDataMap = new Map();
+    existingData.forEach(point => {
+        existingDataMap.set(point.time, point);
+    });
+
+    // Process new data and merge with existing
+    const mergedData = [...existingData]; // Start with existing data
+
+    newData.forEach(newPoint => {
+        const existingPoint = existingDataMap.get(newPoint.time);
+
+        if (existingPoint) {
+            // Timestamp exists - merge the data, preferring data with indicators
+            const hasExistingIndicators = Object.keys(existingPoint.indicators || {}).length > 0;
+            const hasNewIndicators = Object.keys(newPoint.indicators || {}).length > 0;
+
+            if (hasNewIndicators && !hasExistingIndicators) {
+                // New data has indicators, existing doesn't - use new data
+                const index = mergedData.findIndex(p => p.time === newPoint.time);
+                if (index !== -1) {
+                    mergedData[index] = { ...newPoint };
+                }
+            } else if (hasNewIndicators && hasExistingIndicators) {
+                // Both have indicators - merge them
+                const index = mergedData.findIndex(p => p.time === newPoint.time);
+                if (index !== -1) {
+                    mergedData[index] = {
+                        ...newPoint,
+                        indicators: { ...existingPoint.indicators, ...newPoint.indicators }
+                    };
+                }
+            }
+            // If existing has indicators but new doesn't, keep existing
+        } else {
+            // New timestamp - add it
+            mergedData.push(newPoint);
+        }
+    });
+
+    // Sort by timestamp to ensure proper ordering
+    const sortedData = mergedData.sort((a, b) => a.time - b.time);
+
+    console.log(`🔄 Merged data with indicators: ${existingData.length} existing + ${newData.length} new = ${sortedData.length} total points`);
+
+    return sortedData;
 }
 
 function handleLiveData(message) {
@@ -653,6 +701,136 @@ function handleDrawingsData(message) {
 
     // Process and add drawings to the chart
     addDrawingsToChart(message.data, message.symbol);
+}
+
+function handleHistoryUpdate(message) {
+    console.log(`📈 Combined WebSocket: Received smart history update for ${message.symbol}`);
+
+    if (!message.data || !Array.isArray(message.data)) {
+        console.warn('📈 Combined WebSocket: Invalid history update data format');
+        return;
+    }
+
+    if (message.data.length === 0) {
+        console.log('📈 Combined WebSocket: No history data to process');
+        return;
+    }
+
+    // Check if chart is ready
+    const chartElement = document.getElementById('chart');
+    if (!chartElement || !window.gd || !window.gd.layout) {
+        console.warn('📈 Combined WebSocket: Chart not ready for history update');
+        return;
+    }
+
+    console.log(`📈 Processing ${message.data.length} history update data points`);
+
+    // Process the new data points and update the chart
+    // Use the same logic as handleHistoricalData but for smaller batches
+    const newDataPoints = message.data;
+
+    // Get existing chart data to merge with
+    const existingTrace = window.gd.data.find(trace => trace.type === 'candlestick');
+    let existingData = [];
+
+    if (existingTrace && existingTrace.x && existingTrace.x.length > 0) {
+        // Convert existing chart data back to our format
+        existingData = existingTrace.x.map((timestamp, index) => ({
+            time: timestamp.getTime() / 1000, // Convert back to seconds
+            ohlc: {
+                open: existingTrace.open[index],
+                high: existingTrace.high[index],
+                low: existingTrace.low[index],
+                close: existingTrace.close[index],
+                volume: existingTrace.volume ? existingTrace.volume[index] : 0
+            },
+            indicators: {} // Will be populated from existing chart traces
+        }));
+
+        // Extract indicator data from existing chart traces
+        const indicatorTraces = window.gd.data.filter(trace => trace.type !== 'candlestick');
+
+        // Create a map of timestamps to their indices for quick lookup
+        const timestampToIndex = new Map();
+        existingTrace.x.forEach((timestamp, index) => {
+            timestampToIndex.set(timestamp.getTime(), index);
+        });
+
+        // Process each indicator trace
+        indicatorTraces.forEach(trace => {
+            if (!trace.x || !trace.y) return;
+
+            // Determine indicator type from trace name
+            let indicatorId = null;
+            let valueKey = null;
+
+            if (trace.name === 'MACD') {
+                indicatorId = 'macd';
+                valueKey = 'macd';
+            } else if (trace.name === 'MACD Signal') {
+                indicatorId = 'macd';
+                valueKey = 'signal';
+            } else if (trace.name === 'MACD Histogram') {
+                indicatorId = 'macd';
+                valueKey = 'histogram';
+            } else if (trace.name === 'RSI') {
+                indicatorId = 'rsi';
+                valueKey = 'rsi';
+            } else if (trace.name === 'RSI_SMA14') {
+                indicatorId = 'rsi';
+                valueKey = 'rsi_sma14';
+            } else if (trace.name.startsWith('Stoch K')) {
+                // Extract variant from trace name
+                const variantMatch = trace.name.match(/Stoch K \((\d+),(\d+)\)/);
+                if (variantMatch) {
+                    indicatorId = `stochrsi_${variantMatch[1]}_${variantMatch[2]}`;
+                } else {
+                    indicatorId = combinedIndicators.find(id => id.startsWith('stochrsi'));
+                }
+                valueKey = 'stoch_k';
+            } else if (trace.name.startsWith('Stoch D')) {
+                // Extract variant from trace name
+                const variantMatch = trace.name.match(/Stoch D \((\d+),(\d+)\)/);
+                if (variantMatch) {
+                    indicatorId = `stochrsi_${variantMatch[1]}_${variantMatch[2]}`;
+                } else {
+                    indicatorId = combinedIndicators.find(id => id.startsWith('stochrsi'));
+                }
+                valueKey = 'stoch_d';
+            } else if (trace.name === 'JMA') {
+                indicatorId = 'jma';
+                valueKey = 'jma';
+            } else if (trace.name === 'Open Interest') {
+                indicatorId = 'open_interest';
+                valueKey = 'open_interest';
+            }
+
+            if (!indicatorId || !valueKey) return;
+
+            // Add indicator values to existing data points
+            trace.x.forEach((timestamp, traceIndex) => {
+                const timestampMs = timestamp.getTime();
+                const dataIndex = timestampToIndex.get(timestampMs);
+
+                if (dataIndex !== undefined && trace.y[traceIndex] !== null && trace.y[traceIndex] !== undefined) {
+                    if (!existingData[dataIndex].indicators[indicatorId]) {
+                        existingData[dataIndex].indicators[indicatorId] = {};
+                    }
+                    existingData[dataIndex].indicators[indicatorId][valueKey] = trace.y[traceIndex];
+                }
+            });
+        });
+    }
+
+    // Merge new data with existing data
+    const mergedData = mergeDataPointsWithIndicators(existingData, newDataPoints);
+
+    console.log(`📈 Merged ${existingData.length} existing + ${newDataPoints.length} new = ${mergedData.length} total points`);
+
+    // Update chart with merged data
+    updateChartWithHistoricalData(mergedData, message.symbol);
+
+    console.log(`📈 Combined WebSocket: Chart updated with ${mergedData.length} merged data points from history update`);
 }
 
 function addDrawingsToChart(drawings, symbol) {
@@ -852,35 +1030,6 @@ function convertDrawingToShape(drawing) {
     }
 }
 
-function mergeHistoricalData(dataPoints) {
-    if (!dataPoints || dataPoints.length === 0) {
-        return [];
-    }
-
-    // Sort by timestamp to ensure proper ordering
-    const sortedData = dataPoints.sort((a, b) => a.time - b.time);
-
-    // Remove duplicates by timestamp, keeping the most recent data
-    const mergedData = [];
-    const seenTimestamps = new Set();
-
-    for (const point of sortedData) {
-        if (!seenTimestamps.has(point.time)) {
-            seenTimestamps.add(point.time);
-            mergedData.push(point);
-        } else {
-            // If we have a duplicate timestamp, replace the existing one with the new one
-            // This ensures we keep the most recent data for the same timestamp
-            const existingIndex = mergedData.findIndex(p => p.time === point.time);
-            if (existingIndex !== -1) {
-                mergedData[existingIndex] = point;
-            }
-        }
-    }
-
-    console.log(`🔄 Merged ${dataPoints.length} points into ${mergedData.length} unique points (${dataPoints.length - mergedData.length} duplicates removed)`);
-    return mergedData;
-}
 
 function updateChartWithHistoricalData(dataPoints, symbol) {
     console.log('📈 Combined WebSocket: Processing historical data for chart update');
@@ -1170,6 +1319,10 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
             // console.log(`Combined WebSocket: StochRSI - K Original: ${indicatorData.values.stoch_k.length}, Filtered: ${stochKFiltered.values.length}`);
             // console.log(`🔍 DEBUG: StochRSI filtered values - k: ${stochKFiltered.values.length}, d: ${stochDFiltered.values.length}`);
 
+            // Extract variant parameters from indicatorId (e.g., 'stochrsi_14_3' -> '14,3')
+            const variantMatch = indicatorId.match(/stochrsi_(\d+)_(\d+)/);
+            const variantLabel = variantMatch ? `(${variantMatch[1]},${variantMatch[2]})` : '';
+
             // console.log(`🔍 DEBUG: StochRSI stochKFiltered.values.length > 0 check: ${stochKFiltered.values.length > 0} (${stochKFiltered.values.length})`);
             if (stochKFiltered.values.length > 0) {
                 // console.log(`🔍 DEBUG: Creating Stoch K trace`);
@@ -1178,7 +1331,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                     y: stochKFiltered.values,
                     type: 'scatter',
                     mode: 'lines',
-                    name: 'Stoch K',
+                    name: `Stoch K ${variantLabel}`,
                     line: { color: 'blue' },
                     xaxis: 'x',
                     yaxis: yAxisName,
@@ -1194,7 +1347,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                     y: stochDFiltered.values,
                     type: 'scatter',
                     mode: 'lines',
-                    name: 'Stoch D',
+                    name: `Stoch D ${variantLabel}`,
                     line: { color: 'orange' },
                     xaxis: 'x',
                     yaxis: yAxisName,
@@ -1484,17 +1637,7 @@ function closeCombinedWebSocket(reason = "Closing WebSocket") {
         combinedSymbol = '';
     }
 
-    // Clear any pending historical data timeout
-    if (window.historicalDataTimeout) {
-        clearTimeout(window.historicalDataTimeout);
-        window.historicalDataTimeout = null;
-        // console.log('Combined WebSocket: Cleared pending historical data timeout');
-    }
-
-    // Reset accumulation state
-    accumulatedHistoricalData = [];
-    isAccumulatingHistorical = false;
-    historicalDataSymbol = '';
+    // No accumulation state to reset
 }
 
 function updateCombinedIndicators(newIndicators) {
@@ -1585,10 +1728,17 @@ function getCurrentActiveIndicators() {
             if (!indicators.includes('macd')) indicators.push('macd');
         } else if (trace.name === 'RSI' || trace.name === 'RSI_SMA14') {
             if (!indicators.includes('rsi')) indicators.push('rsi');
-        } else if (trace.name === 'Stoch K' || trace.name === 'Stoch D') {
-            // Find the stochrsi variant
-            const stochVariant = window.combinedIndicators?.find(id => id.startsWith('stochrsi'));
-            if (stochVariant && !indicators.includes(stochVariant)) indicators.push(stochVariant);
+        } else if (trace.name.startsWith('Stoch K') || trace.name.startsWith('Stoch D')) {
+            // Extract variant from trace name (e.g., 'Stoch K (14,3)' -> 'stochrsi_14_3')
+            const variantMatch = trace.name.match(/Stoch [KD] \((\d+),(\d+)\)/);
+            if (variantMatch) {
+                const stochVariant = `stochrsi_${variantMatch[1]}_${variantMatch[2]}`;
+                if (!indicators.includes(stochVariant)) indicators.push(stochVariant);
+            } else {
+                // Fallback to first stochrsi variant if no variant found
+                const stochVariant = window.combinedIndicators?.find(id => id.startsWith('stochrsi'));
+                if (stochVariant && !indicators.includes(stochVariant)) indicators.push(stochVariant);
+            }
         } else if (trace.name === 'JMA') {
             if (!indicators.includes('jma')) indicators.push('jma');
         } else if (trace.name === 'Open Interest') {
@@ -1801,8 +1951,15 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
             traceIndicatorId = 'macd';
         } else if (trace.name === 'RSI' || trace.name === 'RSI_SMA14') {
             traceIndicatorId = 'rsi';
-        } else if (trace.name === 'Stoch K' || trace.name === 'Stoch D') {
-            traceIndicatorId = newIndicators.find(id => id.startsWith('stochrsi'));
+        } else if (trace.name.startsWith('Stoch K') || trace.name.startsWith('Stoch D')) {
+            // Extract variant from trace name (e.g., 'Stoch K (14,3)' -> 'stochrsi_14_3')
+            const variantMatch = trace.name.match(/Stoch [KD] \((\d+),(\d+)\)/);
+            if (variantMatch) {
+                traceIndicatorId = `stochrsi_${variantMatch[1]}_${variantMatch[2]}`;
+            } else {
+                // Fallback to first stochrsi variant if no variant found
+                traceIndicatorId = newIndicators.find(id => id.startsWith('stochrsi'));
+            }
         } else if (trace.name === 'JMA') {
             traceIndicatorId = 'jma';
         } else if (trace.name === 'Open Interest') {
@@ -1887,7 +2044,14 @@ function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
                 new Date(window.currentXAxisRange[0] < 2e9 ? window.currentXAxisRange[0] * 1000 : window.currentXAxisRange[0]),
                 new Date(window.currentXAxisRange[1] < 2e9 ? window.currentXAxisRange[1] * 1000 : window.currentXAxisRange[1])
             ] : undefined,
-            showticklabels: true // Show x-axis labels (timestamps)
+            showticklabels: true,
+            side: 'bottom',
+            minor: {
+                ticks: 'inside',
+                ticklen: 4,
+                tickcolor: 'rgba(0,0,0,0.3)',
+                showgrid: false
+            }
         },
         yaxis: {
             title: `${combinedSymbol.replace('USDT', '/USDT')} Price`,
@@ -1906,23 +2070,23 @@ function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
     if (activeIndicatorIds.length > 0) {
         // Price chart is twice the height of each individual indicator chart
         const numIndicators = activeIndicatorIds.length;
-        const priceChartProportion = 4; // Price chart is 4 parts
+        const priceChartProportion = 3; // Price chart is 3 parts
         const totalProportions = priceChartProportion + numIndicators;
 
         const priceChartHeight = priceChartProportion / totalProportions;
-        const indicatorHeight = 1 / totalProportions;        
+        const indicatorHeight = 1 / totalProportions;
 
         // Create grid with manual row heights
         let rowHeights = [priceChartHeight];
         for (let i = 0; i < numIndicators; i++) {
             rowHeights.push(indicatorHeight);
         }
-        
+
 
         baseLayout.grid = {
             rows: rowHeights.length,
             columns: 1,
-            pattern: 'domain',
+            pattern: 'independent',
             roworder: 'top to bottom',
             rowheights: rowHeights,
             vertical_spacing: 0.05
@@ -1930,12 +2094,32 @@ function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
 
         console.log(`DEBUG: Grid created with ${rowHeights.length} rows, vertical_spacing: 0.05`);
 
-        // Let Plotly handle domain calculation automatically with pattern: 'domain'
-        console.log(`DEBUG: Price chart domain handled automatically by grid pattern`);
+        // Add background colors to even indicators
+        baseLayout.shapes = baseLayout.shapes || [];
+
+        // Add separator lines between indicators
+        // Use the same domain calculation as the y-axes
+        const priceDomainEnd = priceChartProportion / totalProportions;
+
+        for (let i = 0; i < numIndicators - 1; i++) {
+            const linePosition = priceDomainEnd + ((i + 1) * indicatorHeight);
+            baseLayout.shapes.push({
+                type: 'line',
+                xref: 'paper',
+                yref: 'paper',
+                x0: 0,
+                y0: linePosition,
+                x1: 1,
+                y1: linePosition,
+                line: { color: 'rgba(0, 0, 0, 0.92)', width: 1 },
+                layer: 'below'
+            });
+        }
 
         // Set manual domains for each y-axis to ensure proper height allocation
         activeIndicatorIds.forEach((indicatorId, index) => {
             const yAxisName = `yaxis${index + 2}`;
+            const xAxisName = `xaxis${index + 2}`;
             const indicatorIndex = index; // 0-based index for indicators
             const totalIndicators = activeIndicatorIds.length;
 
@@ -1967,6 +2151,20 @@ function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
                 domain: [indicatorDomainStart, indicatorDomainEnd], // Set explicit domain
                 side: 'left'
             };
+
+            // Create separate x-axis for each indicator subplot (but hide the labels)
+            baseLayout[xAxisName] = {
+                rangeslider: { visible: false },
+                type: 'date',
+                autorange: !window.currentXAxisRange,
+                range: window.currentXAxisRange ? [
+                    new Date(window.currentXAxisRange[0] < 2e9 ? window.currentXAxisRange[0] * 1000 : window.currentXAxisRange[0]),
+                    new Date(window.currentXAxisRange[1] < 2e9 ? window.currentXAxisRange[1] * 1000 : window.currentXAxisRange[1])
+                ] : undefined,
+                showticklabels: false, // Hide x-axis labels for indicator subplots
+                anchor: yAxisName // Anchor to the corresponding y-axis
+            };
+
             console.log(`DEBUG: ${indicatorId} y-axis created with domain [${indicatorDomainStart.toFixed(3)}, ${indicatorDomainEnd.toFixed(3)}]`);
         });
 
@@ -2017,15 +2215,13 @@ window.closeCombinedWebSocket = closeCombinedWebSocket;
 window.updateCombinedIndicators = updateCombinedIndicators;
 window.updateCombinedResolution = updateCombinedResolution;
 window.setupWebSocketMessageHandler = setupWebSocketMessageHandler;
-window.mergeHistoricalData = mergeHistoricalData;
+window.mergeDataPoints = mergeDataPoints;
+window.mergeDataPointsWithIndicators = mergeDataPointsWithIndicators;
 
 // DEBUG: Add debugging function for chart diagnosis
 window.debugChartState = function() {
     // console.log('🔍 CHART DEBUG INFORMATION:');
     // console.log('Current WebSocket state:', combinedWebSocket ? combinedWebSocket.readyState : 'none');
-    // console.log('Accumulated data points:', accumulatedHistoricalData.length);
-    // console.log('Is accumulating:', isAccumulatingHistorical);
-    // console.log('Historical data symbol:', historicalDataSymbol);
 
     if (window.gd) {
         // console.log('Chart exists with', window.gd.data ? window.gd.data.length : 0, 'traces');
@@ -2053,7 +2249,6 @@ window.debugChartState = function() {
 
     return {
         websocket: combinedWebSocket ? combinedWebSocket.readyState : 'none',
-        accumulatedData: accumulatedHistoricalData.length,
         chartTraces: window.gd?.data?.length || 0,
         xAxisRange: window.currentXAxisRange,
         yAxisRange: window.currentYAxisRange

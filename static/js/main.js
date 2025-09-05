@@ -506,13 +506,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            // Populate the dialog with current shape properties
-            populateShapePropertiesDialog(window.activeShapeForPotentialDeletion);
-
-            // Show the dialog
+            // Show the dialog first
             const dialog = document.getElementById('shape-properties-dialog');
             if (dialog) {
                 dialog.style.display = 'block';
+        
+                // Then populate the dialog with current shape properties
+                populateShapePropertiesDialog(window.activeShapeForPotentialDeletion);
             }
         });
     }
@@ -1078,12 +1078,24 @@ async function populateShapePropertiesDialog(activeShape) {
     }
 
     // Set default values initially
+    const startPrice = document.getElementById('start-price');
+    const endPrice = document.getElementById('end-price');
     const buyOnCross = document.getElementById('buy-on-cross');
     const sellOnCross = document.getElementById('sell-on-cross');
     const amount = document.getElementById('amount');
     const sendEmailOnCross = document.getElementById('send-email-on-cross');
     const emailSent = document.getElementById('email-sent');
     const emailDateDisplay = document.getElementById('email-date-display');
+
+    console.log('DEBUG: DOM elements found:');
+    console.log('  startPrice element:', startPrice);
+    console.log('  endPrice element:', endPrice);
+    console.log('  buyOnCross element:', buyOnCross);
+
+    // Load current Y values from the shape properties endpoint
+    if (startPrice && endPrice) {
+        // Y values will be loaded from the properties response below
+    }
 
     if (buyOnCross) buyOnCross.checked = false;
     if (sellOnCross) sellOnCross.checked = false;
@@ -1099,6 +1111,29 @@ async function populateShapePropertiesDialog(activeShape) {
 
         if (response.ok && result.status === 'success') {
             const properties = result.properties || {};
+
+            console.log('DEBUG: Full properties response:', properties);
+            console.log('DEBUG: start_price in properties:', properties.start_price);
+            console.log('DEBUG: end_price in properties:', properties.end_price);
+
+            // Populate Y values
+            if (startPrice) {
+                if (properties.start_price !== undefined) {
+                    startPrice.value = properties.start_price;
+                    console.log('DEBUG: Set startPrice to:', properties.start_price);
+                } else {
+                    console.log('DEBUG: start_price not found in properties');
+                }
+            }
+
+            if (endPrice) {
+                if (properties.end_price !== undefined) {
+                    endPrice.value = properties.end_price;
+                    console.log('DEBUG: Set endPrice to:', properties.end_price);
+                } else {
+                    console.log('DEBUG: end_price not found in properties');
+                }
+            }
 
             // Populate form with existing properties
             if (buyOnCross && properties.buyOnCross !== undefined) {
@@ -1123,6 +1158,7 @@ async function populateShapePropertiesDialog(activeShape) {
             console.log('Loaded existing shape properties:', properties);
         } else {
             console.log('No existing properties found for shape, using defaults');
+            console.log('Response status:', response.status, 'Result:', result);
         }
     } catch (error) {
         console.error('Error fetching shape properties:', error);
@@ -1132,6 +1168,8 @@ async function populateShapePropertiesDialog(activeShape) {
 
 async function saveShapeProperties() {
     // Get values from the dialog
+    const startPriceInput = document.getElementById('start-price').value;
+    const endPriceInput = document.getElementById('end-price').value;
     const buyOnCross = document.getElementById('buy-on-cross').checked;
     const sellOnCross = document.getElementById('sell-on-cross').checked;
     const amountInput = document.getElementById('amount').value;
@@ -1149,6 +1187,24 @@ async function saveShapeProperties() {
     if (!drawingId) {
         alert('No shape selected.');
         return;
+    }
+
+    // Validate Y values
+    let startPrice, endPrice;
+    if (startPriceInput.trim() !== '') {
+        startPrice = parseFloat(startPriceInput);
+        if (isNaN(startPrice)) {
+            alert('Please enter a valid start price.');
+            return;
+        }
+    }
+
+    if (endPriceInput.trim() !== '') {
+        endPrice = parseFloat(endPriceInput);
+        if (isNaN(endPrice)) {
+            alert('Please enter a valid end price.');
+            return;
+        }
     }
 
     // Prepare properties object
@@ -1169,7 +1225,7 @@ async function saveShapeProperties() {
     }
 
     try {
-        // Make API call to save shape properties
+        // First, save shape properties
         const response = await fetch(`/save_shape_properties/${symbol}/${drawingId}`, {
             method: 'POST',
             headers: {
@@ -1187,8 +1243,30 @@ async function saveShapeProperties() {
                 properties
             });
 
+            // If Y values were provided, update the shape coordinates
+            if (startPrice !== undefined || endPrice !== undefined) {
+                await updateShapeYValues(symbol, drawingId, startPrice, endPrice);
+            }
+
             // Close the dialog
             closeShapePropertiesDialog();
+
+            // Refresh the chart to show updated shape
+            if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
+                // Trigger a refresh by sending current config
+                const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+                const resolution = window.resolutionSelect.value;
+                const currentTime = new Date().getTime();
+                let wsFromTs = new Date(currentTime - 30 * 86400 * 1000).toISOString();
+                let wsToTs = new Date(currentTime + 30 * 86400 * 1000).toISOString();
+
+                if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
+                    wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
+                    wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
+                }
+
+                setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+            }
 
             // Show success message
             // alert('Shape properties saved successfully!');
@@ -1199,6 +1277,46 @@ async function saveShapeProperties() {
     } catch (error) {
         console.error('Error saving shape properties:', error);
         alert('An error occurred while saving shape properties. Please try again.');
+    }
+}
+
+async function updateShapeYValues(symbol, drawingId, startPrice, endPrice) {
+    try {
+        // Get current drawings
+        const response = await fetch(`/get_drawings/${symbol}`);
+        const result = await response.json();
+
+        if (response.ok && result.status === 'success') {
+            const drawings = result.drawings || [];
+            const drawingIndex = drawings.findIndex(d => d.id === drawingId);
+
+            if (drawingIndex !== -1) {
+                // Update the Y values
+                if (startPrice !== undefined) {
+                    drawings[drawingIndex].start_price = startPrice;
+                }
+                if (endPrice !== undefined) {
+                    drawings[drawingIndex].end_price = endPrice;
+                }
+
+                // Update the drawing via PUT request
+                const updateResponse = await fetch(`/update_drawing/${symbol}/${drawingId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(drawings[drawingIndex])
+                });
+
+                if (updateResponse.ok) {
+                    console.log('Shape Y values updated successfully');
+                } else {
+                    console.error('Failed to update shape Y values');
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error updating shape Y values:', error);
     }
 }
 

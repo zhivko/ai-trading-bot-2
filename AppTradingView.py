@@ -205,6 +205,21 @@ async def chart_page(request: Request):
         logger.info(f"Email found in session for {client_host}: {request.session.get('email')}")
         authenticated = True
 
+        # Check for last selected symbol and redirect if found
+        try:
+            from endpoints.utility_endpoints import get_last_selected_symbol
+            last_symbol_response = await get_last_selected_symbol(request)
+            if last_symbol_response.status_code == 200:
+                import json
+                response_data = json.loads(last_symbol_response.body.decode('utf-8'))
+                if response_data.get('status') == 'success' and response_data.get('symbol'):
+                    last_symbol = response_data['symbol']
+                    logger.info(f"Redirecting user {request.session.get('email')} to last selected symbol: {last_symbol}")
+                    return RedirectResponse(f"/{last_symbol}", status_code=302)
+        except Exception as e:
+            logger.error(f"Error checking last selected symbol for redirect: {e}")
+            # Continue to show default page if there's an error
+
     response = templates.TemplateResponse("index.html", {"request": request, "authenticated": authenticated}) # type: ignore
     return response
 

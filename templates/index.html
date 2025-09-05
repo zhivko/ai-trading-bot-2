@@ -39,6 +39,7 @@
         #chart {
             flex-grow: 1;
             flex-basis: 0;
+            touch-action: none; /* Enable pinch-to-zoom on mobile devices */
         }
         #right-panel {
             width: 320px;
@@ -304,6 +305,17 @@
     <div id="shape-properties-dialog" style="display:none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 20px; border: 1px solid black; z-index: 1000;">
         <h3>Shape Properties</h3>
         <p><strong>ID:</strong> <span id="shape-id-display"></span></p>
+
+        <!-- Y Value Editing Section -->
+        <div style="border: 1px solid #ccc; padding: 10px; margin: 10px 0; background-color: #f9f9f9;">
+            <h4>Y Values</h4>
+            <label for="start-price">Start Price (Y1):</label>
+            <input type="number" id="start-price" step="0.00000001" style="width: 100%; margin-bottom: 5px;"><br>
+
+            <label for="end-price">End Price (Y2):</label>
+            <input type="number" id="end-price" step="0.00000001" style="width: 100%;"><br>
+        </div>
+
         <label for="buy-on-cross">Buy on Cross:</label>
         <input type="checkbox" id="buy-on-cross"><br><br>
 
