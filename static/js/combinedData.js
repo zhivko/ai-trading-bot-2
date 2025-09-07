@@ -7,6 +7,13 @@ let combinedResolution = '1h';
 let combinedFromTs = null;
 let combinedToTs = null;
 
+// Message queue and synchronization
+let messageQueue = [];
+let isProcessingMessage = false;
+let chartUpdateLock = false;
+let chartUpdateDebounceTimer = null;
+const CHART_UPDATE_DEBOUNCE_DELAY = 100; // ms
+
 // Historical data processing - direct handling without accumulation
 
 // Real-time price line management functions
@@ -166,6 +173,95 @@ function removeRealtimePriceLine(gd, doRelayout = false) {
     return removed;
 }
 
+// Message queue processing functions
+function enqueueMessage(message) {
+    messageQueue.push(message);
+    console.log(`📨 Message queued. Queue length: ${messageQueue.length}`);
+    processMessageQueue();
+}
+
+function processMessageQueue() {
+    if (isProcessingMessage || messageQueue.length === 0) {
+        return;
+    }
+
+    isProcessingMessage = true;
+    const message = messageQueue.shift();
+
+    console.log(`🔄 Processing message: ${message.type} (${messageQueue.length} remaining in queue)`);
+
+    try {
+        // Process message based on type
+        switch (message.type) {
+            case 'historical':
+                handleHistoricalData(message);
+                break;
+            case 'live':
+                handleLiveData(message);
+                break;
+            case 'live_price':
+                handleLivePriceUpdate(message);
+                break;
+            case 'drawings':
+                handleDrawingsData(message);
+                break;
+            case 'history_update':
+                handleHistoryUpdate(message);
+                break;
+            default:
+                console.warn('⚠️ Unknown message type:', message.type);
+        }
+
+        console.log('✅ Message processing completed for type:', message.type);
+    } catch (e) {
+        console.error('❌ Combined WebSocket: Error processing queued message:', e.message);
+        console.error('❌ Raw message data:', message);
+    } finally {
+        isProcessingMessage = false;
+        // Process next message if available
+        if (messageQueue.length > 0) {
+            setTimeout(processMessageQueue, 10); // Small delay to prevent blocking
+        }
+    }
+}
+
+// Chart update lock functions
+function acquireChartUpdateLock() {
+    if (chartUpdateLock) {
+        console.warn('🔒 Chart update lock already held, waiting...');
+        return false;
+    }
+    chartUpdateLock = true;
+    console.log('🔒 Chart update lock acquired');
+    return true;
+}
+
+function releaseChartUpdateLock() {
+    chartUpdateLock = false;
+    console.log('🔓 Chart update lock released');
+}
+
+function isChartUpdateLocked() {
+    return chartUpdateLock;
+}
+
+// Debounced chart update function
+function debouncedChartUpdate(updateFunction, ...args) {
+    clearTimeout(chartUpdateDebounceTimer);
+    chartUpdateDebounceTimer = setTimeout(() => {
+        if (!acquireChartUpdateLock()) {
+            console.warn('⚠️ Skipping debounced chart update - lock held');
+            return;
+        }
+
+        try {
+            updateFunction(...args);
+        } finally {
+            releaseChartUpdateLock();
+        }
+    }, CHART_UPDATE_DEBOUNCE_DELAY);
+}
+
 function handleRealtimeKlineForCombined(dataPoint) {
     console.log('🔴 Combined WebSocket: handleRealtimeKlineForCombined called with data:', dataPoint);
 
@@ -311,35 +407,10 @@ function setupWebSocketMessageHandler() {
             const message = JSON.parse(event.data);
             console.log('📨 Combined WebSocket: Parsed message type:', message.type);
 
-            // Process message based on type
-            switch (message.type) {
-                case 'historical':
-                    console.log('📊 Processing historical data');
-                    handleHistoricalData(message);
-                    break;
-                case 'live':
-                    console.log('🔴 Processing live data');
-                    handleLiveData(message);
-                    break;
-                case 'live_price':
-                    console.log('💰 Processing live price update');
-                    handleLivePriceUpdate(message);
-                    break;
-                case 'drawings':
-                    console.log('🎨 Processing drawings data');
-                    handleDrawingsData(message);
-                    break;
-                case 'history_update':
-                    console.log('📈 Processing smart history update');
-                    handleHistoryUpdate(message);
-                    break;
-                default:
-                    console.warn('⚠️ Unknown message type:', message.type);
-            }
-
-            console.log('✅ Message processing completed for type:', message.type);
+            // Enqueue message for sequential processing
+            enqueueMessage(message);
         } catch (e) {
-            console.error('❌ Combined WebSocket: Error processing message:', e.message);
+            console.error('❌ Combined WebSocket: Error parsing message:', e.message);
             console.error('❌ Raw message data:', event.data.substring(0, 200));
         }
     };
@@ -535,16 +606,28 @@ function handleHistoricalData(message) {
 }
 
 function mergeDataPoints(existingData, newData) {
+    console.log(`🔄 MERGE DEBUG: mergeDataPoints called with ${existingData?.length || 0} existing + ${newData?.length || 0} new points`);
+
     if (!existingData || existingData.length === 0) {
+        console.log('🔄 MERGE DEBUG: No existing data, returning sorted new data');
         return newData.sort((a, b) => a.time - b.time);
     }
 
     if (!newData || newData.length === 0) {
+        console.log('🔄 MERGE DEBUG: No new data, returning existing data');
         return existingData;
     }
 
+    // Log timestamp ranges for debugging
+    const existingTimestamps = existingData.map(p => p.time).sort((a, b) => a - b);
+    const newTimestamps = newData.map(p => p.time).sort((a, b) => a - b);
+
+    console.log(`🔄 MERGE DEBUG: Existing data range: ${new Date(existingTimestamps[0] * 1000).toISOString()} to ${new Date(existingTimestamps[existingTimestamps.length - 1] * 1000).toISOString()}`);
+    console.log(`🔄 MERGE DEBUG: New data range: ${new Date(newTimestamps[0] * 1000).toISOString()} to ${new Date(newTimestamps[newTimestamps.length - 1] * 1000).toISOString()}`);
+
     // Combine all data points
     const combinedData = [...existingData, ...newData];
+    console.log(`🔄 MERGE DEBUG: Combined ${combinedData.length} total points`);
 
     // Sort by timestamp to ensure proper ordering
     const sortedData = combinedData.sort((a, b) => a.time - b.time);
@@ -552,6 +635,8 @@ function mergeDataPoints(existingData, newData) {
     // Remove duplicates by timestamp, keeping the most recent data
     const mergedData = [];
     const seenTimestamps = new Set();
+    let duplicatesFound = 0;
+    let overlapsFound = 0;
 
     for (const point of sortedData) {
         if (!seenTimestamps.has(point.time)) {
@@ -562,12 +647,17 @@ function mergeDataPoints(existingData, newData) {
             // This ensures we keep the most recent data for the same timestamp
             const existingIndex = mergedData.findIndex(p => p.time === point.time);
             if (existingIndex !== -1) {
+                console.log(`🔄 MERGE DEBUG: Replacing duplicate timestamp ${point.time} (${new Date(point.time * 1000).toISOString()})`);
                 mergedData[existingIndex] = point;
+                duplicatesFound++;
             }
+            overlapsFound++;
         }
     }
 
     const duplicatesRemoved = combinedData.length - mergedData.length;
+    console.log(`🔄 MERGE DEBUG: Processing complete - ${duplicatesFound} duplicates replaced, ${overlapsFound} overlaps detected, ${duplicatesRemoved} total points removed, ${mergedData.length} unique points remaining`);
+
     if (duplicatesRemoved > 0) {
         console.log(`🔄 Merged data: ${duplicatesRemoved} duplicates removed, ${mergedData.length} unique points`);
     }
@@ -576,13 +666,23 @@ function mergeDataPoints(existingData, newData) {
 }
 
 function mergeDataPointsWithIndicators(existingData, newData) {
+    console.log(`🔄 MERGE DEBUG: mergeDataPointsWithIndicators called with ${existingData?.length || 0} existing + ${newData?.length || 0} new points`);
+
     if (!existingData || existingData.length === 0) {
+        console.log('🔄 MERGE DEBUG: No existing data, returning sorted new data');
         return newData.sort((a, b) => a.time - b.time);
     }
 
     if (!newData || newData.length === 0) {
+        console.log('🔄 MERGE DEBUG: No new data, returning existing data');
         return existingData;
     }
+
+    // Analyze indicator presence
+    const existingWithIndicators = existingData.filter(p => Object.keys(p.indicators || {}).length > 0).length;
+    const newWithIndicators = newData.filter(p => Object.keys(p.indicators || {}).length > 0).length;
+
+    console.log(`🔄 MERGE DEBUG: Indicator analysis - Existing: ${existingWithIndicators}/${existingData.length} with indicators, New: ${newWithIndicators}/${newData.length} with indicators`);
 
     // Create a map of existing data by timestamp for quick lookup
     const existingDataMap = new Map();
@@ -592,6 +692,9 @@ function mergeDataPointsWithIndicators(existingData, newData) {
 
     // Process new data and merge with existing
     const mergedData = [...existingData]; // Start with existing data
+    let replacedPoints = 0;
+    let addedPoints = 0;
+    let mergedIndicators = 0;
 
     newData.forEach(newPoint => {
         const existingPoint = existingDataMap.get(newPoint.time);
@@ -601,32 +704,45 @@ function mergeDataPointsWithIndicators(existingData, newData) {
             const hasExistingIndicators = Object.keys(existingPoint.indicators || {}).length > 0;
             const hasNewIndicators = Object.keys(newPoint.indicators || {}).length > 0;
 
+            console.log(`🔄 MERGE DEBUG: Timestamp ${newPoint.time} (${new Date(newPoint.time * 1000).toISOString()}) - Existing indicators: ${hasExistingIndicators}, New indicators: ${hasNewIndicators}`);
+
             if (hasNewIndicators && !hasExistingIndicators) {
                 // New data has indicators, existing doesn't - use new data
                 const index = mergedData.findIndex(p => p.time === newPoint.time);
                 if (index !== -1) {
                     mergedData[index] = { ...newPoint };
+                    replacedPoints++;
+                    console.log(`🔄 MERGE DEBUG: Replaced point with new indicator data`);
                 }
             } else if (hasNewIndicators && hasExistingIndicators) {
                 // Both have indicators - merge them
                 const index = mergedData.findIndex(p => p.time === newPoint.time);
                 if (index !== -1) {
+                    const existingIndicatorKeys = Object.keys(existingPoint.indicators);
+                    const newIndicatorKeys = Object.keys(newPoint.indicators);
+                    console.log(`🔄 MERGE DEBUG: Merging indicators - Existing: [${existingIndicatorKeys.join(', ')}], New: [${newIndicatorKeys.join(', ')}]`);
+
                     mergedData[index] = {
                         ...newPoint,
                         indicators: { ...existingPoint.indicators, ...newPoint.indicators }
                     };
+                    mergedIndicators++;
                 }
+            } else {
+                console.log(`🔄 MERGE DEBUG: Keeping existing data (no new indicators to merge)`);
             }
             // If existing has indicators but new doesn't, keep existing
         } else {
             // New timestamp - add it
             mergedData.push(newPoint);
+            addedPoints++;
         }
     });
 
     // Sort by timestamp to ensure proper ordering
     const sortedData = mergedData.sort((a, b) => a.time - b.time);
 
+    console.log(`🔄 MERGE DEBUG: Merge summary - ${replacedPoints} points replaced, ${addedPoints} points added, ${mergedIndicators} indicator merges, ${sortedData.length} total points`);
     console.log(`🔄 Merged data with indicators: ${existingData.length} existing + ${newData.length} new = ${sortedData.length} total points`);
 
     return sortedData;
@@ -1043,6 +1159,14 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         return;
     }
 
+    // Check if chart update is locked
+    if (isChartUpdateLocked()) {
+        console.warn('🔒 Chart update locked, queuing historical data update');
+        // Queue the update for later
+        setTimeout(() => updateChartWithHistoricalData(dataPoints, symbol), CHART_UPDATE_DEBOUNCE_DELAY);
+        return;
+    }
+
     // DEBUG: Log detailed data structure
     console.log('🔍 DEBUG: First data point structure:', JSON.stringify(dataPoints[0], null, 2));
     console.log('🔍 DEBUG: Sample data points (first 3):', dataPoints.slice(0, 3).map(p => ({
@@ -1437,6 +1561,12 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     console.log('  Layout has grid:', !!layout.grid);
     console.log('  Layout grid rows:', layout.grid ? layout.grid.rows : 'N/A');
 
+    // Acquire chart update lock
+    if (!acquireChartUpdateLock()) {
+        console.warn('🔒 Could not acquire chart update lock for historical data');
+        return;
+    }
+
     Plotly.react(chartElement, allTraces, layout).then(() => {
         console.log('✅ Plotly.react completed successfully with user settings preserved');
         console.log('[CHART_UPDATE] combinedData.js historical data - chart update completed at', new Date().toISOString());
@@ -1458,6 +1588,9 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         // }
     }).catch((error) => {
         console.error('❌ Error during Plotly.react:', error);
+    }).finally(() => {
+        // Always release the lock
+        releaseChartUpdateLock();
     });
 
     console.log('📊 Chart should now display all merged historical data');
@@ -1576,6 +1709,14 @@ function updateChartWithLiveData(dataPoint, symbol) {
         return;
     }
 
+    // Check if chart update is locked
+    if (isChartUpdateLocked()) {
+        console.warn('🔒 Chart update locked, queuing live data update');
+        // Queue the update for later
+        setTimeout(() => updateChartWithLiveData(dataPoint, symbol), CHART_UPDATE_DEBOUNCE_DELAY);
+        return;
+    }
+
     const timestamp = new Date(dataPoint.time * 1000);
     const price = dataPoint.ohlc.close;
 
@@ -1592,34 +1733,45 @@ function updateChartWithLiveData(dataPoint, symbol) {
     const lastTimestamp = trace.x[trace.x.length - 1];
     const isNewCandle = timestamp.getTime() !== lastTimestamp.getTime();
 
-    if (isNewCandle) {
-        // Add new candle
-        // console.log('[CHART_UPDATE] combinedData.js live data - adding new candle at', new Date().toISOString());
-        const newData = {
-            x: [[timestamp]],
-            open: [[dataPoint.ohlc.open]],
-            high: [[dataPoint.ohlc.high]],
-            low: [[dataPoint.ohlc.low]],
-            close: [[dataPoint.ohlc.close]]
-        };
+    // Acquire chart update lock
+    if (!acquireChartUpdateLock()) {
+        console.warn('🔒 Could not acquire chart update lock for live data');
+        return;
+    }
 
-        Plotly.extendTraces(gd, newData, [priceTraceIndex]);
-        // console.log('[CHART_UPDATE] combinedData.js live data - new candle added');
-    } else {
-        // Update existing candle
-        // console.log('[CHART_UPDATE] combinedData.js live data - updating existing candle at', new Date().toISOString());
-        trace.high[trace.high.length - 1] = Math.max(trace.high[trace.high.length - 1], dataPoint.ohlc.high);
-        trace.low[trace.low.length - 1] = Math.min(trace.low[trace.low.length - 1], dataPoint.ohlc.low);
-        trace.close[trace.close.length - 1] = dataPoint.ohlc.close;
+    try {
+        if (isNewCandle) {
+            // Add new candle
+            // console.log('[CHART_UPDATE] combinedData.js live data - adding new candle at', new Date().toISOString());
+            const newData = {
+                x: [[timestamp]],
+                open: [[dataPoint.ohlc.open]],
+                high: [[dataPoint.ohlc.high]],
+                low: [[dataPoint.ohlc.low]],
+                close: [[dataPoint.ohlc.close]]
+            };
 
-        // Preserve shapes when updating live data
-        const layoutWithShapes = { ...gd.layout };
-        if (gd.layout && gd.layout.shapes) {
-            layoutWithShapes.shapes = gd.layout.shapes;
+            Plotly.extendTraces(gd, newData, [priceTraceIndex]);
+            // console.log('[CHART_UPDATE] combinedData.js live data - new candle added');
+        } else {
+            // Update existing candle
+            // console.log('[CHART_UPDATE] combinedData.js live data - updating existing candle at', new Date().toISOString());
+            trace.high[trace.high.length - 1] = Math.max(trace.high[trace.high.length - 1], dataPoint.ohlc.high);
+            trace.low[trace.low.length - 1] = Math.min(trace.low[trace.low.length - 1], dataPoint.ohlc.low);
+            trace.close[trace.close.length - 1] = dataPoint.ohlc.close;
+
+            // Preserve shapes when updating live data
+            const layoutWithShapes = { ...gd.layout };
+            if (gd.layout && gd.layout.shapes) {
+                layoutWithShapes.shapes = gd.layout.shapes;
+            }
+
+            Plotly.react(gd, gd.data, layoutWithShapes);
+            // console.log('[CHART_UPDATE] combinedData.js live data - existing candle updated');
         }
-
-        Plotly.react(gd, gd.data, layoutWithShapes);
-        // console.log('[CHART_UPDATE] combinedData.js live data - existing candle updated');
+    } finally {
+        // Always release the lock
+        releaseChartUpdateLock();
     }
 
     // Update price line if it exists
@@ -2443,4 +2595,37 @@ window.validateChartRendering = function() {
     }
 
     return validation;
+};
+
+// DEBUG: Add functions for testing the new synchronization features
+window.getMessageQueueStatus = function() {
+    console.log('📨 MESSAGE QUEUE STATUS:');
+    console.log('  Queue length:', messageQueue.length);
+    console.log('  Is processing:', isProcessingMessage);
+    console.log('  Chart update locked:', chartUpdateLock);
+    console.log('  Queue contents:', messageQueue.map(msg => msg.type));
+    return {
+        queueLength: messageQueue.length,
+        isProcessing: isProcessingMessage,
+        chartLocked: chartUpdateLock,
+        messageTypes: messageQueue.map(msg => msg.type)
+    };
+};
+
+window.clearMessageQueue = function() {
+    const clearedCount = messageQueue.length;
+    messageQueue = [];
+    console.log(`🧹 Cleared ${clearedCount} messages from queue`);
+    return clearedCount;
+};
+
+window.forceReleaseChartLock = function() {
+    if (chartUpdateLock) {
+        releaseChartUpdateLock();
+        console.log('🔓 Force released chart update lock');
+        return true;
+    } else {
+        console.log('ℹ️ Chart update lock was not held');
+        return false;
+    }
 };

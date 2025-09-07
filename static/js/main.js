@@ -27,6 +27,61 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.debouncedUpdateShapeVisuals = debounce(updateShapeVisuals, VISUAL_UPDATE_DEBOUNCE_DELAY); // VISUAL_UPDATE_DEBOUNCE_DELAY from config.js
     window.debouncedUpdateCrosshair = debounce(updateOrAddCrosshairVLine, 100); // updateOrAddCrosshairVLine from chartInteractions.js
 
+    // Bar limit configuration
+    const MAX_BARS = 500;
+
+    // Resolution to seconds mapping
+    const RESOLUTION_SECONDS = {
+        '1m': 60,
+        '5m': 300,
+        '1h': 3600,
+        '1d': 86400,
+        '1w': 604800
+    };
+
+    // Range to seconds mapping
+    const RANGE_SECONDS = {
+        '1h': 3600,
+        '8h': 8 * 3600,
+        '24h': 24 * 3600,
+        '3d': 3 * 24 * 3600,
+        '7d': 7 * 24 * 3600,
+        '30d': 30 * 24 * 3600,
+        '3m': 90 * 24 * 3600,  // 3 months approx
+        '6m': 180 * 24 * 3600, // 6 months approx
+        '1y': 365 * 24 * 3600, // 1 year approx
+        '3y': 3 * 365 * 24 * 3600 // 3 years approx
+    };
+
+    // Function to calculate number of bars for given time range and resolution
+    function calculateBars(timeRangeSeconds, resolution) {
+        const resolutionSeconds = RESOLUTION_SECONDS[resolution];
+        if (!resolutionSeconds) {
+            console.warn(`Unknown resolution: ${resolution}`);
+            return 0;
+        }
+        return Math.ceil(timeRangeSeconds / resolutionSeconds);
+    }
+
+    // Function to adjust time range to limit bars to MAX_BARS
+    function adjustTimeRangeForMaxBars(fromTs, toTs, resolution) {
+        const timeRangeSeconds = (toTs - fromTs) / 1000; // Convert to seconds
+        const bars = calculateBars(timeRangeSeconds, resolution);
+
+        if (bars <= MAX_BARS) {
+            return { fromTs, toTs, bars };
+        }
+
+        // Calculate new fromTs to get exactly MAX_BARS
+        const resolutionSeconds = RESOLUTION_SECONDS[resolution];
+        const newTimeRangeSeconds = MAX_BARS * resolutionSeconds;
+        const newFromTs = toTs - (newTimeRangeSeconds * 1000); // Convert back to milliseconds
+
+        console.log(`Adjusting time range: original bars=${bars}, new bars=${MAX_BARS}, from ${new Date(fromTs).toISOString()} to ${new Date(newFromTs).toISOString()}`);
+
+        return { fromTs: newFromTs, toTs, bars: MAX_BARS };
+    }
+
     // 🔧 TIMESTAMP SYNCHRONIZATION HELPER FUNCTION
     window.getSynchronizedTimestamps = function(fromTs, toTs) {
         // Convert to ISO timestamp strings for WebSocket
@@ -229,9 +284,47 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Note: Resolution settings are saved in applyAutoscale() when axis ranges change
         }
 
-        window.currentXAxisRange = null; window.currentYAxisRange = null;
-        window.xAxisMinDisplay.textContent = 'Auto'; window.xAxisMaxDisplay.textContent = 'Auto';
-        window.yAxisMinDisplay.textContent = 'Auto'; window.yAxisMaxDisplay.textContent = 'Auto';
+        const newResolution = window.resolutionSelect.value;
+        console.log(`[main.js] Resolution changed to ${newResolution}`);
+
+        // Get current time range or use default
+        let currentFromTs, currentToTs;
+        const currentTime = new Date().getTime();
+
+        if (window.currentXAxisRange && window.currentXAxisRange.length === 2) {
+            currentFromTs = window.currentXAxisRange[0];
+            currentToTs = window.currentXAxisRange[1];
+        } else {
+            // Use default 30-day range
+            currentFromTs = currentTime - 30 * 86400 * 1000;
+            currentToTs = currentTime;
+        }
+
+        // Calculate bars for current time range with new resolution
+        const timeRangeSeconds = (currentToTs - currentFromTs) / 1000;
+        const estimatedBars = calculateBars(timeRangeSeconds, newResolution);
+
+        console.log(`[main.js] Estimated bars with new resolution ${newResolution}: ${estimatedBars}`);
+
+        // Adjust time range if bars exceed limit
+        let adjustedFromTs = currentFromTs;
+        let adjustedToTs = currentToTs;
+
+        if (estimatedBars > MAX_BARS) {
+            const adjusted = adjustTimeRangeForMaxBars(currentFromTs, currentToTs, newResolution);
+            adjustedFromTs = adjusted.fromTs;
+            adjustedToTs = adjusted.toTs;
+            console.log(`[main.js] Adjusted time range for resolution change: bars limited to ${MAX_BARS}`);
+        }
+
+        // Update current axis range
+        window.currentXAxisRange = [adjustedFromTs, adjustedToTs];
+        window.xAxisMinDisplay.textContent = `${new Date(adjustedFromTs).toISOString()}`;
+        window.xAxisMaxDisplay.textContent = `${new Date(adjustedToTs).toISOString()}`;
+
+        window.currentYAxisRange = null; // Reset Y-axis range for new data
+        window.yAxisMinDisplay.textContent = 'Auto';
+        window.yAxisMaxDisplay.textContent = 'Auto';
         window.activeShapeForPotentialDeletion = null;
         updateSelectedShapeInfoPanel(null);
         console.log("[main.js] Resolution changed. Clearing ranges, deselecting shape. Triggering chart update.");
@@ -246,44 +339,23 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.log("[CHART_UPDATE] main.js resolution change - chart cleared, ready for new data");
         }
 
-        // Update WebSocket with new resolution (don't close/reopen, just send new config)
+        // Update WebSocket with new resolution and adjusted time range
         const symbol = window.symbolSelect.value;
-        const resolution = window.resolutionSelect.value;
         const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
-        if (symbol && resolution) {
-            console.log(`[main.js] Resolution changed to ${resolution}, updating WebSocket config`);
-            updateCombinedResolution(resolution);
+        if (symbol && newResolution) {
+            console.log(`[main.js] Resolution changed to ${newResolution}, updating WebSocket config with adjusted time range`);
+            updateCombinedResolution(newResolution);
 
-            // Send new config with updated resolution
-            // Use current time for range calculations
-            const currentTime = new Date().getTime();
-            const fromTs = Math.floor((currentTime - 30 * 86400 * 1000) / 1000); // 30 days before current time
-            const toTs = Math.floor((currentTime + 30 * 86400 * 1000) / 1000); // 30 days after current time
+            // Convert to seconds for WebSocket
+            const wsFromTs = Math.floor(adjustedFromTs / 1000);
+            const wsToTs = Math.floor(adjustedToTs / 1000);
 
             // If WebSocket is open, send new config, otherwise establish new connection
             if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
-                setupCombinedWebSocket(symbol, activeIndicators, resolution, fromTs, toTs);
+                setupCombinedWebSocket(symbol, activeIndicators, newResolution, wsFromTs, wsToTs);
             } else {
                 delay(100).then(() => {
-                    setupCombinedWebSocket(symbol, activeIndicators, resolution, fromTs, toTs);
-                });
-            }
-        } else {
-            console.log(`[main.js] Resolution changed to ${resolution}, updating WebSocket config`);
-            updateCombinedResolution(resolution);
-
-            // Send new config with updated resolution
-            // Use current time for range calculations
-            const currentTime = new Date().getTime();
-            let wsFromTs = new Date(currentTime - 30 * 86400 * 1000).toISOString(); // 30 days before current time
-            let wsToTs = new Date(currentTime + 30 * 86400 * 1000).toISOString(); // 30 days after current time
-
-            // If WebSocket is open, send new config, otherwise establish new connection
-            if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
-                setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
-            } else {
-                delay(100).then(() => {
-                    setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+                    setupCombinedWebSocket(symbol, activeIndicators, newResolution, wsFromTs, wsToTs);
                 });
             }
         }
@@ -300,27 +372,49 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         const rangeDropdownValue = window.rangeSelect.value;
+        console.log(`[main.js] Range changed to ${rangeDropdownValue}`);
+
         // Use current time as base for range calculations (not hardcoded 2022)
         const currentTime = new Date().getTime(); // Keep in milliseconds
-        let fromTs;
+        let requestedFromTs;
         switch(rangeDropdownValue) {
-            case '1h': fromTs = currentTime - 3600 * 1000; break;
-            case '8h': fromTs = currentTime - 8 * 3600 * 1000; break;
-            case '24h': fromTs = currentTime - 86400 * 1000; break;
-            case '3d': fromTs = currentTime - 3 * 86400 * 1000; break;
-            case '7d': fromTs = currentTime - 7 * 86400 * 1000; break;
-            case '30d': fromTs = currentTime - 30 * 86400 * 1000; break;
-            case '3m': fromTs = currentTime - 90 * 86400 * 1000; break;
-            case '6m': fromTs = currentTime - 180 * 86400 * 1000; break;
-            case '1y': fromTs = currentTime - 365 * 86400 * 1000; break;
-            case '3y': fromTs = currentTime - 3 * 365 * 86400 * 1000; break;
-            default: fromTs = currentTime - 30 * 86400 * 1000;
+            case '1h': requestedFromTs = currentTime - 3600 * 1000; break;
+            case '8h': requestedFromTs = currentTime - 8 * 3600 * 1000; break;
+            case '24h': requestedFromTs = currentTime - 86400 * 1000; break;
+            case '3d': requestedFromTs = currentTime - 3 * 86400 * 1000; break;
+            case '7d': requestedFromTs = currentTime - 7 * 86400 * 1000; break;
+            case '30d': requestedFromTs = currentTime - 30 * 86400 * 1000; break;
+            case '3m': requestedFromTs = currentTime - 90 * 86400 * 1000; break;
+            case '6m': requestedFromTs = currentTime - 180 * 86400 * 1000; break;
+            case '1y': requestedFromTs = currentTime - 365 * 86400 * 1000; break;
+            case '3y': requestedFromTs = currentTime - 3 * 365 * 86400 * 1000; break;
+            default: requestedFromTs = currentTime - 30 * 86400 * 1000;
         }
-        const toTs = currentTime;
+        const requestedToTs = currentTime;
 
-        window.currentXAxisRange = [fromTs, toTs]; // Keep in milliseconds
-        window.xAxisMinDisplay.textContent = `${new Date(fromTs).toISOString()}`;
-        window.xAxisMaxDisplay.textContent = `${new Date(toTs).toISOString()}`;
+        // Get current resolution
+        const currentResolution = window.resolutionSelect.value;
+
+        // Calculate bars for requested time range with current resolution
+        const timeRangeSeconds = (requestedToTs - requestedFromTs) / 1000;
+        const estimatedBars = calculateBars(timeRangeSeconds, currentResolution);
+
+        console.log(`[main.js] Estimated bars for range ${rangeDropdownValue} with resolution ${currentResolution}: ${estimatedBars}`);
+
+        // Adjust time range if bars exceed limit
+        let finalFromTs = requestedFromTs;
+        let finalToTs = requestedToTs;
+
+        if (estimatedBars > MAX_BARS) {
+            const adjusted = adjustTimeRangeForMaxBars(requestedFromTs, requestedToTs, currentResolution);
+            finalFromTs = adjusted.fromTs;
+            finalToTs = adjusted.toTs;
+            console.log(`[main.js] Adjusted time range for range change: bars limited to ${MAX_BARS}`);
+        }
+
+        window.currentXAxisRange = [finalFromTs, finalToTs]; // Keep in milliseconds
+        window.xAxisMinDisplay.textContent = `${new Date(finalFromTs).toISOString()}`;
+        window.xAxisMaxDisplay.textContent = `${new Date(finalToTs).toISOString()}`;
 
         window.currentYAxisRange = null; // Reset Y-axis range for new data
         window.yAxisMinDisplay.textContent = 'Auto';
@@ -345,25 +439,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const resolution = window.resolutionSelect.value;
         const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
         if (symbol && resolution) {
-            console.log(`[main.js] Time range changed to ${rangeDropdownValue}, updating WebSocket config`);
+            console.log(`[main.js] Time range changed to ${rangeDropdownValue}, updating WebSocket config with adjusted time range`);
 
-            // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use consistent timestamp source
-            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for range change WebSocket`);
-            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange:`, window.currentXAxisRange);
-            let wsFromTs = Math.floor(fromTs / 1000);
-            let wsToTs = Math.floor(toTs / 1000);
-
-            if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
-                wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
-                wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
-                console.log(`[main.js] ✅ TIMESTAMP SYNC: Using saved X-axis range for range change WebSocket:`, {
-                    savedRange: window.currentXAxisRange,
-                    wsFromTs: wsFromTs,
-                    wsToTs: wsToTs
-                });
-            } else {
-                console.log(`[main.js] ⚠️ TIMESTAMP SYNC: No valid currentXAxisRange for range change, using dropdown range`);
-            }
+            // Convert to seconds for WebSocket
+            const wsFromTs = Math.floor(finalFromTs / 1000);
+            const wsToTs = Math.floor(finalToTs / 1000);
 
             // If WebSocket is open, send new config with updated time range, otherwise establish new connection
             if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
@@ -761,12 +841,12 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
     }
     // Check for essential properties of a fully initialized Plotly graph object.
     if (!plotlyGraphObj.data || !plotlyGraphObj.layout || !plotlyGraphObj._fullLayout) {
-        console.error("Autoscale: Plotly graph object not fully initialized (missing data, layout, or _fullLayout).");
+        console.warn("Autoscale: Plotly graph object not fully initialized (missing data, layout, or _fullLayout). Proceeding anyway to keep button functional.");
         // Add more detailed logging for debugging this state:
         console.log("Debug Autoscale: plotlyGraphObj.data:", plotlyGraphObj.data);
         console.log("Debug Autoscale: plotlyGraphObj.layout:", plotlyGraphObj.layout);
         console.log("Debug Autoscale: plotlyGraphObj._fullLayout:", plotlyGraphObj._fullLayout);
-        return;
+        // Continue execution instead of returning to keep button functional
     }
 
    const fullData = plotlyGraphObj.data;
