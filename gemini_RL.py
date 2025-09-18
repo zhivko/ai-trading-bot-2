@@ -90,7 +90,7 @@ def get_bybit_session_agent():
     return bybit_session_agent
 
 def get_timeframe_seconds_agent(timeframe: str) -> int:
-    multipliers = {"1m": 60, "5m": 300, "1h": 3600, "1d": 86400, "1w": 604800}
+    multipliers = {"1m": 60, "5m": 300, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800}
     return multipliers.get(timeframe, 300) # Default to 5m if not found
 
 def format_kline_data_agent(bar: list) -> dict:
@@ -483,7 +483,7 @@ def detect_and_report_buy_signals(df: pd.DataFrame):
     SLOPE_LOOKBACK = 5  # Look back 5 periods to check the slope of the short-term EMA.
 
     # Ensure required columns from the new logic exist
-    required_cols = ['close', 'RSI_14', 'STOCHRSIk_60_60_10_10', 'STOCHRSId_60_60_10_10',
+    required_cols = ['close', 'RSI_14', 'STOCHRSIk_60_10_10_10', 'STOCHRSId_60_10_10_10',
                      'EMA_21', 'EMA_50', 'EMA_200']
     if not all(col in df.columns for col in required_cols):
         log_message(f"ERROR: Missing one or more required columns for signal detection: {required_cols}")
@@ -511,8 +511,8 @@ def detect_and_report_buy_signals(df: pd.DataFrame):
 
     # Condition 3: The key STOCHRSI_60_10 shows a bullish crossover from the oversold zone.
     # This remains the primary trigger.
-    k_line = df_signal['STOCHRSIk_60_60_10_10']
-    d_line = df_signal['STOCHRSId_60_60_10_10']
+    k_line = df_signal['STOCHRSIk_60_10_10_10']
+    d_line = df_signal['STOCHRSId_60_10_10_10']
 
     cond_storsi_crossover = (k_line.shift(1) < d_line.shift(1)) & \
                             (k_line > d_line) & \
@@ -530,7 +530,7 @@ def detect_and_report_buy_signals(df: pd.DataFrame):
                 f">>> BUY SIGNAL DETECTED <<< at {signal_time} UTC | "
                 f"Price: {row['close']:.2f} (Trend: DOWN, EMA50: {row['EMA_50']:.2f} < EMA200: {row['EMA_200']:.2f}) | "
                 f"RSI: {row['RSI_14']:.2f} (Recovering) | "
-                f"StoRSI(60,10) k: {row['STOCHRSIk_60_60_10_10']:.2f} (Crossover)"
+                f"StoRSI(60,10) k: {row['STOCHRSIk_60_10_10_10']:.2f} (Crossover)"
             )
     else:
         log_message("No buy signals matching the specified downtrend/reversal criteria were found.")

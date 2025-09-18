@@ -359,6 +359,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
             }
         }
+        saveSettings(); // Save the resolution change to Redis
     }); // Replaced .onchange with addEventListener('change',...)
     window.rangeSelect.addEventListener('change', () => {
         // Check if this change was triggered programmatically (from settings load)
@@ -454,6 +455,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
             }
         }
+        saveSettings(); // Save the range change to Redis
     }); // Replaced .onchange with addEventListener('change',...)
 
 
@@ -853,91 +855,9 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
    const inputLayout = plotlyGraphObj.layout;
    const layoutUpdate = {};
 
-   // --- X-AXIS AUTOSCALE ---
-   let xMin = Infinity, xMax = -Infinity;
-   let xDataFound = false;
-   console.log("Autoscale: Starting X-axis calculation...");
-
-   fullData.forEach((trace, index) => {
-       console.log(`Autoscale: Checking trace ${index}, type: ${trace.type}, name: ${trace.name}, has x: ${!!trace.x}, x length: ${trace.x ? trace.x.length : 0}`);
-       if (trace.x && trace.x.length > 0) {  // Check if x-values are present
-           console.log(`Autoscale: Processing trace ${index} x-values:`, trace.x.slice(0, 3), "... (showing first 3)");
-           trace.x.forEach((ts, tsIndex) => {
-               const timestamp = (ts instanceof Date) ? ts.getTime() : new Date(ts).getTime();
-               if (!isNaN(timestamp)) {
-                   if (timestamp < xMin) {
-                       xMin = timestamp;
-                       console.log(`Autoscale: New xMin found at trace ${index}, index ${tsIndex}: ${new Date(timestamp).toISOString()}`);
-                   }
-                   if (timestamp > xMax) {
-                       xMax = timestamp;
-                       console.log(`Autoscale: New xMax found at trace ${index}, index ${tsIndex}: ${new Date(timestamp).toISOString()}`);
-                   }
-                   xDataFound = true;
-               } else {
-                   console.warn(`Autoscale: Invalid timestamp at trace ${index}, index ${tsIndex}:`, ts);
-               }
-           });
-       }
-   });
-
-   console.log(`Autoscale: X-axis calculation complete. xDataFound: ${xDataFound}, xMin: ${xMin} (${new Date(xMin).toISOString()}), xMax: ${xMax} (${new Date(xMax).toISOString()})`);
-
-   if (xDataFound) {
-       let xPadding;
-       if (xMin === xMax) {
-           xPadding = 60 * 60 * 1000; // 1 hour in milliseconds
-           console.log("Autoscale: xMin equals xMax, using 1 hour padding");
-       } else {
-           xPadding = (xMax - xMin) * 0.05; // 5% padding
-           console.log(`Autoscale: Calculated 5% padding: ${(xMax - xMin) * 0.05}ms`);
-           if (xPadding < 60000 && (xMax - xMin) > 0) {
-               xPadding = 60000;
-               console.log("Autoscale: Padding was too small, setting minimum 1 minute padding");
-           }
-       }
-       const finalXMin = xMin - xPadding;
-       const finalXMax = xMax + xPadding;
-
-       // Validate that the calculated dates are valid before converting to ISO strings
-       if (!isFinite(finalXMin) || !isFinite(finalXMax)) {
-           console.error("Autoscale: Invalid X-axis range calculated - xMin:", xMin, "xMax:", xMax, "xPadding:", xPadding);
-           console.error("Autoscale: Skipping X-axis autoscale due to invalid date range");
-           return; // Exit early to prevent the error
-       }
-
-       const minDate = new Date(finalXMin);
-       const maxDate = new Date(finalXMax);
-
-       // Additional validation for date objects
-       if (isNaN(minDate.getTime()) || isNaN(maxDate.getTime())) {
-           console.error("Autoscale: Invalid Date objects created - finalXMin:", finalXMin, "finalXMax:", finalXMax);
-           console.error("Autoscale: Skipping X-axis autoscale due to invalid date objects");
-           return; // Exit early to prevent the error
-       }
-
-       layoutUpdate['xaxis.range[0]'] = minDate.toISOString();
-       layoutUpdate['xaxis.range[1]'] = maxDate.toISOString();
-       layoutUpdate['xaxis.autorange'] = false;
-       console.log(`Autoscale: Final X-axis range: ${minDate.toISOString()} to ${maxDate.toISOString()}`);
-
-       // Apply to matching x-axes
-       Object.keys(inputLayout).forEach(key => {
-           if (key.startsWith('xaxis') && key !== 'xaxis' && inputLayout[key] && inputLayout[key].matches === 'x') {
-               layoutUpdate[`${key}.range[0]`] = layoutUpdate['xaxis.range[0]'];
-               layoutUpdate[`${key}.range[1]`] = layoutUpdate['xaxis.range[1]'];
-               layoutUpdate[`${key}.autorange`] = false;
-           }
-       });
-   } else {
-       layoutUpdate['xaxis.autorange'] = true;
-       // Ensure matching x-axes also autorange
-       Object.keys(inputLayout).forEach(key => {
-           if (key.startsWith('xaxis') && key !== 'xaxis' && inputLayout[key] && inputLayout[key].matches === 'x') {
-               layoutUpdate[`${key}.autorange`] = true;
-           }
-       });
-   }
+   // --- X-AXIS AUTOSCALE DISABLED ---
+   // Autoscale no longer modifies xaxis min and max values
+   console.log("Autoscale: X-axis autoscale disabled - not modifying xaxis range");
 // --- Y-AXES AUTOSCALE ---
 // Collect y values for primary y-axis (y) from visible traces
 let yMin = Infinity, yMax = -Infinity;
@@ -1044,34 +964,7 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
             Plotly.relayout(plotlyGraphObj, layoutUpdate);
 
             // Save the new axis ranges after applying autoscale
-            if (xDataFound) {
-                // Convert from ISO strings back to milliseconds for storage
-                const newXMin = new Date(layoutUpdate['xaxis.range[0]']).getTime();
-                const newXMax = new Date(layoutUpdate['xaxis.range[1]']).getTime();
-
-                // Update global variables (store in milliseconds as expected by the system)
-                window.currentXAxisRange = [newXMin, newXMax];
-
-                // Update display elements with validation
-                if (window.xAxisMinDisplay) {
-                    try {
-                        window.xAxisMinDisplay.textContent = `${new Date(newXMin).toISOString()}`;
-                    } catch (e) {
-                        console.error("Autoscale: Error formatting xAxisMinDisplay:", e);
-                        window.xAxisMinDisplay.textContent = `${newXMin}`;
-                    }
-                }
-                if (window.xAxisMaxDisplay) {
-                    try {
-                        window.xAxisMaxDisplay.textContent = `${new Date(newXMax).toISOString()}`;
-                    } catch (e) {
-                        console.error("Autoscale: Error formatting xAxisMaxDisplay:", e);
-                        window.xAxisMaxDisplay.textContent = `${newXMax}`;
-                    }
-                }
-
-                console.log("Autoscale: Updated currentXAxisRange:", window.currentXAxisRange);
-            }
+            // Note: X-axis range is no longer modified by autoscale
 
             // Save Y-axis range if it was calculated
             if (priceChartYMin !== Infinity && priceChartYMax !== -Infinity) {
@@ -1180,7 +1073,7 @@ async function populateShapePropertiesDialog(activeShape) {
     if (buyOnCross) buyOnCross.checked = false;
     if (sellOnCross) sellOnCross.checked = false;
     if (amount) amount.value = '';
-    if (sendEmailOnCross) sendEmailOnCross.checked = false;
+    if (sendEmailOnCross) sendEmailOnCross.checked = true;
     if (emailSent) emailSent.checked = false;
     if (emailDateDisplay) emailDateDisplay.textContent = 'Not sent yet';
 
@@ -1453,3 +1346,96 @@ function initializeLogStream() {
 
     console.log("Log stream initialized.");
 }
+
+// Custom Toolbar Functionality
+document.addEventListener('DOMContentLoaded', function() {
+    // Pan button
+    const panBtn = document.getElementById('pan-btn');
+    if (panBtn) {
+        panBtn.addEventListener('click', function() {
+            if (window.gd) {
+                Plotly.relayout(window.gd, { dragmode: 'pan' });
+                console.log('Switched to pan mode');
+
+                // Update button states
+                updateToolbarButtonStates('pan');
+            }
+        });
+    }
+
+    // Draw Line button
+    const drawlineBtn = document.getElementById('drawline-btn');
+    if (drawlineBtn) {
+        drawlineBtn.addEventListener('click', function() {
+            if (window.gd) {
+                Plotly.relayout(window.gd, { dragmode: 'drawline' });
+                console.log('Switched to drawline mode');
+
+                // Update button states
+                updateToolbarButtonStates('drawline');
+            }
+        });
+    }
+
+    // Screenshot button
+    const screenshotBtn = document.getElementById('screenshot-btn');
+    if (screenshotBtn) {
+        screenshotBtn.addEventListener('click', function() {
+            if (window.gd) {
+                try {
+                    // Use Plotly's built-in download function
+                    Plotly.downloadImage(window.gd, {
+                        format: 'png',
+                        width: 1200,
+                        height: 800,
+                        filename: `chart-${window.symbolSelect ? window.symbolSelect.value : 'trading'}-${new Date().toISOString().split('T')[0]}`
+                    });
+                    console.log('Screenshot downloaded');
+                } catch (error) {
+                    console.error('Screenshot failed:', error);
+                    alert('Screenshot failed. Please try again.');
+                }
+            }
+        });
+    }
+
+    // Auto Scale button
+    const autoscaleBtn = document.getElementById('autoscale-btn');
+    if (autoscaleBtn) {
+        autoscaleBtn.addEventListener('click', function() {
+            if (window.gd && typeof applyAutoscale === 'function') {
+                applyAutoscale(window.gd);
+                console.log('Auto scale applied');
+            }
+        });
+    }
+
+    // Initialize button states
+    updateToolbarButtonStates();
+});
+
+// Function to update toolbar button states based on current dragmode
+function updateToolbarButtonStates(activeMode) {
+    const panBtn = document.getElementById('pan-btn');
+    const drawlineBtn = document.getElementById('drawline-btn');
+
+    if (!panBtn || !drawlineBtn) return;
+
+    // Remove active class from all buttons
+    panBtn.classList.remove('active');
+    drawlineBtn.classList.remove('active');
+
+    // Add active class to current mode button
+    if (activeMode === 'pan' || (!activeMode && window.gd && window.gd.layout.dragmode === 'pan')) {
+        panBtn.classList.add('active');
+    } else if (activeMode === 'drawline' || (!activeMode && window.gd && window.gd.layout.dragmode === 'drawline')) {
+        drawlineBtn.classList.add('active');
+    }
+}
+
+// Update toolbar states when dragmode changes
+document.addEventListener('plotly_relayout', function(event) {
+    if (event.detail && event.detail.dragmode) {
+        updateToolbarButtonStates(event.detail.dragmode);
+    }
+});

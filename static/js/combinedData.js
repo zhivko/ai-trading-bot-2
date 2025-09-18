@@ -7,12 +7,53 @@ let combinedResolution = '1h';
 let combinedFromTs = null;
 let combinedToTs = null;
 
+// Initialize timestamps with default values (30 days ago to now)
+function initializeDefaultTimestamps() {
+    if (combinedFromTs === null || combinedToTs === null) {
+        const currentTime = new Date().getTime();
+        combinedFromTs = Math.floor((currentTime - 30 * 86400 * 1000) / 1000); // 30 days ago in seconds
+        combinedToTs = Math.floor(currentTime / 1000); // Now in seconds
+        console.log('🔧 Initialized default timestamps:', {
+            combinedFromTs: combinedFromTs,
+            combinedToTs: combinedToTs,
+            fromDate: new Date(combinedFromTs * 1000).toISOString(),
+            toDate: new Date(combinedToTs * 1000).toISOString()
+        });
+    }
+}
+
 // Message queue and synchronization
 let messageQueue = [];
 let isProcessingMessage = false;
 let chartUpdateLock = false;
 let chartUpdateDebounceTimer = null;
 const CHART_UPDATE_DEBOUNCE_DELAY = 100; // ms
+
+// WebSocket connection management
+let websocketSetupDebounceTimer = null;
+const WEBSOCKET_SETUP_DEBOUNCE_DELAY = 500; // ms
+let isWebSocketConnecting = false;
+let lastProcessedTimestampRange = null;
+let processedMessageIds = new Set();
+let websocketConnectionId = 0;
+
+// WebSocket lifecycle logging
+const websocketLogs = [];
+const MAX_WEBSOCKET_LOGS = 50;
+
+function logWebSocketEvent(event, details = {}) {
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        event,
+        connectionId: websocketConnectionId,
+        details
+    };
+    websocketLogs.push(logEntry);
+    if (websocketLogs.length > MAX_WEBSOCKET_LOGS) {
+        websocketLogs.shift();
+    }
+    console.log(`🔌 WS[${websocketConnectionId}]: ${event}`, details);
+}
 
 // Historical data processing - direct handling without accumulation
 
@@ -126,6 +167,10 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
     if (doRelayout) {
         // console.log('[PriceLine] updateOrAddRealtimePriceLine - Calling Plotly.relayout with full layout object due to doRelayout=true. Annotations:', JSON.parse(JSON.stringify(gd.layout.annotations)));
         Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations });
+    } else {
+        // For live price updates, use Plotly.update to refresh shapes/annotations without triggering relayout events
+        // console.log('[PriceLine] updateOrAddRealtimePriceLine - Calling Plotly.update to refresh shapes/annotations without relayout');
+        Plotly.update(gd, {}, { shapes: gd.layout.shapes, annotations: gd.layout.annotations });
     }
 }
 
@@ -175,8 +220,63 @@ function removeRealtimePriceLine(gd, doRelayout = false) {
 
 // Message queue processing functions
 function enqueueMessage(message) {
+    // Generate message ID for deduplication with better uniqueness
+    let messageId;
+
+    if (message.type === 'live_price') {
+        // For live_price messages, include price and timestamp for uniqueness
+        const price = message.price || (message.data && message.data.price) || 'unknown';
+        const timestamp = message.timestamp || (message.data && message.data.timestamp) || Date.now();
+        messageId = `${message.type}_${message.symbol || 'unknown'}_${price}_${timestamp}`;
+    } else if (message.type === 'live') {
+        // For live data messages, include timestamp and price
+        const timestamp = message.data && message.data.time ? message.data.time : Date.now();
+        const price = message.data && message.data.ohlc ? message.data.ohlc.close : 'unknown';
+        messageId = `${message.type}_${message.symbol || 'unknown'}_${timestamp}_${price}`;
+    } else {
+        // For other message types, use the original method
+        messageId = `${message.type}_${message.symbol || 'unknown'}_${JSON.stringify(message.data || {}).slice(0, 100)}`;
+    }
+
+    // Check for duplicate messages
+    if (processedMessageIds.has(messageId)) {
+        console.log(`🚫 Duplicate message detected and skipped: ${message.type} (${messageId})`);
+        return;
+    }
+
+    // Add timestamp range validation for historical data
+    if (message.type === 'historical' && lastProcessedTimestampRange) {
+        const messageFromTs = message.data && message.data.length > 0 ? message.data[0].time : null;
+        const messageToTs = message.data && message.data.length > 0 ? message.data[message.data.length - 1].time : null;
+
+        if (messageFromTs && messageToTs) {
+            const isDuplicateRange = (
+                Math.abs(messageFromTs - lastProcessedTimestampRange.fromTs) < 60 && // Within 1 minute
+                Math.abs(messageToTs - lastProcessedTimestampRange.toTs) < 60
+            );
+
+            if (isDuplicateRange) {
+                console.log(`🚫 Duplicate timestamp range detected and skipped: ${new Date(messageFromTs * 1000).toISOString()} to ${new Date(messageToTs * 1000).toISOString()}`);
+                return;
+            }
+
+            // Update last processed range
+            lastProcessedTimestampRange = { fromTs: messageFromTs, toTs: messageToTs };
+        }
+    }
+
+    // Mark message as processed
+    processedMessageIds.add(messageId);
+
+    // Keep only last 1000 processed message IDs to prevent memory leaks
+    if (processedMessageIds.size > 1000) {
+        const idsArray = Array.from(processedMessageIds);
+        processedMessageIds.clear();
+        idsArray.slice(-500).forEach(id => processedMessageIds.add(id)); // Keep last 500
+    }
+
     messageQueue.push(message);
-    console.log(`📨 Message queued. Queue length: ${messageQueue.length}`);
+    console.log(`📨 Message queued. Queue length: ${messageQueue.length}, Type: ${message.type}`);
     processMessageQueue();
 }
 
@@ -204,6 +304,9 @@ function processMessageQueue() {
                 break;
             case 'drawings':
                 handleDrawingsData(message);
+                break;
+            case 'buy_signals':
+                handleBuySignals(message);
                 break;
             case 'history_update':
                 handleHistoryUpdate(message);
@@ -300,16 +403,88 @@ function handleRealtimeKlineForCombined(dataPoint) {
 }
 
 function setupCombinedWebSocket(symbol, indicators = [], resolution = '1h', fromTs = null, toTs = null) {
-    // Close existing connection if symbol changed
-    if (combinedWebSocket && combinedSymbol !== symbol) {
-        closeCombinedWebSocket("Switching to new symbol");
+    // Initialize default timestamps if not provided
+    if (fromTs === null || toTs === null) {
+        initializeDefaultTimestamps();
+        // Use the initialized timestamps if none were provided
+        if (fromTs === null) fromTs = combinedFromTs;
+        if (toTs === null) toTs = combinedToTs;
     }
+
+    // Increment connection ID for logging
+    websocketConnectionId++;
+
+    logWebSocketEvent('setup_called', {
+        symbol,
+        indicatorsCount: indicators.length,
+        resolution,
+        fromTs,
+        toTs,
+        currentState: combinedWebSocket ? combinedWebSocket.readyState : 'none'
+    });
+
+    // Check if this is a duplicate call (same parameters)
+    const isDuplicateCall = (
+        combinedSymbol === symbol &&
+        combinedResolution === resolution &&
+        JSON.stringify(combinedIndicators) === JSON.stringify(indicators) &&
+        combinedFromTs === fromTs &&
+        combinedToTs === toTs
+    );
+
+    if (isDuplicateCall && combinedWebSocket && combinedWebSocket.readyState === WebSocket.OPEN) {
+        logWebSocketEvent('duplicate_call_skipped', {
+            reason: 'Same parameters, WebSocket already open'
+        });
+        return;
+    }
+
+    // Clear any pending debounced calls
+    if (websocketSetupDebounceTimer) {
+        clearTimeout(websocketSetupDebounceTimer);
+        websocketSetupDebounceTimer = null;
+    }
+
+    // Debounce the WebSocket setup
+    websocketSetupDebounceTimer = setTimeout(() => {
+        // Check if we're already connecting
+        if (isWebSocketConnecting) {
+            logWebSocketEvent('connection_in_progress', {
+                reason: 'Another connection attempt in progress'
+            });
+            return;
+        }
+
+        isWebSocketConnecting = true;
+
+        try {
+            _setupCombinedWebSocketInternal(symbol, indicators, resolution, fromTs, toTs);
+        } finally {
+            isWebSocketConnecting = false;
+        }
+    }, WEBSOCKET_SETUP_DEBOUNCE_DELAY);
+}
+
+function _setupCombinedWebSocketInternal(symbol, indicators = [], resolution = '1h', fromTs = null, toTs = null) {
+    logWebSocketEvent('internal_setup_started', {
+        symbol,
+        indicatorsCount: indicators.length,
+        resolution
+    });
+
+    // Close existing connection if symbol changed or connection is in error state
+    if (combinedWebSocket && (combinedSymbol !== symbol || combinedWebSocket.readyState === WebSocket.CLOSED || combinedWebSocket.readyState === WebSocket.CLOSING)) {
+        closeCombinedWebSocket("Switching to new symbol or cleaning up failed connection");
+    }
+
+    // Store old resolution for change detection
+    const oldResolution = combinedResolution;
 
     // Check if this is a time range update (panning)
     const isTimeRangeUpdate = (combinedSymbol === symbol &&
-                               combinedResolution === resolution &&
-                               JSON.stringify(combinedIndicators) === JSON.stringify(indicators) &&
-                               (combinedFromTs !== fromTs || combinedToTs !== toTs));
+                                combinedResolution === resolution &&
+                                JSON.stringify(combinedIndicators) === JSON.stringify(indicators) &&
+                                (combinedFromTs !== fromTs || combinedToTs !== toTs));
 
     combinedSymbol = symbol;
     combinedIndicators = indicators;
@@ -317,29 +492,53 @@ function setupCombinedWebSocket(symbol, indicators = [], resolution = '1h', from
     combinedFromTs = fromTs;
     combinedToTs = toTs || Math.floor(Date.now() / 1000);
 
-    // No accumulation state to reset - direct data processing
+    // Reset processed message tracking for new connection
+    processedMessageIds.clear();
+    lastProcessedTimestampRange = null;
 
-    // console.log('Combined WebSocket: Setup called with:', {
-    //     symbol,
-    //     indicators: indicators.length,
-    //     resolution,
-    //     fromTs,
-    //     toTs,
-    //     isTimeRangeUpdate,
-    //     currentWebSocketState: combinedWebSocket ? combinedWebSocket.readyState : 'none'
-    // });
+    logWebSocketEvent('parameters_updated', {
+        symbol: combinedSymbol,
+        indicatorsCount: combinedIndicators.length,
+        resolution: combinedResolution,
+        fromTs: combinedFromTs,
+        toTs: combinedToTs,
+        isTimeRangeUpdate
+    });
 
+    // If WebSocket is already open and parameters haven't changed significantly, just send config update
     if (combinedWebSocket && combinedWebSocket.readyState === WebSocket.OPEN) {
-        // Send updated configuration
-        // console.log('Combined WebSocket: WebSocket already open, sending config update');
-        sendCombinedConfig();
+        logWebSocketEvent('config_update_only', {
+            reason: 'WebSocket open, sending config update',
+            isTimeRangeUpdate
+        });
+        sendCombinedConfig(oldResolution);
         return;
     }
 
-    // If WebSocket is connecting or in error state, close it first
-    if (combinedWebSocket && combinedWebSocket.readyState !== WebSocket.CLOSED) {
-        // console.log('Combined WebSocket: Closing existing connection before creating new one');
-        closeCombinedWebSocket("Reconnecting for new parameters");
+    // If WebSocket is connecting, wait for it to open
+    if (combinedWebSocket && combinedWebSocket.readyState === WebSocket.CONNECTING) {
+        logWebSocketEvent('waiting_for_connection', {
+            reason: 'WebSocket is connecting, will send config when open'
+        });
+        // The onopen handler will send the config
+        return;
+    }
+
+    // If WebSocket is in error state, close it first
+    if (combinedWebSocket && combinedWebSocket.readyState === WebSocket.CLOSING) {
+        logWebSocketEvent('closing_existing_connection', {
+            reason: 'WebSocket is closing, waiting to create new connection'
+        });
+        // Wait a bit for the close to complete
+        setTimeout(() => {
+            _setupCombinedWebSocketInternal(symbol, indicators, resolution, fromTs, toTs);
+        }, 100);
+        return;
+    }
+
+    // Close any existing connection before creating new one
+    if (combinedWebSocket) {
+        closeCombinedWebSocket("Creating new connection for updated parameters");
     }
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -348,39 +547,54 @@ function setupCombinedWebSocket(symbol, indicators = [], resolution = '1h', from
     const currentUrlSymbol = window.location.pathname.substring(1).toUpperCase() || symbol;
     const streamUrl = `${wsProtocol}//${wsHost}/data/${currentUrlSymbol}`;
 
-    // console.log(`Combined WebSocket: Attempting to connect to: ${streamUrl} (URL symbol: ${currentUrlSymbol}, requested: ${symbol})`);
+    logWebSocketEvent('creating_connection', {
+        streamUrl,
+        currentUrlSymbol,
+        requestedSymbol: symbol
+    });
+
     combinedWebSocket = new WebSocket(streamUrl);
 
     combinedWebSocket.onopen = () => {
-        console.log(`🔌 Combined WebSocket: Connection opened for ${symbol}`);
-        console.log(`🔌 Combined WebSocket: Connected to: ${streamUrl}`);
-        console.log(`🔌 Combined WebSocket: Ready to send config with indicators:`, combinedIndicators);
+        logWebSocketEvent('connection_opened', {
+            streamUrl,
+            symbol: combinedSymbol
+        });
 
         // CRITICAL FIX: Set up message handler IMMEDIATELY after connection opens
-        console.log('🔧 FIXING: Setting up message handler immediately after connection opens');
         setupWebSocketMessageHandler();
 
-        sendCombinedConfig();
+        // Send initial configuration
+        sendCombinedConfig(oldResolution);
     };
 
-    // Message handler will be set up after subplots are initialized
-    // combinedWebSocket.onmessage = ... (moved to setupWebSocketMessageHandler)
-
     combinedWebSocket.onerror = (error) => {
-        // console.error(`Combined WebSocket: Error for ${symbol}:`, error);
+        logWebSocketEvent('connection_error', {
+            error: error.message || 'Unknown error',
+            symbol: combinedSymbol
+        });
     };
 
     combinedWebSocket.onclose = (event) => {
-        // console.log(`Combined WebSocket: Connection closed for ${symbol}. Reason: '${event.reason}', Code: ${event.code}`);
+        logWebSocketEvent('connection_closed', {
+            code: event.code,
+            reason: event.reason,
+            symbol: combinedSymbol,
+            wasClean: event.wasClean
+        });
 
-        // Attempt to reconnect if not a clean close
-        if (event.code !== 1000) {
-            // console.log(`Combined WebSocket: Attempting to reconnect to ${symbol} in 5 seconds...`);
-            delay(5000).then(() => {
-                if (window.symbolSelect.value === symbol) {
+        // Attempt to reconnect if not a clean close and symbol hasn't changed
+        if (event.code !== 1000 && window.symbolSelect && window.symbolSelect.value === symbol) {
+            logWebSocketEvent('scheduling_reconnect', {
+                delay: 5000,
+                symbol
+            });
+
+            setTimeout(() => {
+                if (window.symbolSelect && window.symbolSelect.value === symbol) {
                     setupCombinedWebSocket(symbol, indicators, resolution, fromTs, toTs);
                 }
-            });
+            }, 5000);
         }
     };
 }
@@ -419,7 +633,7 @@ function setupWebSocketMessageHandler() {
     console.log('🎨 DRAWINGS: WebSocket message handler set up after subplots initialization');
 }
 
-function sendCombinedConfig() {
+function sendCombinedConfig(oldResolution = null) {
     if (!combinedWebSocket || combinedWebSocket.readyState !== WebSocket.OPEN) {
         console.warn('Combined WebSocket: Cannot send config - connection not open');
         return;
@@ -431,7 +645,8 @@ function sendCombinedConfig() {
         indicators: combinedIndicators,
         resolution: combinedResolution,
         from_ts: combinedFromTs,  // Now ISO timestamp string
-        to_ts: combinedToTs      // Now ISO timestamp string
+        to_ts: combinedToTs,      // Now ISO timestamp string
+        old_resolution: oldResolution  // Include old resolution for change detection
     };
 
     console.log('Combined WebSocket: Sending config:', config);
@@ -482,11 +697,58 @@ function sendCombinedConfig() {
     }
 }
 
+function validateIndicatorData(data, indicatorName) {
+    /**
+     * Validates indicator data for null values only (no alignment checks).
+     * Returns true if validation passes (no null values), false otherwise.
+     */
+    if (!data || !Array.isArray(data)) {
+        console.error(`❌ VALIDATION FAILED: ${indicatorName} - Invalid data format`);
+        return false;
+    }
+
+    let totalNulls = 0;
+    let totalPoints = 0;
+
+    // Check each data point for null values in indicator fields
+    data.forEach((point, index) => {
+        if (point.indicators) {
+            Object.keys(point.indicators).forEach(indicatorId => {
+                const indicatorData = point.indicators[indicatorId];
+                if (indicatorData) {
+                    Object.keys(indicatorData).forEach(key => {
+                        const value = indicatorData[key];
+                        if (value === null || value === undefined) {
+                            totalNulls++;
+                        }
+                        totalPoints++;
+                    });
+                }
+            });
+        }
+    });
+
+    // Strict validation: NO null values allowed
+    if (totalNulls > 0) {
+        console.error(`❌ VALIDATION FAILED: ${indicatorName} - Found ${totalNulls} null values out of ${totalPoints} total data points. All indicators must have 0 null values.`);
+        return false;
+    }
+
+    console.log(`✅ VALIDATION PASSED: ${indicatorName} - All ${totalPoints} data points are non-null across all indicators`);
+    return true;
+}
+
 function handleHistoricalData(message) {
     console.log(`📊 Combined WebSocket: Received historical data for ${message.symbol}, ${message.data.length} points`);
 
     if (!message.data || !Array.isArray(message.data) || message.data.length === 0) {
         console.warn('Combined WebSocket: Invalid or empty historical data');
+        return;
+    }
+
+    // Validate indicator data (null values only, no alignment checks)
+    if (!validateIndicatorData(message.data, `historical_${message.symbol}`)) {
+        console.error('🚨 CRITICAL: Historical data validation failed - rejecting data to prevent chart issues');
         return;
     }
 
@@ -796,8 +1058,25 @@ function handleLivePriceUpdate(message) {
         resolution: combinedResolution
     });
 
-    // Draw the live price line
-    updateOrAddRealtimePriceLine(gd, message.price, candleStartTimeMs, candleEndTimeMs, true);
+    // Draw the live price line without triggering relayout to prevent unwanted plotly_relayout events
+    updateOrAddRealtimePriceLine(gd, message.price, candleStartTimeMs, candleEndTimeMs, false);
+}
+
+function handleBuySignals(message) {
+    console.log(`💰 Combined WebSocket: Received buy signals for ${message.symbol}, ${message.data.length} signals`);
+
+    if (!message.data || !Array.isArray(message.data)) {
+        console.warn('Combined WebSocket: Invalid buy signals data format');
+        return;
+    }
+
+    if (message.data.length === 0) {
+        console.log('Combined WebSocket: No buy signals to process');
+        return;
+    }
+
+    // Process and add buy signals to the chart
+    addBuySignalsToChart(message.data, message.symbol);
 }
 
 function handleDrawingsData(message) {
@@ -947,6 +1226,99 @@ function handleHistoryUpdate(message) {
     updateChartWithHistoricalData(mergedData, message.symbol);
 
     console.log(`📈 Combined WebSocket: Chart updated with ${mergedData.length} merged data points from history update`);
+}
+
+function addBuySignalsToChart(buySignals, symbol) {
+    console.log(`💰 Combined WebSocket: Adding ${buySignals.length} buy signals to chart for ${symbol}`);
+
+    const chartElement = document.getElementById('chart');
+    if (!chartElement || !window.gd) {
+        console.warn('Combined WebSocket: Chart not ready for buy signals');
+        return;
+    }
+
+    // Ensure layout.shapes exists
+    if (!window.gd.layout.shapes) {
+        window.gd.layout.shapes = [];
+    }
+
+    // Remove existing buy signal shapes
+    window.gd.layout.shapes = window.gd.layout.shapes.filter(shape => !shape.name || !shape.name.startsWith('buy_signal_'));
+
+    // Process each buy signal
+    buySignals.forEach((signal, index) => {
+        try {
+            console.log(`💰 Combined WebSocket: Processing buy signal ${index + 1}/${buySignals.length}:`, signal);
+
+            // Convert buy signal to Plotly shape format
+            const shape = convertBuySignalToShape(signal, index);
+            console.log(`💰 Combined WebSocket: Converted to shape:`, shape);
+
+            if (shape) {
+                window.gd.layout.shapes.push(shape);
+                console.log(`💰 Combined WebSocket: Added buy signal ${signal.timestamp}`);
+            } else {
+                console.warn(`💰 Combined WebSocket: Could not convert buy signal to shape:`, signal);
+            }
+        } catch (error) {
+            console.error(`💰 Combined WebSocket: Error processing buy signal ${index}:`, error, signal);
+        }
+    });
+
+    console.log('💰 BUY SIGNALS: Final shapes count:', window.gd.layout.shapes.length);
+
+    // Update the chart with new shapes - ensure shapes are preserved during chart updates
+    try {
+        // First, ensure the layout has a shapes array
+        if (!window.gd.layout.shapes) {
+            window.gd.layout.shapes = [];
+        }
+
+        // Update the chart with shapes using relayout to preserve existing data
+        Plotly.relayout(chartElement, {
+            shapes: window.gd.layout.shapes
+        });
+        console.log(`💰 Combined WebSocket: Successfully updated chart with ${buySignals.length} buy signals`);
+    } catch (error) {
+        console.error('💰 Combined WebSocket: Error updating chart with buy signals:', error);
+    }
+}
+
+function convertBuySignalToShape(signal, index) {
+    try {
+        console.log('💰 BUY SIGNALS: Converting buy signal to shape:', signal);
+
+        // Basic shape properties for buy signal marker
+        const shape = {
+            name: `buy_signal_${signal.timestamp}_${index}`,
+            type: 'line',
+            xref: 'x',
+            yref: 'y',  // Always on main price chart
+            x0: new Date(signal.timestamp * 1000),
+            x1: new Date(signal.timestamp * 1000),
+            y0: signal.price,
+            y1: signal.price,
+            line: {
+                color: 'green',
+                width: 3,
+                dash: 'solid'
+            },
+            layer: 'above',
+            editable: false
+        };
+
+        // Add a small horizontal line to make it more visible
+        shape.x0 = new Date((signal.timestamp - 3600) * 1000); // 1 hour before
+        shape.x1 = new Date((signal.timestamp + 3600) * 1000); // 1 hour after
+        shape.y0 = signal.price;
+        shape.y1 = signal.price;
+
+        console.log('💰 BUY SIGNALS: Final buy signal shape created:', shape);
+        return shape;
+    } catch (error) {
+        console.error('💰 BUY SIGNALS: Error converting buy signal to shape:', error, signal);
+        return null;
+    }
 }
 
 function addDrawingsToChart(drawings, symbol) {
@@ -1273,42 +1645,9 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     console.log('📊 Combined WebSocket: combinedIndicators:', combinedIndicators);
     console.log('📊 Combined WebSocket: Available indicatorsData keys:', Object.keys(indicatorsData));
 
-    // Helper function to filter NaN values from indicator data
-    function filterNaNValues(timestamps, values) {
-        const filteredTimestamps = [];
-        const filteredValues = [];
 
-        let nanCount = 0;
-        let infiniteCount = 0;
-        let nonNumericCount = 0;
 
-        for (let i = 0; i < values.length; i++) {
-            const value = values[i];
-            if (typeof value !== 'number') {
-                nonNumericCount++;
-                continue;
-            }
-            if (isNaN(value)) {
-                nanCount++;
-                continue;
-            }
-            if (!isFinite(value)) {
-                infiniteCount++;
-                continue;
-            }
-            filteredTimestamps.push(timestamps[i]);
-            filteredValues.push(value);
-        }
 
-        // DEBUG: Log filtering results
-        if (nanCount > 0 || infiniteCount > 0 || nonNumericCount > 0) {
-            //console.log(`🔍 DEBUG: NaN filtering for indicator data:`);
-            //console.log(`  Original: ${values.length}, Filtered: ${filteredValues.length}`);
-            //console.log(`  NaN count: ${nanCount}, Infinite count: ${infiniteCount}, Non-numeric count: ${nonNumericCount}`);
-        }
-
-        return { timestamps: filteredTimestamps, values: filteredValues };
-    }
 
     indicatorTypes.forEach((indicatorId, index) => {
         const indicatorData = indicatorsData[indicatorId];
@@ -1332,152 +1671,168 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                 return;
             }
 
-            // MACD with signal and histogram - filter NaN values
-            const macdFiltered = filterNaNValues(indicatorData.timestamps, indicatorData.values.macd);
-            const signalFiltered = filterNaNValues(indicatorData.timestamps, indicatorData.values.signal);
-            const histogramFiltered = filterNaNValues(indicatorData.timestamps, indicatorData.values.histogram);
+            // MACD with signal and histogram - use data directly from Python backend
+            console.log(`Combined WebSocket: MACD - Using ${indicatorData.values.macd.length} data points from Python backend`);
 
-            // console.log(`Combined WebSocket: MACD - Original: ${indicatorData.values.macd.length}, Filtered: ${macdFiltered.values.length}`);
-            // console.log(`🔍 DEBUG: MACD filtered values - macd: ${macdFiltered.values.length}, signal: ${signalFiltered.values.length}, histogram: ${histogramFiltered.values.length}`);
+            // DEBUG: Log last 5 MACD data points being sent to Plotly
+            const macdLast5 = indicatorData.values.macd.slice(-5);
+            const signalLast5 = indicatorData.values.signal.slice(-5);
+            const histogramLast5 = indicatorData.values.histogram.slice(-5);
+            const macdTimestampsLast5 = indicatorData.timestamps.slice(-5);
+            console.log(`📊 MACD TRACE DATA (last 5 points):`);
+            macdLast5.forEach((val, idx) => {
+                console.log(`  MACD[${indicatorData.values.macd.length - 5 + idx}]: ${val} at ${macdTimestampsLast5[idx] ? new Date(macdTimestampsLast5[idx]).toISOString() : 'N/A'}`);
+                console.log(`  Signal[${indicatorData.values.signal.length - 5 + idx}]: ${signalLast5[idx]} at ${macdTimestampsLast5[idx] ? new Date(macdTimestampsLast5[idx]).toISOString() : 'N/A'}`);
+                console.log(`  Histogram[${indicatorData.values.histogram.length - 5 + idx}]: ${histogramLast5[idx]} at ${macdTimestampsLast5[idx] ? new Date(macdTimestampsLast5[idx]).toISOString() : 'N/A'}`);
+            });
 
-            // console.log(`🔍 DEBUG: MACD macdFiltered.values.length > 0 check: ${macdFiltered.values.length > 0} (${macdFiltered.values.length})`);
-            if (macdFiltered.values.length > 0) {
-                // console.log(`🔍 DEBUG: Creating MACD trace`);
-                indicatorTraces.push({
-                    x: macdFiltered.timestamps,
-                    y: macdFiltered.values,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'MACD',
-                    line: { color: 'blue' },
-                    xaxis: 'x',
-                    yaxis: yAxisName,
-                    hoverinfo: isMobileDevice() ? 'skip' : 'all'
-                });
-            }
+            // Use the backend's timestamps for this indicator to maintain proper alignment
+            indicatorTraces.push({
+                x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
+                y: indicatorData.values.macd,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'MACD',
+                line: { color: 'blue' },
+                yaxis: yAxisName,
+                hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                connectgaps: true  // Don't connect gaps to show natural indicator behavior
+            });
 
-            // console.log(`🔍 DEBUG: MACD signalFiltered.values.length > 0 check: ${signalFiltered.values.length > 0} (${signalFiltered.values.length})`);
-            if (signalFiltered.values.length > 0) {
-                // console.log(`🔍 DEBUG: Creating MACD Signal trace`);
-                indicatorTraces.push({
-                    x: signalFiltered.timestamps,
-                    y: signalFiltered.values,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'MACD Signal',
-                    line: { color: 'orange' },
-                    xaxis: 'x',
-                    yaxis: yAxisName,
-                    hoverinfo: isMobileDevice() ? 'skip' : 'all'
-                });
-            }
+            indicatorTraces.push({
+                x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
+                y: indicatorData.values.signal,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'MACD Signal',
+                line: { color: 'orange' },
+                yaxis: yAxisName,
+                hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                connectgaps: true  // Don't connect gaps to show natural indicator behavior
+            });
 
-            // console.log(`🔍 DEBUG: MACD histogramFiltered.values.length > 0 check: ${histogramFiltered.values.length > 0} (${histogramFiltered.values.length})`);
-            if (histogramFiltered.values.length > 0) {
-                // console.log(`🔍 DEBUG: Creating MACD Histogram trace`);
-                indicatorTraces.push({
-                    x: histogramFiltered.timestamps,
-                    y: histogramFiltered.values,
-                    type: 'bar',
-                    name: 'MACD Histogram',
-                    marker: {
-                        color: histogramFiltered.values.map(v => v >= 0 ? 'green' : 'red')
-                    },
-                    xaxis: 'x',
-                    yaxis: yAxisName,
-                    hoverinfo: isMobileDevice() ? 'skip' : 'all'
-                });
-            }
+            indicatorTraces.push({
+                x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
+                y: indicatorData.values.histogram,
+                type: 'bar',
+                name: 'MACD Histogram',
+                marker: {
+                    color: indicatorData.values.histogram.map(v => v !== null && v >= 0 ? 'green' : 'red')
+                },
+                yaxis: yAxisName,
+                hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                connectgaps: true  // Don't connect gaps to show natural indicator behavior
+            });
         } else if (indicatorId === 'rsi' && indicatorData.values.rsi) {
-            // console.log(`🔍 DEBUG: RSI condition check - rsi: ${!!indicatorData.values.rsi}`);
-            // console.log(`🔍 DEBUG: RSI values length: ${indicatorData.values.rsi ? indicatorData.values.rsi.length : 'N/A'}`);
+            console.log(`🔍 DEBUG: RSI condition check - rsi: ${!!indicatorData.values.rsi}`);
+            console.log(`🔍 DEBUG: RSI values length: ${indicatorData.values.rsi ? indicatorData.values.rsi.length : 'N/A'}`);
 
-            // RSI - filter NaN values
-            const rsiFiltered = filterNaNValues(indicatorData.timestamps, indicatorData.values.rsi);
-            // console.log(`Combined WebSocket: RSI - Original: ${indicatorData.values.rsi.length}, Filtered: ${rsiFiltered.values.length}, NaN count: ${indicatorData.values.rsi.filter(v => isNaN(v)).length}`);
-            // console.log(`🔍 DEBUG: RSI filtered values: ${rsiFiltered.values.length}`);
+            // RSI - use data directly from Python backend
+            console.log(`Combined WebSocket: RSI - Using ${indicatorData.values.rsi.length} data points from Python backend`);
 
-            // console.log(`🔍 DEBUG: RSI rsiFiltered.values.length > 0 check: ${rsiFiltered.values.length > 0} (${rsiFiltered.values.length})`);
-            if (rsiFiltered.values.length > 0) {
-                // console.log(`🔍 DEBUG: Creating RSI trace`);
-                indicatorTraces.push({
-                    x: rsiFiltered.timestamps,
-                    y: rsiFiltered.values,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'RSI',
-                    line: { color: 'purple' },
-                    xaxis: 'x',
-                    yaxis: yAxisName,
-                    hoverinfo: isMobileDevice() ? 'skip' : 'all'
-                });
-            }
+            // DEBUG: Log last 5 RSI data points being sent to Plotly
+            const rsiLast5 = indicatorData.values.rsi.slice(-5);
+            const rsiTimestampsLast5 = indicatorData.timestamps.slice(-5);
+            console.log(`📊 RSI TRACE DATA (last 5 points):`);
+            rsiLast5.forEach((val, idx) => {
+                console.log(`  RSI[${indicatorData.values.rsi.length - 5 + idx}]: ${val} at ${rsiTimestampsLast5[idx] ? new Date(rsiTimestampsLast5[idx]).toISOString() : 'N/A'}`);
+            });
+
+            // Use the backend's timestamps for this indicator to maintain proper alignment
+            const rsiValues = indicatorData.values.rsi;
+
+            // Check for null/undefined values that might cause display issues
+            const rsiNullCount = rsiValues.filter(v => v === null || v === undefined).length;
+            console.log(`🔍 DEBUG: RSI null values: ${rsiNullCount}/${rsiValues.length}`);
+
+            indicatorTraces.push({
+                x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
+                y: rsiValues,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'RSI',
+                line: { color: 'purple' },
+                yaxis: yAxisName,
+                hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                connectgaps: false  // Don't connect gaps - show natural indicator behavior
+            });
 
             // Check for RSI_SMA14 and add it if available
             if (indicatorData.values.rsi_sma14) {
-                const rsiSma14Filtered = filterNaNValues(indicatorData.timestamps, indicatorData.values.rsi_sma14);
-                // console.log(`Combined WebSocket: RSI_SMA14 - Original: ${indicatorData.values.rsi_sma14.length}, Filtered: ${rsiSma14Filtered.values.length}, NaN count: ${indicatorData.values.rsi_sma14.filter(v => isNaN(v)).length}`);
+                console.log(`Combined WebSocket: RSI_SMA14 - Using ${indicatorData.values.rsi_sma14.length} data points from Python backend`);
 
-                if (rsiSma14Filtered.values.length > 0) {
-                    indicatorTraces.push({
-                        x: rsiSma14Filtered.timestamps,
-                        y: rsiSma14Filtered.values,
-                        type: 'scatter',
-                        mode: 'lines',
-                        name: 'RSI_SMA14',
-                        line: { color: 'dodgerblue' },
-                        xaxis: 'x',
-                        yaxis: yAxisName,
-                        hoverinfo: isMobileDevice() ? 'skip' : 'all'
-                    });
-                }
+                const rsiSma14Values = indicatorData.values.rsi_sma14;
+                console.log(`🔍 DEBUG: RSI_SMA14 data - nulls: ${rsiSma14Values.filter(v => v === null).length}`);
+
+                indicatorTraces.push({
+                    x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
+                    y: rsiSma14Values,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'RSI_SMA14',
+                    line: { color: 'dodgerblue' },
+                    yaxis: yAxisName,
+                    hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                    connectgaps: false  // Don't connect gaps - show natural indicator behavior
+                });
             }
         } else if (indicatorId.startsWith('stochrsi') && indicatorData.values.stoch_k && indicatorData.values.stoch_d) {
-            // console.log(`🔍 DEBUG: StochRSI condition check - stoch_k: ${!!indicatorData.values.stoch_k}, stoch_d: ${!!indicatorData.values.stoch_d}`);
-            // console.log(`🔍 DEBUG: StochRSI values lengths - k: ${indicatorData.values.stoch_k ? indicatorData.values.stoch_k.length : 'N/A'}, d: ${indicatorData.values.stoch_d ? indicatorData.values.stoch_d.length : 'N/A'}`);
+            console.log(`🔍 DEBUG: StochRSI condition check - stoch_k: ${!!indicatorData.values.stoch_k}, stoch_d: ${!!indicatorData.values.stoch_d}`);
+            console.log(`🔍 DEBUG: StochRSI values lengths - k: ${indicatorData.values.stoch_k ? indicatorData.values.stoch_k.length : 'N/A'}, d: ${indicatorData.values.stoch_d ? indicatorData.values.stoch_d.length : 'N/A'}`);
+            console.log(`🔍 DEBUG: StochRSI timestamps length: ${indicatorData.timestamps ? indicatorData.timestamps.length : 'N/A'}`);
 
-            // Stochastic RSI - filter NaN values
-            const stochKFiltered = filterNaNValues(indicatorData.timestamps, indicatorData.values.stoch_k);
-            const stochDFiltered = filterNaNValues(indicatorData.timestamps, indicatorData.values.stoch_d);
+            // Stochastic RSI - use data directly from Python backend
+            console.log(`Combined WebSocket: StochRSI - Using ${indicatorData.values.stoch_k.length} data points from Python backend`);
 
-            // console.log(`Combined WebSocket: StochRSI - K Original: ${indicatorData.values.stoch_k.length}, Filtered: ${stochKFiltered.values.length}`);
-            // console.log(`🔍 DEBUG: StochRSI filtered values - k: ${stochKFiltered.values.length}, d: ${stochDFiltered.values.length}`);
+            // DEBUG: Log last 5 StochRSI data points being sent to Plotly
+            const stochKLast5 = indicatorData.values.stoch_k.slice(-5);
+            const stochDLast5 = indicatorData.values.stoch_d.slice(-5);
+            const stochTimestampsLast5 = indicatorData.timestamps.slice(-5);
+            console.log(`📊 StochRSI TRACE DATA (last 5 points):`);
+            stochKLast5.forEach((val, idx) => {
+                console.log(`  Stoch K[${indicatorData.values.stoch_k.length - 5 + idx}]: ${val} at ${stochTimestampsLast5[idx] ? new Date(stochTimestampsLast5[idx]).toISOString() : 'N/A'}`);
+            });
+            stochDLast5.forEach((val, idx) => {
+                console.log(`  Stoch D[${indicatorData.values.stoch_d.length - 5 + idx}]: ${val} at ${stochTimestampsLast5[idx] ? new Date(stochTimestampsLast5[idx]).toISOString() : 'N/A'}`);
+            });
 
             // Extract variant parameters from indicatorId (e.g., 'stochrsi_14_3' -> '14,3')
             const variantMatch = indicatorId.match(/stochrsi_(\d+)_(\d+)/);
             const variantLabel = variantMatch ? `(${variantMatch[1]},${variantMatch[2]})` : '';
 
-            // console.log(`🔍 DEBUG: StochRSI stochKFiltered.values.length > 0 check: ${stochKFiltered.values.length > 0} (${stochKFiltered.values.length})`);
-            if (stochKFiltered.values.length > 0) {
-                // console.log(`🔍 DEBUG: Creating Stoch K trace`);
-                indicatorTraces.push({
-                    x: stochKFiltered.timestamps,
-                    y: stochKFiltered.values,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: `Stoch K ${variantLabel}`,
-                    line: { color: 'blue' },
-                    xaxis: 'x',
-                    yaxis: yAxisName,
-                    hoverinfo: isMobileDevice() ? 'skip' : 'all'
-                });
-            }
+            // Use the backend's timestamps for this indicator to maintain proper alignment
+            const kValues = indicatorData.values.stoch_k;
+            const dValues = indicatorData.values.stoch_d;
 
-            // console.log(`🔍 DEBUG: StochRSI stochDFiltered.values.length > 0 check: ${stochDFiltered.values.length > 0} (${stochDFiltered.values.length})`);
-            if (stochDFiltered.values.length > 0) {
-                // console.log(`🔍 DEBUG: Creating Stoch D trace`);
-                indicatorTraces.push({
-                    x: stochDFiltered.timestamps,
-                    y: stochDFiltered.values,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: `Stoch D ${variantLabel}`,
-                    line: { color: 'orange' },
-                    xaxis: 'x',
-                    yaxis: yAxisName,
-                    hoverinfo: isMobileDevice() ? 'skip' : 'all'
-                });
-            }
+            // Check for null/undefined values that might cause display issues
+            const kNullCount = kValues.filter(v => v === null || v === undefined).length;
+            const dNullCount = dValues.filter(v => v === null || v === undefined).length;
+
+            console.log(`🔍 DEBUG: StochRSI null values - K: ${kNullCount}/${kValues.length}, D: ${dNullCount}/${dValues.length}`);
+
+            indicatorTraces.push({
+                x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
+                y: kValues,
+                type: 'scatter',
+                mode: 'lines',
+                name: `Stoch K ${variantLabel}`,
+                line: { color: 'blue' },
+                yaxis: yAxisName,
+                hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                connectgaps: false  // Don't connect gaps - show natural indicator behavior
+            });
+
+            indicatorTraces.push({
+                x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
+                y: dValues,
+                type: 'scatter',
+                mode: 'lines',
+                name: `Stoch D ${variantLabel}`,
+                line: { color: 'orange' },
+                yaxis: yAxisName,
+                hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                connectgaps: false  // Don't connect gaps - show natural indicator behavior
+            });
         } else {
             // console.warn(`Combined WebSocket: Unknown or incomplete indicator data for ${indicatorId}`);
         }
@@ -1781,15 +2136,55 @@ function updateChartWithLiveData(dataPoint, symbol) {
 }
 
 function closeCombinedWebSocket(reason = "Closing WebSocket") {
+    logWebSocketEvent('close_requested', { reason });
+
     if (combinedWebSocket) {
-        // console.log(`Combined WebSocket: Closing connection for ${combinedSymbol}. Reason: ${reason}`);
+        const wasConnected = combinedWebSocket.readyState === WebSocket.OPEN;
+        const connectionId = websocketConnectionId;
+
+        // Remove all event handlers to prevent any further processing
+        combinedWebSocket.onopen = null;
+        combinedWebSocket.onmessage = null;
+        combinedWebSocket.onerror = null;
         combinedWebSocket.onclose = null;
-        combinedWebSocket.close(1000, reason);
+
+        // Close the connection
+        if (combinedWebSocket.readyState === WebSocket.OPEN || combinedWebSocket.readyState === WebSocket.CONNECTING) {
+            combinedWebSocket.close(1000, reason);
+        }
+
+        logWebSocketEvent('connection_closed', {
+            wasConnected,
+            finalState: combinedWebSocket.readyState,
+            connectionId
+        });
+
         combinedWebSocket = null;
-        combinedSymbol = '';
     }
 
-    // No accumulation state to reset
+    // Reset all state variables
+    combinedSymbol = '';
+    combinedIndicators = [];
+    combinedResolution = '1h';
+    combinedFromTs = null;
+    combinedToTs = null;
+
+    // Clear message queue and processing state
+    messageQueue = [];
+    isProcessingMessage = false;
+
+    // Clear processed message tracking
+    processedMessageIds.clear();
+    lastProcessedTimestampRange = null;
+
+    // Reset connection flags
+    isWebSocketConnecting = false;
+    if (websocketSetupDebounceTimer) {
+        clearTimeout(websocketSetupDebounceTimer);
+        websocketSetupDebounceTimer = null;
+    }
+
+    logWebSocketEvent('state_reset', { reason });
 }
 
 function updateCombinedIndicators(newIndicators) {
@@ -2334,9 +2729,10 @@ function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
 
 
 function updateCombinedResolution(newResolution) {
+    const oldResolution = combinedResolution;
     combinedResolution = newResolution;
     if (combinedWebSocket && combinedWebSocket.readyState === WebSocket.OPEN) {
-        sendCombinedConfig();
+        sendCombinedConfig(oldResolution);
     }
 }
 
@@ -2346,6 +2742,7 @@ function getTimeframeSecondsJS(timeframe) {
         "1m": 60,
         "5m": 300,
         "1h": 3600,
+        "4h": 14400,
         "1d": 86400,
         "1w": 604800
     };
@@ -2612,6 +3009,428 @@ window.getMessageQueueStatus = function() {
     };
 };
 
+// DEBUG: Comprehensive chart inspection for data overlapping issues
+window.inspectChartData = function() {
+    console.log('🔍 CHART DATA INSPECTION:');
+    if (!window.gd || !window.gd.data) {
+        console.log('❌ No chart data available');
+        return { error: 'No chart data' };
+    }
+
+    const traces = window.gd.data;
+    console.log(`📊 Total traces: ${traces.length}`);
+
+    const inspection = {
+        totalTraces: traces.length,
+        traces: [],
+        overlappingDetected: false,
+        issues: []
+    };
+
+    traces.forEach((trace, index) => {
+        const traceInfo = {
+            index,
+            name: trace.name,
+            type: trace.type,
+            yaxis: trace.yaxis,
+            dataPoints: trace.x ? trace.x.length : 0,
+            firstTimestamp: trace.x && trace.x.length > 0 ? new Date(trace.x[0]).toISOString() : null,
+            lastTimestamp: trace.x && trace.x.length > 0 ? new Date(trace.x[trace.x.length - 1]).toISOString() : null,
+            yRange: trace.y ? [Math.min(...trace.y), Math.max(...trace.y)] : null
+        };
+
+        inspection.traces.push(traceInfo);
+        console.log(`  Trace ${index}: ${trace.name} (${trace.type}) - ${traceInfo.dataPoints} points on ${trace.yaxis}`);
+        console.log(`    Time range: ${traceInfo.firstTimestamp} to ${traceInfo.lastTimestamp}`);
+        console.log(`    Y range: ${traceInfo.yRange ? traceInfo.yRange.join(' to ') : 'N/A'}`);
+    });
+
+    // Check for overlapping issues
+    const priceTraces = traces.filter(t => t.type === 'candlestick');
+    const indicatorTraces = traces.filter(t => t.type !== 'candlestick');
+
+    // Check if multiple price traces exist
+    if (priceTraces.length > 1) {
+        inspection.issues.push(`Multiple price traces detected: ${priceTraces.length}`);
+        inspection.overlappingDetected = true;
+    }
+
+    // Check for traces on wrong y-axes
+    const mainAxisTraces = traces.filter(t => t.yaxis === 'y' || !t.yaxis);
+    if (mainAxisTraces.length > 1) {
+        inspection.issues.push(`Multiple traces on main y-axis: ${mainAxisTraces.map(t => t.name).join(', ')}`);
+        inspection.overlappingDetected = true;
+    }
+
+    // Check for duplicate trace names
+    const traceNames = traces.map(t => t.name);
+    const duplicateNames = traceNames.filter((name, index) => traceNames.indexOf(name) !== index);
+    if (duplicateNames.length > 0) {
+        inspection.issues.push(`Duplicate trace names: ${[...new Set(duplicateNames)].join(', ')}`);
+        inspection.overlappingDetected = true;
+    }
+
+    console.log('🚨 ISSUES DETECTED:', inspection.issues.length);
+    inspection.issues.forEach(issue => console.log(`  ❌ ${issue}`));
+
+    return inspection;
+};
+
+// DEBUG: Comprehensive diagnostic report for data overlapping issues
+window.diagnoseDataOverlapping = function() {
+    console.log('🔬 COMPREHENSIVE DATA OVERLAPPING DIAGNOSIS');
+    console.log('='.repeat(50));
+
+    const diagnosis = {
+        timestamp: new Date().toISOString(),
+        issues: [],
+        recommendations: [],
+        severity: 'low'
+    };
+
+    // 1. Chart data inspection
+    console.log('\n1️⃣ CHART DATA INSPECTION:');
+    const chartInspection = window.inspectChartData();
+    if (chartInspection.overlappingDetected) {
+        diagnosis.issues.push(...chartInspection.issues);
+        diagnosis.severity = 'high';
+    }
+
+    // 2. Data merging analysis
+    console.log('\n2️⃣ DATA MERGING ANALYSIS:');
+    const dataAnalysis = window.analyzeDataMerging();
+    if (dataAnalysis.duplicates > 0) {
+        diagnosis.issues.push(`Found ${dataAnalysis.duplicates} duplicate timestamps`);
+        diagnosis.recommendations.push('Check data merging logic in mergeDataPoints functions');
+    }
+    if (dataAnalysis.gaps > 0) {
+        diagnosis.issues.push(`Found ${dataAnalysis.gaps} data gaps`);
+    }
+
+    // 3. Layout inspection
+    console.log('\n3️⃣ LAYOUT INSPECTION:');
+    const layoutInspection = window.inspectLayout();
+    if (layoutInspection.issues.length > 0) {
+        diagnosis.issues.push(...layoutInspection.issues);
+        diagnosis.severity = 'high';
+    }
+
+    // 4. WebSocket status
+    console.log('\n4️⃣ WEBSOCKET STATUS:');
+    const wsStatus = window.checkWebSocketStatus();
+    console.log(`  Connected: ${wsStatus.connected}`);
+    console.log(`  State: ${wsStatus.readyState}`);
+    console.log(`  Has handler: ${wsStatus.hasHandler}`);
+
+    // 5. Current state
+    console.log('\n5️⃣ CURRENT STATE:');
+    console.log(`  Symbol: ${combinedSymbol}`);
+    console.log(`  Resolution: ${combinedResolution}`);
+    console.log(`  Indicators: ${JSON.stringify(combinedIndicators)}`);
+    console.log(`  Time range: ${combinedFromTs} to ${combinedToTs}`);
+
+    // 6. Message queue status
+    console.log('\n6️⃣ MESSAGE QUEUE STATUS:');
+    const queueStatus = window.getMessageQueueStatus();
+    console.log(`  Queue length: ${queueStatus.queueLength}`);
+    console.log(`  Processing: ${queueStatus.isProcessing}`);
+    console.log(`  Chart locked: ${queueStatus.chartLocked}`);
+
+    // Summary and recommendations
+    console.log('\n📋 SUMMARY:');
+    console.log(`  Total issues found: ${diagnosis.issues.length}`);
+    console.log(`  Severity: ${diagnosis.severity}`);
+
+    if (diagnosis.issues.length > 0) {
+        console.log('\n🚨 ISSUES FOUND:');
+        diagnosis.issues.forEach((issue, index) => {
+            console.log(`  ${index + 1}. ${issue}`);
+        });
+    }
+
+    if (diagnosis.recommendations.length > 0) {
+        console.log('\n💡 RECOMMENDATIONS:');
+        diagnosis.recommendations.forEach((rec, index) => {
+            console.log(`  ${index + 1}. ${rec}`);
+        });
+    }
+
+    // Quick fix suggestions
+    console.log('\n🔧 QUICK FIXES TO TRY:');
+    console.log('  1. Run: window.clearChartData() - Clear all chart data');
+    console.log('  2. Run: window.forceReloadChart() - Force chart reload');
+    console.log('  3. Run: window.resetWebSocket() - Reset WebSocket connection');
+    console.log('  4. Check browser console for detailed error messages');
+
+    return diagnosis;
+};
+
+// DEBUG: Quick fix functions
+window.clearChartData = function() {
+    if (window.gd) {
+        console.log('🧹 Clearing all chart data...');
+        Plotly.react(window.gd, [], window.gd.layout || {});
+        console.log('✅ Chart data cleared');
+    } else {
+        console.log('❌ No chart available to clear');
+    }
+};
+
+window.forceReloadChart = function() {
+    console.log('🔄 Forcing chart reload...');
+    if (window.gd) {
+        // Clear and reinitialize
+        Plotly.react(window.gd, [], {});
+        // Reconnect WebSocket
+        if (combinedSymbol) {
+            setupCombinedWebSocket(combinedSymbol, combinedIndicators, combinedResolution, combinedFromTs, combinedToTs);
+        }
+        console.log('✅ Chart reload initiated');
+    } else {
+        console.log('❌ No chart available to reload');
+    }
+};
+
+window.resetWebSocket = function() {
+    console.log('🔌 Resetting WebSocket connection...');
+    closeCombinedWebSocket("Manual reset for debugging");
+    setTimeout(() => {
+        if (combinedSymbol) {
+            setupCombinedWebSocket(combinedSymbol, combinedIndicators, combinedResolution, combinedFromTs, combinedToTs);
+            console.log('✅ WebSocket reset complete');
+        }
+    }, 1000);
+};
+
+// DEBUG: Test data clearing on resolution changes
+window.testResolutionChangeDataClearing = function() {
+    console.log('🧪 TESTING RESOLUTION CHANGE DATA CLEARING');
+
+    // Get current state
+    const originalResolution = combinedResolution;
+    const originalDataCount = window.gd && window.gd.data ? window.gd.data.length : 0;
+
+    console.log(`📊 Before resolution change:`);
+    console.log(`  Resolution: ${originalResolution}`);
+    console.log(`  Data traces: ${originalDataCount}`);
+
+    // Simulate resolution change from 1h to 1d
+    const newResolution = originalResolution === '1h' ? '1d' : '1h';
+    console.log(`🔄 Simulating resolution change: ${originalResolution} → ${newResolution}`);
+
+    // Check if chart data is cleared (this should happen in main.js resolution change handler)
+    setTimeout(() => {
+        const afterDataCount = window.gd && window.gd.data ? window.gd.data.length : 0;
+        console.log(`📊 After resolution change:`);
+        console.log(`  Data traces: ${afterDataCount}`);
+
+        if (afterDataCount === 0) {
+            console.log('✅ Chart data was properly cleared');
+        } else if (afterDataCount === originalDataCount) {
+            console.log('⚠️ Chart data was NOT cleared - this could cause overlapping');
+        } else {
+            console.log('🤔 Chart data partially cleared - investigate further');
+        }
+
+        // Test WebSocket config update
+        if (combinedWebSocket && combinedWebSocket.readyState === WebSocket.OPEN) {
+            console.log('🔌 WebSocket is connected, testing config update...');
+            sendCombinedConfig(originalResolution); // Pass old resolution to test change detection
+        } else {
+            console.log('❌ WebSocket not connected');
+        }
+    }, 100);
+
+    return {
+        originalResolution,
+        newResolution,
+        originalDataCount,
+        testCompleted: true
+    };
+};
+
+// DEBUG: Monitor chart updates for overlapping
+window.monitorChartUpdates = function(duration = 30000) {
+    console.log(`👀 MONITORING CHART UPDATES for ${duration / 1000} seconds`);
+
+    let updateCount = 0;
+    let lastTraceCount = window.gd && window.gd.data ? window.gd.data.length : 0;
+    let overlappingDetected = false;
+
+    const monitorInterval = setInterval(() => {
+        if (!window.gd || !window.gd.data) {
+            console.log('❌ Chart not available for monitoring');
+            clearInterval(monitorInterval);
+            return;
+        }
+
+        const currentTraceCount = window.gd.data.length;
+        updateCount++;
+
+        if (currentTraceCount !== lastTraceCount) {
+            console.log(`📊 Update ${updateCount}: Trace count changed from ${lastTraceCount} to ${currentTraceCount}`);
+
+            // Check for potential overlapping
+            const priceTraces = window.gd.data.filter(t => t.type === 'candlestick');
+            if (priceTraces.length > 1) {
+                console.log('🚨 OVERLAPPING DETECTED: Multiple price traces!');
+                overlappingDetected = true;
+            }
+
+            lastTraceCount = currentTraceCount;
+        }
+    }, 1000); // Check every second
+
+    // Stop monitoring after duration
+    setTimeout(() => {
+        clearInterval(monitorInterval);
+        console.log(`🏁 MONITORING COMPLETE:`);
+        console.log(`  Total updates detected: ${updateCount}`);
+        console.log(`  Overlapping detected: ${overlappingDetected}`);
+    }, duration);
+
+    return {
+        monitoring: true,
+        duration,
+        monitorInterval
+    };
+};
+
+// DEBUG: Check data merging logic for duplicates and overlaps
+window.analyzeDataMerging = function() {
+    console.log('🔄 DATA MERGING ANALYSIS:');
+    if (!window.gd || !window.gd.data) {
+        console.log('❌ No chart data available');
+        return { error: 'No chart data' };
+    }
+
+    const priceTrace = window.gd.data.find(t => t.type === 'candlestick');
+    if (!priceTrace || !priceTrace.x) {
+        console.log('❌ No price data available');
+        return { error: 'No price data' };
+    }
+
+    const timestamps = priceTrace.x.map(t => t.getTime());
+    const analysis = {
+        totalPoints: timestamps.length,
+        duplicates: 0,
+        gaps: 0,
+        timeRange: {
+            start: new Date(Math.min(...timestamps)).toISOString(),
+            end: new Date(Math.max(...timestamps)).toISOString()
+        }
+    };
+
+    // Check for duplicate timestamps
+    const seenTimestamps = new Set();
+    timestamps.forEach(ts => {
+        if (seenTimestamps.has(ts)) {
+            analysis.duplicates++;
+        }
+        seenTimestamps.add(ts);
+    });
+
+    // Check for gaps in data
+    const sortedTimestamps = [...timestamps].sort((a, b) => a - b);
+    const expectedInterval = getTimeframeSecondsJS(combinedResolution) * 1000; // Convert to milliseconds
+
+    for (let i = 1; i < sortedTimestamps.length; i++) {
+        const gap = sortedTimestamps[i] - sortedTimestamps[i - 1];
+        if (gap > expectedInterval * 1.5) { // Allow 50% tolerance
+            analysis.gaps++;
+        }
+    }
+
+    console.log(`📊 Data Analysis Results:`);
+    console.log(`  Total data points: ${analysis.totalPoints}`);
+    console.log(`  Duplicate timestamps: ${analysis.duplicates}`);
+    console.log(`  Data gaps: ${analysis.gaps}`);
+    console.log(`  Time range: ${analysis.timeRange.start} to ${analysis.timeRange.end}`);
+    console.log(`  Expected interval: ${expectedInterval}ms (${expectedInterval / 1000}s)`);
+
+    return analysis;
+};
+
+// DEBUG: Inspect subplot layout for overlapping issues
+window.inspectLayout = function() {
+    console.log('📐 LAYOUT INSPECTION:');
+    if (!window.gd || !window.gd.layout) {
+        console.log('❌ No chart layout available');
+        return { error: 'No layout' };
+    }
+
+    const layout = window.gd.layout;
+    const inspection = {
+        hasGrid: !!layout.grid,
+        gridRows: layout.grid ? layout.grid.rows : 0,
+        gridColumns: layout.grid ? layout.grid.columns : 0,
+        yAxes: [],
+        xAxes: [],
+        issues: []
+    };
+
+    // Check Y-axes
+    Object.keys(layout).forEach(key => {
+        if (key.startsWith('yaxis')) {
+            const axis = layout[key];
+            inspection.yAxes.push({
+                name: key,
+                domain: axis.domain,
+                range: axis.range,
+                title: axis.title ? axis.title.text : 'No title'
+            });
+        }
+    });
+
+    // Check X-axes
+    Object.keys(layout).forEach(key => {
+        if (key.startsWith('xaxis')) {
+            const axis = layout[key];
+            inspection.xAxes.push({
+                name: key,
+                domain: axis.domain,
+                range: axis.range
+            });
+        }
+    });
+
+    console.log(`📊 Layout Analysis:`);
+    console.log(`  Grid: ${inspection.gridRows} rows x ${inspection.gridColumns} columns`);
+    console.log(`  Y-axes: ${inspection.yAxes.length}`);
+    console.log(`  X-axes: ${inspection.xAxes.length}`);
+
+    inspection.yAxes.forEach(axis => {
+        console.log(`    ${axis.name}: domain [${axis.domain.join(', ')}], range [${axis.range ? axis.range.join(', ') : 'auto'}]`);
+    });
+
+    // Check for overlapping domains
+    for (let i = 0; i < inspection.yAxes.length - 1; i++) {
+        const current = inspection.yAxes[i];
+        const next = inspection.yAxes[i + 1];
+
+        if (current.domain && next.domain) {
+            const currentEnd = current.domain[1];
+            const nextStart = next.domain[0];
+
+            if (currentEnd > nextStart) {
+                inspection.issues.push(`Overlapping Y-axis domains: ${current.name} ends at ${currentEnd}, ${next.name} starts at ${nextStart}`);
+            }
+        }
+    }
+
+    // Check for missing domains
+    inspection.yAxes.forEach(axis => {
+        if (!axis.domain) {
+            inspection.issues.push(`Missing domain for ${axis.name}`);
+        }
+    });
+
+    console.log('🚨 LAYOUT ISSUES:', inspection.issues.length);
+    inspection.issues.forEach(issue => console.log(`  ❌ ${issue}`));
+
+    return inspection;
+};
+
 window.clearMessageQueue = function() {
     const clearedCount = messageQueue.length;
     messageQueue = [];
@@ -2628,4 +3447,31 @@ window.forceReleaseChartLock = function() {
         console.log('ℹ️ Chart update lock was not held');
         return false;
     }
+};
+
+// DEBUG: Get WebSocket logs for debugging
+window.getWebSocketLogs = function(limit = 20) {
+    console.log(`🔌 WEBSOCKET LOGS (last ${limit} entries):`);
+    const logsToShow = websocketLogs.slice(-limit);
+
+    if (logsToShow.length === 0) {
+        console.log('❌ No WebSocket logs available');
+        return [];
+    }
+
+    logsToShow.forEach((log, index) => {
+        const time = new Date(log.timestamp).toLocaleTimeString();
+        console.log(`${index + 1}. [${time}] WS[${log.connectionId}]: ${log.event}`, log.details);
+    });
+
+    console.log(`📊 Total logs available: ${websocketLogs.length}`);
+    return logsToShow;
+};
+
+// DEBUG: Clear WebSocket logs
+window.clearWebSocketLogs = function() {
+    const clearedCount = websocketLogs.length;
+    websocketLogs.length = 0;
+    console.log(`🧹 Cleared ${clearedCount} WebSocket logs`);
+    return clearedCount;
 };

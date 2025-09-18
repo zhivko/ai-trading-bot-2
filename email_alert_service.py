@@ -336,6 +336,12 @@ class EmailAlertService:
             # Filter drawings that have alert_sent property equals to false
             if drawing.get('alert_sent') is not False:
                 continue
+
+            # Check if sendEmailOnCross is enabled (default to True if not set)
+            properties = drawing.get('properties', {})
+            send_email_on_cross = properties.get('sendEmailOnCross', True)
+            if not send_email_on_cross:
+                continue
             try:
                 symbol = drawing.get('symbol')
                 user_email = drawing.get('user_email')
@@ -504,7 +510,7 @@ class EmailAlertService:
         while True:
             # Start check_price_alerts in background to ensure exact 60-second intervals
             asyncio.create_task(self.check_price_alerts())
-            await asyncio.sleep(60)
+            await asyncio.sleep(20)
 
 def get_smtp_config() -> SMTPConfig:
     logger.info("Loading SMTP config...")

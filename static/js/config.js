@@ -51,21 +51,8 @@ const config = {
     responsive: true,
     displayModeBar: true,
     scrollZoom: true, // Keep scroll zoom enabled for mouse wheel zooming
-    modeBarButtonsToRemove: ['zoom2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d'], // Remove zoom buttons
+    modeBarButtonsToRemove: ['zoom2d', 'zoomIn2d', 'zoomOut2d', 'autoscale'], // Remove zoom buttons
     modeBarButtonsToAdd: [
-        {
-            name: 'Autoscale Data', // Tooltip for the button
-            icon: Plotly.Icons.autoscale, // Use Plotly's standard autoscale icon
-            click: function(gd) {
-                // Call your global applyAutoscale function
-                if (typeof window.applyAutoscale === 'function') {
-                    window.applyAutoscale(gd); // Pass the graph div (gd) to your function
-                } else {
-                    console.error('Custom Autoscale: window.applyAutoscale function not found. Falling back to default.');
-                    Plotly.relayout(gd, {'xaxis.autorange': true, 'yaxis.autorange': true}); // Fallback
-                }
-            }
-        },
         {
             name: 'Draw Line', // Tooltip for the button
             icon: Plotly.Icons.drawline, // Use Plotly's standard drawline icon

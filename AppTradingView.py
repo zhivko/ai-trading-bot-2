@@ -1,12 +1,21 @@
 """  """# Refactored TradingView Application
-# Main FastAPI application that imports and combines all modules
+# Main FastAPI application that imports and combine all modules
 
 import os
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("✅ Environment variables loaded from .env file")
+except ImportError:
+    print("⚠️ python-dotenv not installed. Environment variables must be set manually.")
+    print("Install with: pip install python-dotenv")
 import socket
 import asyncio
 import uvicorn
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File
 import json
 from datetime import datetime
 from google_auth_oauthlib.flow import Flow
@@ -24,6 +33,9 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.errors import RateLimitExceeded
+import whisper
+import tempfile
+import io
 
 # Import configuration and utilities
 from config import SECRET_KEY, STATIC_DIR, TEMPLATES_DIR, PROJECT_ROOT
@@ -60,6 +72,9 @@ from endpoints.utility_endpoints import (
     get_last_selected_symbol, stream_logs_endpoint, get_live_price
 )
 from endpoints.indicator_endpoints import indicator_history_endpoint
+
+# Import YouTube endpoints
+from endpoints.youtube_endpoints import router as youtube_router
 
 # Import WebSocket handlers
 from websocket_handlers import stream_live_data_websocket_endpoint, stream_klines, stream_combined_data_websocket_endpoint
@@ -98,11 +113,49 @@ async def lifespan(app_instance: FastAPI):
         # Start email alert monitoring service
         app_instance.state.email_alert_task = asyncio.create_task(alert_service.monitor_alerts())
         # logger.info("Email alert monitoring service started.")
+
+        # Start YouTube monitor background task
+        try:
+            logger.info("🔧 STARTING BACKGROUND TASK: Creating YouTube monitor task...")
+            from youtube_monitor import start_youtube_monitor
+            app_instance.state.youtube_monitor_task = asyncio.create_task(start_youtube_monitor())
+            logger.info("✅ BACKGROUND TASK STARTED: YouTube monitor task created and running")
+        except Exception as e:
+            logger.error(f"❌ FAILED TO START YOUTUBE MONITOR: {e}")
+            app_instance.state.youtube_monitor_task = None
+
+        # Preload Whisper model for audio transcription
+        try:
+            logger.info("🔧 PRELOADING WHISPER MODEL: Loading Whisper base model for audio transcription...")
+            import torch
+
+            # Force CPU usage and disable CUDA
+            original_cuda_check = torch.cuda.is_available
+            torch.cuda.is_available = lambda: False
+
+            # Clear any cached models that might have CUDA tensors
+            if hasattr(whisper, '_models'):
+                whisper._models.clear()
+
+            # Always try to load the model (it will download if not cached)
+            logger.info("Loading Whisper base model...")
+            app_instance.state.whisper_model = whisper.load_model("base", device="cpu")
+            logger.info("✅ WHISPER MODEL LOADED: Whisper base model successfully loaded and cached")
+
+            # Restore original CUDA check
+            torch.cuda.is_available = original_cuda_check
+
+        except Exception as e:
+            logger.error(f"❌ FAILED TO LOAD WHISPER MODEL: {e}", exc_info=True)
+            logger.error(f"Full error details: {str(e)}", exc_info=True)
+            app_instance.state.whisper_model = None
+
     except Exception as e:
         logger.error(f"Failed to initialize Redis or start background tasks: {e}", exc_info=True)
         app_instance.state.fetch_klines_task = None
         app_instance.state.price_feed_task = None
         app_instance.state.email_alert_task = None
+        app_instance.state.whisper_model = None
     yield
     logger.info("Application shutdown...")
     fetch_klines_task = getattr(app_instance.state, 'fetch_klines_task', None)
@@ -144,6 +197,18 @@ async def lifespan(app_instance: FastAPI):
         except Exception as e:
             logger.error(f"Error during email alert monitoring task shutdown: {e}", exc_info=True)
 
+    youtube_monitor_task = getattr(app_instance.state, 'youtube_monitor_task', None)
+    if youtube_monitor_task:
+        logger.info("🛑 CANCELLING BACKGROUND TASK: YouTube monitor task...")
+        youtube_monitor_task.cancel()
+        try:
+            await youtube_monitor_task
+            logger.info(f"✅ TASK CANCELLED: YouTube monitor task status: Done={youtube_monitor_task.done()}, Cancelled={youtube_monitor_task.cancelled()}, Exception={youtube_monitor_task.exception()}")
+        except asyncio.CancelledError:
+            logger.info("✅ TASK SUCCESSFULLY CANCELLED: YouTube monitor task cancelled cleanly")
+        except Exception as e:
+            logger.error(f"💥 ERROR DURING TASK SHUTDOWN: YouTube monitor: {e}", exc_info=True)
+
 # Initialize FastAPI app
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
@@ -153,6 +218,15 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+
+# Add CORS middleware to allow cross-origin requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://crypto.zhivko.eu", "http://192.168.1.52:5000", "http://localhost:5000", "http://127.0.0.1:5000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Add ProxyHeadersMiddleware to trust headers from Nginx
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["IP_OF_NGINX_SERVER_A", "192.168.1.20"])
@@ -259,10 +333,129 @@ app.get("/stream/logs")(stream_logs_endpoint)
 # Indicator endpoints
 app.get("/indicatorHistory")(indicator_history_endpoint)
 
+# Include YouTube endpoints
+app.include_router(youtube_router, prefix="/youtube", tags=["youtube"])
+
 # WebSocket endpoints
 app.websocket("/stream/live/{symbol}")(stream_live_data_websocket_endpoint)
 app.get("/stream/{symbol}/{resolution}")(stream_klines)
 app.websocket("/data/{symbol}")(stream_combined_data_websocket_endpoint)
+
+# Audio transcription endpoint
+@app.post("/transcribe_audio")
+@limiter.limit("10/minute")
+async def transcribe_audio_endpoint(request: Request, audio_file: UploadFile):
+    """
+    Transcribe audio file to text using Whisper.
+    Accepts audio files and returns transcribed text.
+    Requires user authentication.
+    """
+    # Check authentication
+    '''
+    if not request.session.get('email'):
+        raise HTTPException(
+            status_code=403,
+            detail="Authentication required. Please log in with Google OAuth."
+        )
+    '''
+    logger.info("transcribe_audio_endpoint request received")
+    try:
+        # Validate file type
+        allowed_extensions = ['.wav', '.mp3', '.m4a', '.flac', '.ogg', '.webm']
+        file_extension = os.path.splitext(audio_file.filename)[1].lower()
+
+        if file_extension not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type. Allowed types: {', '.join(allowed_extensions)}"
+            )
+
+        # Read audio file content first
+        audio_content = await audio_file.read()
+
+        # Log file details for debugging
+        logger.info(f"Audio file received: {audio_file.filename}, size: {len(audio_content)} bytes, type: {file_extension}")
+
+        # Special handling for WebM files - convert to WAV for Whisper compatibility
+        if file_extension == '.webm':
+            try:
+                from pydub import AudioSegment
+                logger.info("Converting WebM to WAV for Whisper compatibility")
+
+                # Save WebM content to temporary file
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.webm') as webm_temp:
+                    webm_temp.write(audio_content)
+                    webm_path = webm_temp.name
+
+                # Convert WebM to WAV using pydub
+                audio = AudioSegment.from_file(webm_path, format="webm")
+                wav_buffer = io.BytesIO()
+                audio.export(wav_buffer, format="wav")
+                audio_content = wav_buffer.getvalue()
+                file_extension = '.wav'
+
+                # Clean up WebM temp file
+                os.unlink(webm_path)
+                logger.info("WebM to WAV conversion completed")
+
+            except ImportError:
+                logger.error("pydub not available for WebM conversion - install with: pip install pydub")
+                raise HTTPException(
+                    status_code=500,
+                    detail="WebM conversion not available. Please use WAV, MP3, or other supported formats."
+                )
+            except Exception as e:
+                logger.error(f"WebM conversion failed: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Audio conversion failed: {str(e)}"
+                )
+
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
+            temp_file.write(audio_content)
+            temp_file_path = temp_file.name
+
+        try:
+            # Check if Whisper model is preloaded
+            model = getattr(app.state, 'whisper_model', None)
+            if model is None:
+                logger.error("Whisper model not available - failed to load at startup")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Audio transcription service is temporarily unavailable. Please try again later."
+                )
+
+            logger.info("Transcribing audio file using preloaded model")
+            result = model.transcribe(temp_file_path)
+
+            # Extract transcribed text
+            transcribed_text = result["text"].strip()
+
+            logger.info(f"Audio transcription completed. Text length: {len(transcribed_text)}")
+
+            return {
+                "status": "success",
+                "transcribed_text": transcribed_text,
+                "language": result.get("language", "unknown"),
+                "confidence": result.get("confidence", 0.0)
+            }
+
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(temp_file_path)
+            except Exception as e:
+                logger.warning(f"Failed to clean up temporary file: {e}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during audio transcription: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Audio transcription failed: {str(e)}"
+        )
 
 # Health check endpoint for background tasks
 @app.get("/health/background-tasks")
@@ -271,6 +464,7 @@ async def background_tasks_health():
     fetch_task = getattr(app.state, 'fetch_klines_task', None)
     email_task = getattr(app.state, 'email_alert_task', None)
     price_feed_task = getattr(app.state, 'price_feed_task', None)
+    youtube_monitor_task = getattr(app.state, 'youtube_monitor_task', None)
 
     health_status = {
         "timestamp": datetime.now().isoformat(),
@@ -295,11 +489,40 @@ async def background_tasks_health():
                 "done": email_task.done() if email_task else None,
                 "cancelled": email_task.cancelled() if email_task else None,
                 "exception": str(email_task.exception()) if email_task and email_task.exception() else None
+            },
+            "youtube_monitor_task": {
+                "exists": youtube_monitor_task is not None,
+                "running": youtube_monitor_task is not None and not youtube_monitor_task.done(),
+                "done": youtube_monitor_task.done() if youtube_monitor_task else None,
+                "cancelled": youtube_monitor_task.cancelled() if youtube_monitor_task else None,
+                "exception": str(youtube_monitor_task.exception()) if youtube_monitor_task and youtube_monitor_task.exception() else None
             }
         }
     }
 
     logger.info(f"📊 BACKGROUND TASK HEALTH CHECK: {health_status}")
+    return health_status
+
+# Health check endpoint for Whisper model
+@app.get("/health/whisper")
+async def whisper_health():
+    """Check the status of the Whisper model."""
+    whisper_model = getattr(app.state, 'whisper_model', None)
+
+    health_status = {
+        "timestamp": datetime.now().isoformat(),
+        "whisper_model": {
+            "loaded": whisper_model is not None,
+            "status": "healthy" if whisper_model is not None else "unhealthy",
+            "model_type": "base" if whisper_model is not None else None
+        }
+    }
+
+    if whisper_model is None:
+        logger.warning("⚠️ WHISPER HEALTH CHECK: Model not loaded")
+    else:
+        logger.info("✅ WHISPER HEALTH CHECK: Model is loaded and ready")
+
     return health_status
 
 # Logout endpoint
@@ -405,7 +628,7 @@ async def symbol_chart_page(symbol: str, request: Request):
                   "get_drawings", "save_drawing", "delete_drawing", "update_drawing", "delete_all_drawings",
                   "save_shape_properties", "get_shape_properties", "AI", "AI_Local_OLLAMA_Models", "indicators",
                   "get_agent_trades", "get_order_history", "get_buy_signals", "settings", "set_last_symbol",
-                  "get_last_symbol", "stream", "indicatorHistory", "OAuthCallback"]:
+                  "get_last_symbol", "stream", "indicatorHistory", "OAuthCallback", "transcribe_audio"]:
         raise HTTPException(status_code=404, detail="Not found")
 
     client_host = request.client.host if request.client else "Unknown"

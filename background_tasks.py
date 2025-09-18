@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 from config import SUPPORTED_SYMBOLS, timeframe_config, TRADING_SYMBOL, TRADING_TIMEFRAME
 from redis_utils import (
     get_cached_klines, cache_klines, get_cached_open_interest,
-    cache_open_interest, publish_resolution_kline
+    cache_open_interest, publish_resolution_kline, detect_gaps_in_cached_data, fill_data_gaps
 )
 from redis_utils import fetch_klines_from_bybit
 from indicators import fetch_open_interest_from_bybit
@@ -69,6 +69,39 @@ async def fetch_and_publish_klines():
                     # logger.info(f"✅ COMPLETED: {resolution} fetch cycle - processed {symbols_processed} symbols, fetched {total_klines_fetched} total klines")
                     last_fetch_times[resolution] = current_time_utc
 
+            # 🔍 GAP DETECTION AND FILLING: Check for and fill data gaps
+            logger.info("🔍 STARTING GAP DETECTION: Scanning for data gaps across all symbols and resolutions")
+
+            # Prioritize 1-minute data gaps as they are most critical
+            prioritized_resolutions = ["1m"] + [r for r in timeframe_config.supported_resolutions if r != "1m"]
+            all_gaps = []
+
+            for resolution in prioritized_resolutions:
+                logger.info(f"🔍 Scanning {resolution} data for gaps...")
+
+                # Define time range for gap detection (last 7 days to catch historical gaps)
+                current_time_utc = datetime.now(timezone.utc)
+                end_ts = int(current_time_utc.timestamp())
+                start_ts = end_ts - (7 * 24 * 3600)  # Last 7 days
+
+                for symbol_val in SUPPORTED_SYMBOLS:
+                    try:
+                        # Detect gaps in cached data
+                        gaps = await detect_gaps_in_cached_data(symbol_val, resolution, start_ts, end_ts)
+                        if gaps:
+                            all_gaps.extend(gaps)
+                            logger.info(f"📊 Found {len(gaps)} gaps for {symbol_val} {resolution}")
+                    except Exception as e:
+                        logger.error(f"Error detecting gaps for {symbol_val} {resolution}: {e}")
+                        continue
+
+            # Fill all detected gaps
+            if all_gaps:
+                logger.info(f"🔧 FILLING {len(all_gaps)} DETECTED GAPS")
+                await fill_data_gaps(all_gaps)
+            else:
+                logger.info("✅ No data gaps detected across all symbols and resolutions")
+
             # logger.info(f"😴 BACKGROUND TASK: Cycle #{cycle_count} kline fetching completed, sleeping for 60 seconds")
             await asyncio.sleep(60)
 
@@ -112,5 +145,5 @@ async def bybit_realtime_feed_listener():
         logger.debug("bybit_realtime_feed_listener (shared conceptual) placeholder is alive")
 
 def get_timeframe_seconds(timeframe: str) -> int:
-    multipliers = {"1m": 60, "5m": 300, "1h": 3600, "1d": 86400, "1w": 604800}
+    multipliers = {"1m": 60, "5m": 300, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800}
     return multipliers.get(timeframe, 3600)

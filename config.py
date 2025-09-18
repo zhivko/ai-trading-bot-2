@@ -33,7 +33,7 @@ TRADING_TIMEFRAME = "5m"  # Timeframe for background tasks and AI defaults
 
 # Supported symbols and resolutions
 SUPPORTED_SYMBOLS = ["BTCUSDT", "XMRUSDT", "ETHUSDT", "SOLUSDT", "SUIUSDT", "PAXGUSDT", "BNBUSDT", "ADAUSDT"]
-SUPPORTED_RESOLUTIONS = ["1m", "5m", "1h", "1d", "1w"]
+SUPPORTED_RESOLUTIONS = ["1m", "5m", "1h", "4h", "1d", "1w"]
 
 SUPPORTED_RANGES = [
     {"value": "1h", "label": "1h"},
@@ -50,7 +50,7 @@ SUPPORTED_RANGES = [
 
 # Bybit resolution mapping
 BYBIT_RESOLUTION_MAP = {
-    "1m": "1", "5m": "5", "1h": "60", "1d": "D", "1w": "W"
+    "1m": "1", "5m": "5", "1h": "60", "4h": "240", "1d": "D", "1w": "W"
 }
 
 # Redis keys
@@ -83,6 +83,10 @@ LOCAL_OLLAMA_MODEL_NAME = "llama3"
 
 MAX_DATA_POINTS_FOR_LLM = 100
 
+# YouTube Configuration
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
+YOUTUBE_CHANNELS = os.getenv("YOUTUBE_CHANNELS", "@MooninPapa")
+
 # Paths
 PROJECT_ROOT = Path(__file__).parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -108,7 +112,7 @@ AVAILABLE_INDICATORS = [
     {"id": "stochrsi_9_3", "name": "Stochastic RSI (9,3)", "params": {"rsi_period": 9, "stoch_period": 9, "k_period": 3, "d_period": 3}},
     {"id": "stochrsi_14_3", "name": "Stochastic RSI (14,3)", "params": {"rsi_period": 14, "stoch_period": 14, "k_period": 3, "d_period": 3}},
     {"id": "stochrsi_40_4", "name": "Stochastic RSI (40,4)", "params": {"rsi_period": 40, "stoch_period": 40, "k_period": 4, "d_period": 4}},
-    {"id": "stochrsi_60_10", "name": "Stochastic RSI (60,10)", "params": {"rsi_period": 60, "stoch_period": 60, "k_period": 10, "d_period": 10}},
+    {"id": "stochrsi_60_10", "name": "Stochastic RSI (60,10)", "params": {"rsi_period": 60, "stoch_period": 10, "k_period": 10, "d_period": 10}},
     {"id": "open_interest", "name": "Open Interest", "params": {}},
     {"id": "jma", "name": "Jurik MA", "params": {"length": 7, "phase": 50, "power": 2}},
 ]
@@ -124,7 +128,7 @@ timeframe_config = TimeframeConfig()
 # Utility functions
 def get_timeframe_seconds(timeframe: str) -> int:
     """Convert timeframe string to seconds."""
-    multipliers = {"1m": 60, "5m": 300, "1h": 3600, "1d": 86400, "1w": 604800}
+    multipliers = {"1m": 60, "5m": 300, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800}
     return multipliers.get(timeframe, 3600)
 
 # Bybit API session - lazy initialization
@@ -137,5 +141,6 @@ def get_session():
         testnet=False
     )
 
-# For backward compatibility
+# For backward compatibility - session is now created lazily
+# Use get_session() when needed
 session = get_session()

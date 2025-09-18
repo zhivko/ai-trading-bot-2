@@ -20,7 +20,12 @@ async function handleNewShapeSave(shapeObject) {
                 start_price: parseFloat(shapeObject.y0),
                 end_price: parseFloat(shapeObject.y1),
                 subplot_name: determineSubplotNameForShape(shapeObject), // Assumes determineSubplotNameForShape is global
-                resolution: resolution
+                resolution: resolution,
+                properties: {
+                    sendEmailOnCross: true,
+                    buyOnCross: false,
+                    sellOnCross: false
+                }
             };
             console.log(`Attempting to save new shape for ${symbol}:`, drawingData);
             const response = await fetch(`/save_drawing/${symbol}`, {
@@ -90,6 +95,27 @@ function initializePlotlyEventHandlers(gd) {
                 alert('[DEBUG] Failed to emit test event: ' + e.message);
             }
         }
+
+        // Add keyboard shortcut for testing YouTube modal (press 'Y' to test modal)
+        if (event.key === 'y' || event.key === 'Y') {
+            console.log('[DEBUG] YouTube modal test key pressed - testing modal functionality');
+            try {
+                if (window.youtubeMarkersManager && window.youtubeMarkersManager.showTranscriptModal) {
+                    console.log('[DEBUG] YouTube manager available, testing modal with sample data');
+                    window.youtubeMarkersManager.showTranscriptModal(
+                        'Test Video Title',
+                        'This is a test transcript content for debugging purposes.',
+                        'dQw4w9WgXcQ',
+                        '2024-01-15'
+                    );
+                    console.log('[DEBUG] YouTube modal test completed');
+                } else {
+                    console.warn('[DEBUG] YouTube markers manager not available for testing');
+                }
+            } catch (error) {
+                console.error('[DEBUG] YouTube modal test failed:', error);
+            }
+        }
     });
 
     let currentDragMode = gd.layout.dragmode || 'pan';
@@ -126,6 +152,7 @@ function initializePlotlyEventHandlers(gd) {
     
     gd.on('plotly_shapedrawn', async function(eventShapeData) {
         console.log('[DEBUG] plotly_shapedrawn FIRED. Shape from event:', JSON.parse(JSON.stringify(eventShapeData)));
+        console.log('[DEBUG] Current layout shapes:', gd.layout.shapes);
 
         // The shape drawn is usually the last one added to gd.layout.shapes
         // and it won't have an id yet.
@@ -134,6 +161,8 @@ function initializePlotlyEventHandlers(gd) {
 
         if (currentLayoutShapes.length > 0) {
             const lastShapeInLayout = currentLayoutShapes[currentLayoutShapes.length - 1];
+            console.log('[DEBUG] Last shape in layout:', lastShapeInLayout);
+
             // Basic check: if it's a line, has no id, and isn't already being processed.
             // A more robust match would compare coordinates if Plotly guarantees eventShapeData matches.
             if (lastShapeInLayout.type === eventShapeData.type &&
@@ -141,7 +170,17 @@ function initializePlotlyEventHandlers(gd) {
                 !lastShapeInLayout.isSystemShape && // Should not be needed for user-drawn shapes
                 !lastShapeInLayout._savingInProgress) {
                 newlyAddedShapeInLayout = lastShapeInLayout;
+                console.log('[DEBUG] Found matching shape to process:', newlyAddedShapeInLayout);
+            } else {
+                console.log('[DEBUG] Shape does not match criteria:', {
+                    typeMatch: lastShapeInLayout.type === eventShapeData.type,
+                    hasId: !!lastShapeInLayout.id,
+                    isSystemShape: lastShapeInLayout.isSystemShape,
+                    savingInProgress: lastShapeInLayout._savingInProgress
+                });
             }
+        } else {
+            console.log('[DEBUG] No shapes in layout');
         }
 
         if (newlyAddedShapeInLayout) {
@@ -168,7 +207,9 @@ function initializePlotlyEventHandlers(gd) {
             }
 
             // Pass the layout shape to handleNewShapeSave, as it has resolved xref/yref
+            console.log('[DEBUG] Calling handleNewShapeSave with shape:', newlyAddedShapeInLayout);
             const backendId = await handleNewShapeSave(newlyAddedShapeInLayout);
+            console.log('[DEBUG] handleNewShapeSave returned:', backendId);
 
             if (backendId) {
                 newlyAddedShapeInLayout.id = backendId;
@@ -236,14 +277,103 @@ function initializePlotlyEventHandlers(gd) {
     // Handle Plotly click events for better coordinate handling
     gd.on('plotly_click', function(plotlyEventData) {
         console.log('[DEBUG] PLOTLY_CLICK EVENT FIRED! Event data:', plotlyEventData);
+        console.log('[DEBUG] Event points:', plotlyEventData.points);
+        console.log('[DEBUG] Chart data traces:', gd.data ? gd.data.length : 'no data');
+
+        // Check if YouTube markers are loaded
+        const youtubeTraces = gd.data ? gd.data.filter(trace => trace.name === 'YouTube Videos') : [];
+        console.log('[DEBUG] YouTube traces found:', youtubeTraces.length);
+        if (youtubeTraces.length > 0) {
+            console.log('[DEBUG] YouTube trace details:', {
+                name: youtubeTraces[0].name,
+                type: youtubeTraces[0].type,
+                mode: youtubeTraces[0].mode,
+                x_length: youtubeTraces[0].x ? youtubeTraces[0].x.length : 0,
+                y_length: youtubeTraces[0].y ? youtubeTraces[0].y.length : 0,
+                marker: youtubeTraces[0].marker
+            });
+        }
+
+        // Add manual click test for debugging
+        console.log('[DEBUG] Manual click test - checking if we can trigger YouTube modal');
+        if (youtubeTraces.length > 0 && window.youtubeMarkersManager && window.youtubeMarkersManager.showTranscriptModal) {
+            console.log('[DEBUG] YouTube manager available, testing modal with first marker');
+            try {
+                const firstTrace = youtubeTraces[0];
+                if (firstTrace.x && firstTrace.x.length > 0) {
+                    const testTitle = firstTrace.text ? firstTrace.text[0] : 'Test Title';
+                    const testTranscript = firstTrace.transcripts ? firstTrace.transcripts[0] : 'Test transcript content';
+                    const testVideoId = firstTrace.video_ids ? firstTrace.video_ids[0] : '';
+                    const testPublishedDate = firstTrace.customdata ? firstTrace.customdata[0] : '';
+
+                    console.log('[DEBUG] Testing modal with:', { testTitle, testTranscript, testVideoId, testPublishedDate });
+                    window.youtubeMarkersManager.showTranscriptModal(testTitle, testTranscript, testVideoId, testPublishedDate);
+                    console.log('[DEBUG] Modal test completed successfully');
+                }
+            } catch (error) {
+                console.error('[DEBUG] Modal test failed:', error);
+            }
+        }
 
         // Plotly provides better coordinate handling
         if (plotlyEventData.points && plotlyEventData.points.length > 0) {
             const point = plotlyEventData.points[0];
             console.log('[DEBUG] Plotly click point:', point);
 
-            // For now, let's just try to detect if we're near any shapes
-            // We'll use a simpler approach - check all shapes and see if any are close to the click
+            // Check if this is a YouTube marker click first
+            if (point.fullData && point.fullData.name === 'YouTube Videos') {
+                console.log('[DEBUG] YouTube marker (diamond) clicked - opening video description dialog');
+
+                // Get YouTube marker data and open the modal
+                const pointIndex = point.pointIndex;
+                const transcript = point.fullData.transcripts ?
+                    point.fullData.transcripts[pointIndex] : 'No description available';
+                const title = point.fullData.text ?
+                    point.fullData.text[pointIndex] : 'Unknown title';
+                const videoId = point.fullData.video_ids ?
+                    point.fullData.video_ids[pointIndex] : '';
+                const publishedDate = point.fullData.customdata ?
+                    point.fullData.customdata[pointIndex] : '';
+
+                // Open the YouTube video description modal
+                if (window.youtubeMarkersManager && window.youtubeMarkersManager.showTranscriptModal) {
+                    window.youtubeMarkersManager.showTranscriptModal(title, transcript, videoId, publishedDate);
+                } else {
+                    console.warn('[DEBUG] YouTube markers manager not available');
+                }
+
+                return; // Don't process as a drawing shape
+            }
+
+            // Check if this is a YouTube marker from the shape selection system
+            if (point.marker && point.marker.symbol === 'diamond' && point.marker.color === 'red') {
+                console.log('[DEBUG] Red diamond marker clicked - treating as YouTube marker');
+
+                // Try to get YouTube data from the point
+                const pointIndex = point.pointIndex;
+                const traceData = point.fullData;
+
+                // Extract YouTube data if available
+                const transcript = traceData.transcripts ?
+                    traceData.transcripts[pointIndex] : 'No description available';
+                const title = traceData.text ?
+                    traceData.text[pointIndex] : 'Unknown title';
+                const videoId = traceData.video_ids ?
+                    traceData.video_ids[pointIndex] : '';
+                const publishedDate = traceData.customdata ?
+                    traceData.customdata[pointIndex] : '';
+
+                // Open the YouTube video description modal
+                if (window.youtubeMarkersManager && window.youtubeMarkersManager.showTranscriptModal) {
+                    window.youtubeMarkersManager.showTranscriptModal(title, transcript, videoId, publishedDate);
+                } else {
+                    console.warn('[DEBUG] YouTube markers manager not available');
+                }
+
+                return; // Don't process as a regular drawing shape
+            }
+
+            // Handle regular drawing shapes
             const currentShapes = gd.layout.shapes || [];
             console.log(`[DEBUG] Checking ${currentShapes.length} shapes for click proximity`);
 
@@ -251,7 +381,7 @@ function initializePlotlyEventHandlers(gd) {
                 const shape = currentShapes[i];
                 if (shape.type === 'line' && shape.id && !shape.isSystemShape) {
                     console.log(`[DEBUG] Found clickable shape ${i}: ID=${shape.id}, x0=${shape.x0}, y0=${shape.y0}, x1=${shape.x1}, y1=${shape.y1}`);
-        
+
                     // For now, let's just assume any line shape that exists is clickable
                     // This is a simplified approach to test if the event handling works
                     const clickedShapeId = shape.id;
@@ -550,7 +680,6 @@ function initializePlotlyEventHandlers(gd) {
         if (newShapesProcessedInRelayout) {
             await updateShapeVisuals(); // Update visuals if relayout processed new shapes
         }
-
         // Axis range change handling
         let rangesChangedByEvent = false;
         let userModifiedRanges = false;
@@ -593,29 +722,29 @@ function initializePlotlyEventHandlers(gd) {
                     });
                 }
 
-                // Store timestamps in milliseconds for consistency with the rest of the system
-                window.currentXAxisRange = [minTimestamp, maxTimestamp];
+        // Store timestamps in milliseconds for consistency with the rest of the system
+        window.currentXAxisRange = [minTimestamp, maxTimestamp];
 
-                // Update display elements with validation
-                try {
-                    window.xAxisMinDisplay.textContent = new Date(minTimestamp).toISOString();
-                } catch (e) {
-                    console.error("Error formatting xAxisMinDisplay:", e);
-                    window.xAxisMinDisplay.textContent = `Invalid Date: ${minTimestamp}`;
-                }
+        // Update display elements with validation
+        try {
+            window.xAxisMinDisplay.textContent = new Date(minTimestamp).toISOString();
+        } catch (e) {
+            console.error("Error formatting xAxisMinDisplay:", e);
+            window.xAxisMinDisplay.textContent = `Invalid Date: ${minTimestamp}`;
+        }
 
-                try {
-                    window.xAxisMaxDisplay.textContent = new Date(maxTimestamp).toISOString();
-                } catch (e) {
-                    console.error("Error formatting xAxisMaxDisplay:", e);
-                    window.xAxisMaxDisplay.textContent = `Invalid Date: ${maxTimestamp}`;
-                }
+        try {
+            window.xAxisMaxDisplay.textContent = new Date(maxTimestamp).toISOString();
+        } catch (e) {
+            console.error("Error formatting xAxisMaxDisplay:", e);
+            window.xAxisMaxDisplay.textContent = `Invalid Date: ${maxTimestamp}`;
+        }
 
-                if (!window.isApplyingAutoscale) {
-                    rangesChangedByEvent = true;
-                    userModifiedRanges = true;
-                }
-                console.log('[DEBUG] Updated currentXAxisRange (in seconds):', window.currentXAxisRange);
+        if (!window.isApplyingAutoscale) {
+            rangesChangedByEvent = true;
+            userModifiedRanges = true;
+        }
+        console.log('[DEBUG] Updated currentXAxisRange (in milliseconds):', window.currentXAxisRange);
             } else {
                 console.log('[DEBUG] xRange is invalid or missing:', xRange);
             }
@@ -679,6 +808,18 @@ function initializePlotlyEventHandlers(gd) {
         if (rangesChangedByEvent && userModifiedRanges) {
             console.log('[plotly_relayout] Ranges changed by user. User modified:', userModifiedRanges, 'New X-Range:', window.currentXAxisRange, 'New Y-Range:', window.currentYAxisRange);
             saveSettings(); // from settingsManager.js
+
+            // 🚨 CLEAR CHART DATA BEFORE REQUESTING NEW DATA 🚨
+            // This prevents data overlapping when user pans/zooms to new time ranges
+            if (window.gd) {
+                console.log('[plotly_relayout] Clearing chart data before requesting new time range data');
+                console.log('[CHART_UPDATE] plotly_relayout range change - clearing chart at', new Date().toISOString());
+                removeRealtimePriceLine(window.gd);
+                // Clear all chart data and reset to empty state
+                Plotly.react(window.gd, [], window.gd.layout || {});
+                console.log('[CHART_UPDATE] plotly_relayout range change - chart cleared, ready for new data');
+            }
+
             // Debounce chart update if ranges were changed by user panning/zooming,
             // or if autorange occurred (which means we need to reload based on dropdowns)
             clearTimeout(window.fetchDataDebounceTimer); // fetchDataDebounceTimer from state.js
@@ -689,18 +830,24 @@ function initializePlotlyEventHandlers(gd) {
                 const resolution = window.resolutionSelect ? window.resolutionSelect.value : '1h';
                 if (symbol && resolution && window.currentXAxisRange) {
                     const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
-                    // currentXAxisRange is already in seconds, no need to divide by 1000
-                    const fromTs = Math.floor(window.currentXAxisRange[0]);
-                    const toTs = Math.floor(window.currentXAxisRange[1]);
+                    // currentXAxisRange is in milliseconds, convert to seconds for checkIfHistoricalDataNeeded
+                    const fromTsSeconds = Math.floor(window.currentXAxisRange[0] / 1000);
+                    const toTsSeconds = Math.floor(window.currentXAxisRange[1] / 1000);
 
                     // Check if we need to request more historical data
-                    const needsMoreData = checkIfHistoricalDataNeeded(fromTs, toTs, resolution);
+                    const needsMoreData = checkIfHistoricalDataNeeded(fromTsSeconds, toTsSeconds, resolution);
                     if (needsMoreData) {
                         console.log('[plotly_relayout] Requesting additional historical data for new time range');
                         // Request historical data with expanded range to provide buffer
                         const bufferMultiplier = 2; // Request 2x the visible range for buffer
-                        const bufferedFromTs = Math.floor(fromTs - (toTs - fromTs) * (bufferMultiplier - 1) / 2);
-                        const bufferedToTs = Math.floor(toTs + (toTs - fromTs) * (bufferMultiplier - 1) / 2);
+                        const fromMs = window.currentXAxisRange[0];
+                        const toMs = window.currentXAxisRange[1];
+                        const rangeMs = toMs - fromMs;
+                        const bufferedFromMs = fromMs - rangeMs * (bufferMultiplier - 1) / 2;
+                        const bufferedToMs = toMs + rangeMs * (bufferMultiplier - 1) / 2;
+
+                        const bufferedFromTs = new Date(bufferedFromMs).toISOString();
+                        const bufferedToTs = new Date(bufferedToMs).toISOString();
 
                         setupCombinedWebSocket(symbol, activeIndicators, resolution, bufferedFromTs, bufferedToTs);
                     } else {
@@ -714,9 +861,16 @@ function initializePlotlyEventHandlers(gd) {
                         console.log('  wsFromTs (ISO):', wsFromTs);
                         console.log('  wsToTs (ISO):', wsToTs);
 
-                        // If WebSocket is open, send new config, otherwise establish new connection
+                        // If WebSocket is open, send new config directly, otherwise establish new connection
                         if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
-                            setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+                            // Send config update directly without reconnecting
+                            if (typeof sendCombinedConfig === 'function') {
+                                sendCombinedConfig();
+                                console.log('[plotly_relayout] Sent config update to existing WebSocket connection');
+                            } else {
+                                console.warn('[plotly_relayout] sendCombinedConfig function not available, falling back to setupCombinedWebSocket');
+                                setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+                            }
                         } else {
                             delay(100).then(() => {
                                 setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);

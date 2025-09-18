@@ -3,6 +3,7 @@
 import asyncio
 import time
 import json
+import numpy as np
 from typing import Dict, Any, List
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
@@ -10,7 +11,7 @@ from pybit.unified_trading import WebSocket as BybitWS
 from config import SUPPORTED_SYMBOLS, DEFAULT_SYMBOL_SETTINGS, AVAILABLE_INDICATORS
 from redis_utils import get_redis_connection, publish_live_data_tick, get_cached_klines, get_cached_open_interest, get_stream_key, get_sync_redis_connection
 from logging_config import logger
-from indicators import _prepare_dataframe, calculate_macd, calculate_rsi, calculate_stoch_rsi, calculate_open_interest, calculate_jma_indicator, get_timeframe_seconds
+from indicators import _prepare_dataframe, calculate_macd, calculate_rsi, calculate_stoch_rsi, calculate_open_interest, calculate_jma_indicator, get_timeframe_seconds, find_buy_signals
 from datetime import datetime, timezone
 from drawing_manager import get_drawings
 
@@ -311,18 +312,29 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
     notification_stream_key = f"notify:{client_id}"
     try:
         redis = await get_redis_connection()
-        await redis.hset(client_id, {
-            "symbol": active_symbol,
-            "resolution": client_state["resolution"],
-            "from_ts": str(client_state["from_ts"] or 0),
-            "to_ts": str(client_state["to_ts"] or 0),
-            "last_update": str(time.time())
-        })
+
+        # Ensure all values are properly converted to strings
+        symbol_val = str(active_symbol) if active_symbol is not None else ""
+        resolution_val = str(client_state["resolution"]) if client_state["resolution"] is not None else "1h"
+        from_ts_val = str(client_state["from_ts"]) if client_state["from_ts"] is not None else "0"
+        to_ts_val = str(client_state["to_ts"]) if client_state["to_ts"] is not None else "0"
+        last_update_val = str(time.time())
+
+        logger.debug(f"DEBUG Redis registration: symbol={symbol_val} (type: {type(active_symbol)}), resolution={resolution_val} (type: {type(client_state['resolution'])}), from_ts={from_ts_val} (type: {type(client_state['from_ts'])}), to_ts={to_ts_val} (type: {type(client_state['to_ts'])})")
+
+        # Use individual key-value pairs instead of dictionary
+        await redis.hset(client_id, "symbol", symbol_val)
+        await redis.hset(client_id, "resolution", resolution_val)
+        await redis.hset(client_id, "from_ts", from_ts_val)
+        await redis.hset(client_id, "to_ts", to_ts_val)
+        await redis.hset(client_id, "last_update", last_update_val)
+
         # Set TTL for client data (24 hours)
         await redis.expire(client_id, 86400)
         logger.info(f"Registered client {client_id} for smart notifications")
     except Exception as e:
         logger.error(f"Failed to register client {client_id} in Redis: {e}")
+        logger.error(f"Redis registration values: symbol={active_symbol} (type: {type(active_symbol)}), resolution={client_state.get('resolution')} (type: {type(client_state.get('resolution'))}), from_ts={client_state.get('from_ts')} (type: {type(client_state.get('from_ts'))}), to_ts={client_state.get('to_ts')} (type: {type(client_state.get('to_ts'))})")
 
     # Start notification listener task
     async def listen_for_notifications():
@@ -440,9 +452,9 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                             "symbol": active_symbol,
                             "data": drawings
                         }
-                        logger.info(f"Sending drawing ({len(drawings)}) message: {drawing_message}")
+                        # logger.info(f"Sending drawing ({len(drawings)}) message: {drawing_message}")
                         await send_to_client(drawing_message)
-                        logger.info(f"Successfully sent drawings message to client")
+                        # logger.info(f"Successfully sent drawings message to client")
                     else:
                         logger.info(f"No existing drawings found for {active_symbol} (email: {user_email}, resolution: {client_state.get('resolution')})")
 
@@ -453,14 +465,77 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
 
             await send_existing_shapes()
 
-            # Get historical klines from Redis with error handling
+            # Calculate the TOTAL historical data needed for ZERO null values in the requested range
+            # Each indicator needs enough historical data to produce valid values for the ENTIRE requested range
+            max_lookback_periods = 0
+            indicator_lookbacks = {}
+
+            for indicator_id in client_state["indicators"]:
+                config = next((item for item in AVAILABLE_INDICATORS if item["id"] == indicator_id), None)
+                if config:
+                    current_indicator_lookback = 0
+                    if config["id"] == "macd":
+                        # MACD calculation: MACD = EMA(close, fast) - EMA(close, slow), Signal = EMA(MACD, signal)
+                        # EMA needs ~3x period for stabilization, plus signal period
+                        short_period = config["params"]["short_period"]
+                        long_period = config["params"]["long_period"]
+                        signal_period = config["params"]["signal_period"]
+                        ema_warmup = max(short_period, long_period) * 3  # EMA stabilization
+                        current_indicator_lookback = ema_warmup + signal_period + 50  # Extra buffer
+                    elif config["id"] == "rsi":
+                        # RSI calculation: RSI = 100 - (100 / (1 + RS)), RS = EMA(gains, period) / EMA(losses, period)
+                        # Needs period * 3 for EMA stabilization + some buffer
+                        period = config["params"]["period"]
+                        current_indicator_lookback = period * 3 + 50
+                    elif config["id"] == "open_interest":
+                        current_indicator_lookback = 0  # OI is direct data, no calculation lookback
+                    elif config["id"].startswith("stochrsi"):
+                        # StochRSI: First RSI, then Stochastic oscillator
+                        rsi_period = config["params"]["rsi_period"]
+                        stoch_period = config["params"]["stoch_period"]
+                        k_period = config["params"]["k_period"]
+                        d_period = config["params"]["d_period"]
+                        # RSI warmup + Stochastic calculation periods
+                        rsi_warmup = rsi_period * 3
+                        stoch_warmup = stoch_period + k_period + d_period
+                        current_indicator_lookback = rsi_warmup + stoch_warmup + 50
+                    elif config["id"] == "jma":
+                        # JMA (Jurik Moving Average): Complex adaptive algorithm
+                        # Needs length * 4 for proper initialization + phase adaptation
+                        length = config["params"]["length"]
+                        current_indicator_lookback = length * 4 + 100
+
+                    indicator_lookbacks[indicator_id] = current_indicator_lookback
+                    if current_indicator_lookback > max_lookback_periods:
+                        max_lookback_periods = current_indicator_lookback
+
+            logger.info(f"🔍 WEBSOCKET LOOKBACK CALCULATION: Max lookback needed: {max_lookback_periods} periods for ZERO null values")
+            logger.info(f"🔍 WEBSOCKET INDICATOR LOOKBACKS: {indicator_lookbacks}")
+
+            # Calculate timeframe seconds
+            timeframe_secs = get_timeframe_seconds(client_state["resolution"])
+
+            # Determine the kline fetch window based on lookback and original request's to_ts
+            # The data for calculation must extend up to the original 'to_ts'.
+            # The start of this data window needs to be early enough to satisfy 'max_lookback_periods'
+            # for the indicators to be valid at the original 'from_ts'.
+            buffer_candles = 1
+            min_overall_candles = 1
+            lookback_candles_needed = max(max_lookback_periods + buffer_candles, min_overall_candles)
+
+            kline_fetch_start_ts = client_state["from_ts"] - (lookback_candles_needed * timeframe_secs)
+            kline_fetch_end_ts = client_state["to_ts"] # This is the original 'to_ts' from the request
+
+            logger.info(f"🔍 WEBSOCKET DATA FETCH: Will fetch from {kline_fetch_start_ts} to ensure all indicators have valid values at {client_state['from_ts']}")
+
+            # Get historical klines from Redis with enlarged range for indicator calculation
             try:
-                logger.debug(f"Requesting klines for {active_symbol}: {len(klines) if 'klines' in locals() else 0} points")
-                klines = await get_cached_klines(active_symbol, client_state["resolution"], client_state["from_ts"], client_state["to_ts"])
-                logger.info(f"✅ REDIS SUCCESS: Retrieved {len(klines) if klines else 0} klines from Redis for {active_symbol}")
+                logger.debug(f"Requesting enlarged klines for {active_symbol}: fetch range {kline_fetch_start_ts} to {kline_fetch_end_ts}")
+                klines = await get_cached_klines(active_symbol, client_state["resolution"], kline_fetch_start_ts, kline_fetch_end_ts)
+                logger.info(f"✅ REDIS SUCCESS: Retrieved {len(klines) if klines else 0} klines from Redis for {active_symbol} (enlarged range)")
             except Exception as e:
                 logger.error(f"❌ REDIS FAILURE: Failed to get cached klines from Redis for {active_symbol}: {e}", exc_info=True)
-                logger.error(f"📊 REDIS CONTEXT: symbol={active_symbol}, resolution={client_state['resolution']}, from_ts={client_state['from_ts']}, to_ts={client_state['to_ts']}")
+                logger.error(f"📊 REDIS CONTEXT: symbol={active_symbol}, resolution={client_state['resolution']}, fetch_from={kline_fetch_start_ts}, fetch_to={kline_fetch_end_ts}")
                 return
 
             # If no klines found in cache, try to fetch from Bybit as fallback
@@ -509,6 +584,82 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                 logger.error(f"  Resolution: {client_state['resolution']}")
                 logger.error(f"  Time range: {client_state['from_ts']} to {client_state['to_ts']}")
                 indicators_data = {}
+
+            # Calculate buy signals if we have the required indicators (RSI and StochRSI)
+            buy_signals = []
+            if indicators_data and any(ind.startswith('rsi') for ind in client_state["indicators"]) and any(ind.startswith('stochrsi') for ind in client_state["indicators"]):
+                try:
+                    logger.info(f"Calculating buy signals for {active_symbol} historical data")
+                    # Recreate df for buy signals calculation since we need the DataFrame
+                    # Try to get Open Interest data from cache first
+                    oi_data = await get_cached_open_interest(active_symbol, client_state["resolution"], client_state["from_ts"], client_state["to_ts"])
+
+                    # If no OI data in cache, try to fetch from Bybit as fallback
+                    if not oi_data or len(oi_data) == 0:
+                        logger.info(f"🔄 OI FALLBACK: No Open Interest data in cache for {active_symbol}, attempting to fetch from Bybit")
+                        try:
+                            from indicators import fetch_open_interest_from_bybit
+                            from redis_utils import cache_open_interest
+
+                            oi_fetched = fetch_open_interest_from_bybit(active_symbol, client_state["resolution"], client_state["from_ts"], client_state["to_ts"])
+                            if oi_fetched and len(oi_fetched) > 0:
+                                await cache_open_interest(active_symbol, client_state["resolution"], oi_fetched)
+                                logger.info(f"💾 OI CACHED: Stored {len(oi_fetched)} Open Interest entries for {active_symbol}")
+                                oi_data = oi_fetched
+                            else:
+                                logger.info(f"ℹ️ OI INFO: No Open Interest data available from Bybit for {active_symbol}")
+                        except Exception as e:
+                            logger.warning(f"⚠️ OI FETCH WARNING: Failed to fetch Open Interest data for {active_symbol}: {e}")
+
+                    df_for_signals = _prepare_dataframe(klines, oi_data)
+                    if df_for_signals is not None and not df_for_signals.empty:
+                        # Add calculated indicator values back to the DataFrame for buy signals calculation
+                        # Map indicator result keys back to DataFrame column names
+                        for indicator_id, indicator_result in indicators_data.items():
+                            if indicator_id == 'rsi' and 'rsi' in indicator_result:
+                                # RSI values - need to align with DataFrame timestamps
+                                rsi_values = indicator_result['rsi']
+                                rsi_sma14_values = indicator_result.get('rsi_sma14', [])
+                                timestamps = indicator_result['t']
+                                # Create mappings from timestamp to values
+                                rsi_map = dict(zip(timestamps, rsi_values))
+                                rsi_sma14_map = dict(zip(timestamps, rsi_sma14_values))
+                                # Add RSI columns to DataFrame
+                                df_for_signals['RSI_14'] = df_for_signals.index.map(lambda ts: rsi_map.get(ts.timestamp(), np.nan))
+                                df_for_signals['RSI_SMA_14'] = df_for_signals.index.map(lambda ts: rsi_sma14_map.get(ts.timestamp(), np.nan))
+
+                            if indicator_id.startswith('stochrsi') and 'stoch_k' in indicator_result and 'stoch_d' in indicator_result:
+                                # StochRSI values - need to align with DataFrame timestamps
+                                stoch_k_values = indicator_result['stoch_k']
+                                stoch_d_values = indicator_result['stoch_d']
+                                timestamps = indicator_result['t']
+                                # Create mappings from timestamp to values
+                                stoch_k_map = dict(zip(timestamps, stoch_k_values))
+                                stoch_d_map = dict(zip(timestamps, stoch_d_values))
+
+                                # Map indicator_id to the correct column names that find_buy_signals expects
+                                # indicator_id format: 'stochrsi_X_Y' where X is rsi_period, Y is stoch_period
+                                if indicator_id == 'stochrsi_9_3':
+                                    df_for_signals['STOCHRSIk_9_9_3_3'] = df_for_signals.index.map(lambda ts: stoch_k_map.get(ts.timestamp(), np.nan))
+                                    df_for_signals['STOCHRSId_9_9_3_3'] = df_for_signals.index.map(lambda ts: stoch_d_map.get(ts.timestamp(), np.nan))
+                                elif indicator_id == 'stochrsi_14_3':
+                                    df_for_signals['STOCHRSIk_14_14_3_3'] = df_for_signals.index.map(lambda ts: stoch_k_map.get(ts.timestamp(), np.nan))
+                                    df_for_signals['STOCHRSId_14_14_3_3'] = df_for_signals.index.map(lambda ts: stoch_d_map.get(ts.timestamp(), np.nan))
+                                elif indicator_id == 'stochrsi_40_4':
+                                    df_for_signals['STOCHRSIk_40_40_4_4'] = df_for_signals.index.map(lambda ts: stoch_k_map.get(ts.timestamp(), np.nan))
+                                    df_for_signals['STOCHRSId_40_40_4_4'] = df_for_signals.index.map(lambda ts: stoch_d_map.get(ts.timestamp(), np.nan))
+                                elif indicator_id == 'stochrsi_60_10':
+                                    df_for_signals['STOCHRSIk_10_60_10_10'] = df_for_signals.index.map(lambda ts: stoch_k_map.get(ts.timestamp(), np.nan))
+                                    df_for_signals['STOCHRSId_10_60_10_10'] = df_for_signals.index.map(lambda ts: stoch_d_map.get(ts.timestamp(), np.nan))
+
+                                buy_signals = find_buy_signals(df_for_signals)
+                                logger.info(f"Found {len(buy_signals)} buy signals for {active_symbol}")
+                    else:
+                        logger.warning(f"Could not prepare DataFrame for buy signals calculation for {active_symbol}")
+                        buy_signals = []
+                except Exception as e:
+                    logger.error(f"Error calculating buy signals for {active_symbol}: {e}", exc_info=True)
+                    buy_signals = []
 
             # Prepare combined data
             combined_data = []
@@ -571,6 +722,19 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                     break
 
                 await asyncio.sleep(0.01)  # Small delay to prevent overwhelming client
+
+            # Send buy signals if any were found
+            if buy_signals:
+                logger.info(f"Sending {len(buy_signals)} buy signals for {active_symbol}")
+                try:
+                    await send_to_client({
+                        "type": "buy_signals",
+                        "symbol": active_symbol,
+                        "data": buy_signals
+                    })
+                    logger.info(f"Successfully sent {len(buy_signals)} buy signals for {active_symbol}")
+                except Exception as e:
+                    logger.error(f"Failed to send buy signals for {active_symbol}: {e}")
 
             # logger.info(f"Completed sending {len(combined_data)} historical data points for {active_symbol}")
             client_state["historical_sent"] = True
@@ -839,22 +1003,112 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
             except Exception as e:
                 logger.error(f"Error calculating indicator {indicator_id} for {active_symbol}: {e}", exc_info=True)
 
+        # 🔍 VALIDATION: Check non-null values for requested time range (WebSocket historical data)
+        if df is not None and len(df) > 0:
+            logger.info(f"🔍 WEBSOCKET VALIDATION: Checking {len(indicators_data)} indicators for WebSocket historical data")
+
+            validation_results = {}
+            total_indicators = len(indicators_data)
+            valid_indicators = 0
+
+            for indicator_name, result in indicators_data.items():
+                if not isinstance(result, dict) or not result.get('t'):
+                    logger.warning(f"⚠️ WEBSOCKET VALIDATION SKIPPED: {indicator_name} - Invalid result format")
+                    validation_results[indicator_name] = False
+                    continue
+
+                timestamps = result.get('t', [])
+                indicator_keys = [k for k in result.keys() if k not in ['t', 's', 'errmsg']]
+
+                # For WebSocket, we validate all data since it's historical data being sent to client
+                # Filter to requested time range only
+                requested_range_indices = [i for i, ts in enumerate(timestamps) if client_state["from_ts"] <= ts <= client_state["to_ts"]]
+                requested_range_count = len(requested_range_indices)
+
+                if requested_range_count == 0:
+                    logger.warning(f"⚠️ WEBSOCKET VALIDATION SKIPPED: {indicator_name} - No data in requested range {client_state['from_ts']} to {client_state['to_ts']}")
+                    validation_results[indicator_name] = False
+                    continue
+
+                logger.debug(f"🔍 WEBSOCKET VALIDATION: {indicator_name} - Checking {len(indicator_keys)} data series for {requested_range_count} points in range {client_state['from_ts']} to {client_state['to_ts']}")
+
+                is_valid = True
+                for key in indicator_keys:
+                    data_series = result.get(key, [])
+                    logger.info(f"Validating: {indicator_name} - {key}")
+                    if not data_series or len(data_series) != len(timestamps):
+                        logger.error(f"❌ WEBSOCKET VALIDATION FAILED: {indicator_name} - {key} data length mismatch")
+                        is_valid = False
+                        continue
+
+                    # Check null values in the requested range, allowing some nulls at the beginning due to lookback
+                    nulls_in_range = sum(1 for i in requested_range_indices if data_series[i] is None)
+                    total_in_range = len(requested_range_indices)
+
+                    # Allow up to 10% nulls at the beginning of the range (due to indicator lookback)
+                    # But require complete data for the last 90% of the requested range
+                    allowed_nulls_at_start = max(5, int(total_in_range * 0.1))  # Allow at least 5, or 10% of range
+                    check_from_index = min(allowed_nulls_at_start, total_in_range - 1)
+
+                    # Check nulls in the "useful" part of the range (after the lookback period)
+                    useful_range_indices = requested_range_indices[check_from_index:]
+                    nulls_in_useful_range = sum(1 for i in useful_range_indices if data_series[i] is None)
+
+                    if nulls_in_useful_range > 0:
+                        logger.error(f"❌ WEBSOCKET VALIDATION FAILED: {indicator_name} - {key} has {nulls_in_useful_range} nulls in useful range!")
+                        logger.error(f"   Total range: {total_in_range} points, Allowed nulls at start: {allowed_nulls_at_start}")
+                        logger.error(f"   Useful range: {len(useful_range_indices)} points, Nulls found: {nulls_in_useful_range}")
+                        logger.error(f"   Requested range: {client_state['from_ts']} to {client_state['to_ts']}")
+                        is_valid = False
+                    else:
+                        logger.debug(f"✅ WEBSOCKET VALIDATION: {indicator_name} - {key}: {total_in_range} points, {nulls_in_range} nulls at start (allowed)")
+
+                validation_results[indicator_name] = is_valid
+                if is_valid:
+                    valid_indicators += 1
+
+            # Log validation summary
+            failed_count = total_indicators - valid_indicators
+
+            logger.info(f"🔍 WEBSOCKET VALIDATION RESULTS: {valid_indicators}/{total_indicators} indicators valid for requested range, {failed_count} failed")
+
+            if failed_count > 0:
+                logger.error(f"🚨 CRITICAL WEBSOCKET ISSUE: {failed_count}/{total_indicators} indicators have null values in WebSocket historical data!")
+                logger.error("This will cause frontend chart display problems in WebSocket streaming.")
+                logger.error(f"WebSocket requested range: {client_state['from_ts']} to {client_state['to_ts']}")
+            else:
+                logger.info(f"✅ WEBSOCKET SUCCESS: All {total_indicators} indicators have complete data for WebSocket historical range {client_state['from_ts']} to {client_state['to_ts']}")
+        else:
+            logger.warning("⚠️ WEBSOCKET VALIDATION SKIPPED: No DataFrame available for validation")
+
         return indicators_data
 
     try:
         while websocket.client_state == WebSocketState.CONNECTED:
             try:
+                # Additional safety check before receiving messages
+                if websocket.client_state != WebSocketState.CONNECTED:
+                    logger.info(f"WebSocket state changed to {websocket.client_state} for {active_symbol}, breaking message loop")
+                    break
+
                 # Receive client messages with error handling
                 try:
                     message = await asyncio.wait_for(websocket.receive_json(), timeout=1.0)
                 except asyncio.TimeoutError:
                     # No message received, continue with keep-alive
                     pass
+                except RuntimeError as e:
+                    if "WebSocket is not connected" in str(e) or "Need to call \"accept\" first" in str(e):
+                        logger.warning(f"WebSocket connection lost for {active_symbol}: {e}")
+                        break
+                    else:
+                        logger.error(f"RuntimeError receiving WebSocket message for {active_symbol}: {e}", exc_info=True)
+                        continue
                 except Exception as e:
-                    logger.error(f"Failed to receive WebSocket message for {symbol}: {e}", exc_info=True)
+                    logger.error(f"Failed to receive WebSocket message for {active_symbol}: {e}", exc_info=True)
                     # Check if this is a WebSocketDisconnect with service restart code
                     if isinstance(e, WebSocketDisconnect) and e.code == 1012:
-                        logger.warning(f"🚨 CRITICAL: WebSocket disconnect with service restart code (1012) detected for {symbol}")
+                        logger.warning(f"🚨 CRITICAL: WebSocket disconnect with service restart code (1012) detected for {active_symbol}")
                         logger.info(f"📋 CONTEXT: Last processed indicators: {client_state.get('indicators', [])}")
                         logger.info(f"📋 CONTEXT: Active symbol: {active_symbol}, Resolution: {client_state.get('resolution', 'unknown')}")
                     continue
@@ -960,18 +1214,51 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                             # Update client state in Redis for smart notifications
                             try:
                                 redis = await get_redis_connection()
-                                await redis.hset(client_id, {
-                                    "symbol": active_symbol,
-                                    "resolution": client_state["resolution"],
-                                    "from_ts": str(client_state["from_ts"] or 0),
-                                    "to_ts": str(client_state["to_ts"] or 0),
-                                    "last_update": str(time.time())
-                                })
+
+                                # Debug all values before Redis operation
+                                logger.debug(f"DEBUG Redis update: active_symbol={active_symbol} (type: {type(active_symbol)})")
+                                logger.debug(f"DEBUG Redis update: resolution={client_state.get('resolution')} (type: {type(client_state.get('resolution'))})")
+                                logger.debug(f"DEBUG Redis update: from_ts={client_state.get('from_ts')} (type: {type(client_state.get('from_ts'))})")
+                                logger.debug(f"DEBUG Redis update: to_ts={client_state.get('to_ts')} (type: {type(client_state.get('to_ts'))})")
+
+                                # Ensure all values are properly converted to strings
+                                symbol_str = str(active_symbol) if active_symbol is not None else ""
+                                resolution_str = str(client_state["resolution"]) if client_state["resolution"] is not None else "1h"
+
+                                from_ts_val = client_state["from_ts"]
+                                to_ts_val = client_state["to_ts"]
+
+                                # Convert timestamps to string safely, handling different types
+                                if isinstance(from_ts_val, (int, float)):
+                                    from_ts_str = str(int(from_ts_val))
+                                elif isinstance(from_ts_val, str):
+                                    from_ts_str = from_ts_val
+                                else:
+                                    from_ts_str = "0"
+
+                                if isinstance(to_ts_val, (int, float)):
+                                    to_ts_str = str(int(to_ts_val))
+                                elif isinstance(to_ts_val, str):
+                                    to_ts_str = to_ts_val
+                                else:
+                                    to_ts_str = "0"
+
+                                logger.debug(f"DEBUG Redis final values: symbol='{symbol_str}', resolution='{resolution_str}', from_ts='{from_ts_str}', to_ts='{to_ts_str}'")
+
+                                # Use individual key-value pairs instead of dictionary
+                                await redis.hset(client_id, "symbol", symbol_str)
+                                await redis.hset(client_id, "resolution", resolution_str)
+                                await redis.hset(client_id, "from_ts", from_ts_str)
+                                await redis.hset(client_id, "to_ts", to_ts_str)
+                                await redis.hset(client_id, "last_update", str(time.time()))
                                 logger.debug(f"Updated client state in Redis for {client_id}")
                             except Exception as e:
                                 logger.error(f"Failed to update client state in Redis for {client_id}: {e}")
+                                logger.error(f"Redis update failed with values: symbol={active_symbol} (type: {type(active_symbol)}), resolution={client_state.get('resolution')} (type: {type(client_state.get('resolution'))}), from_ts={client_state.get('from_ts')} (type: {type(client_state.get('from_ts'))}), to_ts={client_state.get('to_ts')} (type: {type(client_state.get('to_ts'))})")
 
-                            # Check if this is a new time range request (panning/zooming)
+                            # Check if this is a new time range request (panning/zooming) or resolution change
+                            old_resolution = message.get("old_resolution")
+                            resolution_changed = old_resolution is not None and old_resolution != client_state["resolution"]
                             time_range_changed = (old_from_ts != client_state["from_ts"] or
                                                 old_to_ts != client_state["to_ts"])
 
@@ -979,6 +1266,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                             logger.info(f"  Old range: from_ts={old_from_ts}, to_ts={old_to_ts}")
                             logger.info(f"  New range: from_ts={client_state['from_ts']}, to_ts={client_state['to_ts']}")
                             logger.info(f"  Time range changed: {time_range_changed}")
+                            logger.info(f"  Resolution changed: {resolution_changed} (from {old_resolution} to {client_state['resolution']})")
                             logger.info(f"  Historical sent: {client_state['historical_sent']}")
                             logger.info(f"  Has timestamps: from_ts={bool(client_state['from_ts'])}, to_ts={bool(client_state['to_ts'])}")
 
@@ -1034,8 +1322,9 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
 
                                 # Send historical data if:
                                 # 1. Time range changed (new pan/zoom request), OR
-                                # 2. Historical data hasn't been sent yet
-                                should_send_historical = (time_range_changed or not client_state["historical_sent"]) and client_state["from_ts"] and client_state["to_ts"]
+                                # 2. Resolution changed (different data needed), OR
+                                # 3. Historical data hasn't been sent yet
+                                should_send_historical = (time_range_changed or resolution_changed or not client_state["historical_sent"]) and client_state["from_ts"] and client_state["to_ts"]
 
                                 # logger.info(f"Should send historical data: {should_send_historical}")
 

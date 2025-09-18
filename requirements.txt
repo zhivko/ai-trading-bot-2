@@ -15,7 +15,7 @@ langchain-core
 pydantic
 scipy
 numpy==1.26.4
-torch # Note: For CUDA support, you might need a specific version like torch==2.2.2+cu121
+torch==2.2.2+cpu --index-url https://download.pytorch.org/whl/cpu # CPU-only version for compatibility
 gymnasium
 stable-baselines3
 tqdm
@@ -44,3 +44,15 @@ importlib-metadata==4.11.4
 transformers
 accelerate
 slowapi
+requests
+pytesseract
+Pillow
+python-binance
+ultralytics
+openai-whisper
+pydub
+youtube-transcript-api
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
+python-dotenv

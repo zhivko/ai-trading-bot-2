@@ -140,9 +140,9 @@ def plot_data_with_indicators(df: pd.DataFrame, filename: str = "chart_with_indi
     else:
         logger.warning(f"RSI column not found for plotting: {rsi_col}")
 
-    # Plot Stochastic RSI (using the slowest one, 60_60_10_10)
-    stochrsi_k_col = f'STOCHRSIk_60_60_10_10'
-    stochrsi_d_col = f'STOCHRSId_60_60_10_10'
+    # Plot Stochastic RSI (using the slowest one, 60_10_10_10)
+    stochrsi_k_col = f'STOCHRSIk_60_10_10_10'
+    stochrsi_d_col = f'STOCHRSId_60_10_10_10'
     if stochrsi_k_col in df.columns and stochrsi_d_col in df.columns:
         fig.add_trace(go.Scatter(x=df.index, y=df[stochrsi_k_col], mode='lines', name='StochRSI %K', line=dict(color='orange')), row=4, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df[stochrsi_d_col], mode='lines', name='StochRSI %D', line=dict(color='teal')), row=4, col=1)
@@ -211,8 +211,8 @@ async def main():
     df_ohlcv.ta.macd(fast=12, slow=26, signal=9, append=True)
     # RSI
     df_ohlcv.ta.rsi(length=14, append=True)
-    # Stochastic RSI (using the slowest one, 60_60_10_10)
-    df_ohlcv.ta.stochrsi(rsi_length=60, length=60, k=10, d=10, append=True)
+    # Stochastic RSI (using the slowest one, 60_10_10_10)
+    df_ohlcv.ta.stochrsi(rsi_length=60, length=10, k=10, d=10, append=True)
     # Open Interest is already merged and named 'open_interest'
 
     # Drop any rows with NaN values that result from indicator calculations

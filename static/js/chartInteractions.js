@@ -184,10 +184,12 @@ function colorTheLine(eventParam)
 
         const currentShapes = window.gd.layout.shapes || [];
         //console.log(`[colorTheLine] Checking ${currentShapes.length} shapes for hover detection`);
+        console.groupCollapsed("Checking shapes for hover detection");
         for (let i = 0; i < currentShapes.length; i++) {
             const shape = currentShapes[i];
             //console.log(`[colorTheLine] Shape ${i}: type=${shape.type}, id=${shape.id}, isSystemShape=${shape.isSystemShape}`);
             if (shape.type === 'line' && shape.id && !shape.isSystemShape) { // Ignore system shapes
+                //console.group(`[colorTheLine] Processing Shape ${i} (ID: ${shape.id})`);
                 //console.log(`[colorTheLine] Processing shape ${i} (ID: ${shape.id}) for hover detection`);
                 const xrefKeyForFilter = getAxisLayoutKey(shape.xref, 'xaxis'); // Assumes getAxisLayoutKey is global
                 const yrefKeyForFilter = getAxisLayoutKey(shape.yref, 'yaxis');
@@ -246,9 +248,9 @@ function colorTheLine(eventParam)
                     window.newHoveredShapeId = shape.id;
                     console.log(`[colorTheLine] Shape ${i} (ID: ${shape.id}) is now the closest hovered shape!`);
                 }
-                //console.groupEnd(); // End group for this shape
             }
         }
+        console.groupEnd(); // End group for this shape
 
         //console.log(`[DEBUG] colorTheLine Final: hoveredShapeBackendId=${window.hoveredShapeBackendId}, newHoveredShapeId=${window.newHoveredShapeId}`);
         if (window.hoveredShapeBackendId !== window.newHoveredShapeId) {
@@ -463,13 +465,89 @@ function handleShapeClick(event) {
         return;
     }
 
-    console.log('[DEBUG] handleShapeClick - Starting shape click processing');
-
-    // Check if click is on a shape by finding the closest shape to the click position
+    // Get mouse coordinates early - needed for YouTube marker detection
     const rect = window.chartDiv.getBoundingClientRect();
     const mouseX_div = event.clientX - rect.left;
     const mouseY_div = event.clientY - rect.top;
 
+    // Convert DOM coordinates to Plotly paper coordinates (same as colorTheLine function)
+    const plotMargin = window.gd._fullLayout.margin;
+    const mouseX_paper = mouseX_div;
+    const mouseY_paper = mouseY_div;
+
+    // Check if this might be a YouTube marker click - use same coordinate system as line shapes
+    if (window.gd && window.gd.data && window.gd._fullLayout) {
+        // Check if any YouTube marker traces exist
+        for (let i = 0; i < window.gd.data.length; i++) {
+            const trace = window.gd.data[i];
+            if (trace.name === 'YouTube Videos' && trace.type === 'scatter' && trace.mode === 'markers') {
+                console.log('[DEBUG] handleShapeClick - YouTube marker trace detected, checking click proximity');
+
+                // Find the closest marker to the click position using same coordinate system as lines
+                if (trace.x && trace.y && trace.x.length > 0) {
+                    let closestIndex = -1;
+                    let minDistance = Infinity;
+
+                    for (let j = 0; j < trace.x.length; j++) {
+                        // Convert data coordinates to pixel coordinates (same as line shapes)
+                        const xVal = trace.x[j];
+                        const yVal = trace.y[j];
+
+                        // Get the axis information
+                        const xAxis = window.gd._fullLayout.xaxis;
+                        const yAxis = window.gd._fullLayout.yaxis;
+
+                        if (xAxis && yAxis && typeof xAxis.d2p === 'function' && typeof yAxis.d2p === 'function') {
+                            const pixelX = xAxis._offset + xAxis.d2p(xVal instanceof Date ? xVal.getTime() : xVal);
+                            const pixelY = yAxis._offset + yAxis.d2p(yVal);
+
+                            console.log(`[DEBUG] handleShapeClick - YouTube marker ${j}: data=(${xVal}, ${yVal}), pixel=(${pixelX.toFixed(2)}, ${pixelY.toFixed(2)}), mouse_paper=(${mouseX_paper.toFixed(2)}, ${mouseY_paper.toFixed(2)})`);
+
+                            // Calculate distance using same paper coordinates as line shapes
+                            const distance = Math.sqrt(Math.pow(mouseX_paper - pixelX, 2) + Math.pow(mouseY_paper - pixelY, 2));
+
+                            console.log(`[DEBUG] handleShapeClick - YouTube marker ${j} distance: ${distance.toFixed(2)}`);
+
+                            if (distance < minDistance && distance < 25) { // Slightly larger threshold for markers
+                                minDistance = distance;
+                                closestIndex = j;
+                                console.log(`[DEBUG] handleShapeClick - YouTube marker ${j} is closest so far, distance: ${distance.toFixed(2)}`);
+                            }
+                        }
+                    }
+
+                    if (closestIndex !== -1) {
+                        console.log('[DEBUG] handleShapeClick - YouTube marker clicked at index:', closestIndex);
+
+                        // Get marker data
+                        const transcript = trace.transcripts ? trace.transcripts[closestIndex] : 'No description available';
+                        const title = trace.text ? trace.text[closestIndex] : 'Unknown title';
+                        const videoId = trace.video_ids ? trace.video_ids[closestIndex] : '';
+                        const publishedDate = trace.customdata ? trace.customdata[closestIndex] : '';
+
+                        console.log('[DEBUG] handleShapeClick - Opening YouTube modal for:', title);
+
+                        // Show the YouTube modal directly
+                        if (window.youtubeMarkersManager && window.youtubeMarkersManager.showTranscriptModal) {
+                            window.youtubeMarkersManager.showTranscriptModal(title, transcript, videoId, publishedDate);
+                        } else {
+                            console.error('[DEBUG] handleShapeClick - YouTube markers manager not available');
+                        }
+
+                        // Prevent event bubbling to avoid conflicts
+                        event.stopPropagation();
+                        return;
+                    }
+                }
+
+                console.log('[DEBUG] handleShapeClick - No YouTube marker found near click position');
+            }
+        }
+    }
+
+    console.log('[DEBUG] handleShapeClick - Starting shape click processing');
+
+    // Check if click is on a shape by finding the closest shape to the click position
     console.log('[DEBUG] handleShapeClick - mouse coordinates:', { clientX: event.clientX, clientY: event.clientY, mouseX_div, mouseY_div });
 
     if (!window.gd._fullLayout) {
@@ -477,9 +555,9 @@ function handleShapeClick(event) {
         return;
     }
 
-    // Convert DOM coordinates to Plotly paper coordinates
-    const mouseX_paper = mouseX_div;
-    const mouseY_paper = mouseY_div;
+    console.log('[DEBUG] handleShapeClick - chart rect:', { left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+    console.log('[DEBUG] handleShapeClick - plot margins:', { l: plotMargin.l, r: plotMargin.r, t: plotMargin.t, b: plotMargin.b });
+    console.log('[DEBUG] handleShapeClick - paper coordinates:', { mouseX_paper, mouseY_paper });
 
     // Find the closest shape to the click position
     const currentShapes = window.gd.layout.shapes || [];
@@ -488,6 +566,7 @@ function handleShapeClick(event) {
     let minDistance = Infinity;
     const CLICK_THRESHOLD = 20; // pixels
 
+    console.groupCollapsed("handleShapeClick");
     for (let i = 0; i < currentShapes.length; i++) {
         const shape = currentShapes[i];
         console.log(`[DEBUG] handleShapeClick - shape ${i}: type=${shape.type}, id=${shape.id}, isSystemShape=${shape.isSystemShape}`);
@@ -529,6 +608,7 @@ function handleShapeClick(event) {
             }
         }
     }
+    console.groupEnd();
 
     // Handle shape selection
     if (closestShape) {

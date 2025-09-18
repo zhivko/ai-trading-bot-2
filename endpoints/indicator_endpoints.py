@@ -63,24 +63,40 @@ async def _calculate_and_return_indicators(symbol: str, resolution: str, from_ts
             print(req_id)
             return JSONResponse({"s": "error", "errmsg": f"Unsupported indicator ID found: {req_id}"}, status_code=400)
 
-    # Unconditionally calculate lookback needed for accurate indicator calculation
+    # Calculate timeframe seconds first
+    timeframe_secs = get_timeframe_seconds(resolution)
+
+    # Calculate the TOTAL historical data needed for ZERO null values in the requested range
+    # Each indicator needs enough historical data to produce valid values for the ENTIRE requested range
     max_lookback_periods = 0
+    indicator_lookbacks = {}
+
     for req_id in requested_indicator_ids:
         config = next((item for item in AVAILABLE_INDICATORS if item["id"] == req_id), None)
         if config:
             current_indicator_lookback = 0
             if config["id"] == "macd":
-                current_indicator_lookback = config["params"]["long_period"] + config["params"]["signal_period"]
+                # MACD needs: long_period + signal_period + extensive buffer for complete warm-up
+                current_indicator_lookback = config["params"]["long_period"] + config["params"]["signal_period"] + 600
             elif config["id"] == "rsi":
-                current_indicator_lookback = config["params"]["period"]
+                # RSI needs: period + extensive buffer for complete calculation
+                current_indicator_lookback = config["params"]["period"] + 200
             elif config["id"] == "open_interest":
                 current_indicator_lookback = 0 # No specific lookback for OI itself
             elif config["id"].startswith("stochrsi"):
-                current_indicator_lookback = config["params"]["rsi_period"] + config["params"]["stoch_period"] + config["params"]["d_period"]
+                # StochRSI needs: rsi_period + stoch_period + k_period + d_period + extensive buffers
+                current_indicator_lookback = config["params"]["rsi_period"] + config["params"]["stoch_period"] + config["params"]["k_period"] + config["params"]["d_period"] + 500
             elif config["id"] == "jma":
-                current_indicator_lookback = config["params"]["length"]  # JMA Length
+                # JMA (Jurik Moving Average) is complex and needs extensive lookback
+                current_indicator_lookback = config["params"]["length"] + 400
+
+            indicator_lookbacks[req_id] = current_indicator_lookback
             if current_indicator_lookback > max_lookback_periods:
                 max_lookback_periods = current_indicator_lookback
+
+    logger.info(f"🔍 LOOKBACK CALCULATION: Max lookback needed: {max_lookback_periods} periods for ZERO null values")
+    logger.info(f"🔍 INDICATOR LOOKBACKS: {indicator_lookbacks}")
+    logger.info(f"🔍 DATA FETCH: Will fetch from {from_ts - (max_lookback_periods * timeframe_secs)} to ensure all indicators have valid values at {from_ts}")
 
     buffer_candles = 1
     min_overall_candles = 1
@@ -289,5 +305,71 @@ async def _calculate_and_return_indicators(symbol: str, resolution: str, from_ts
         except Exception as e:
             logger.error(f"Error processing indicator {current_indicator_id_str}: {e}", exc_info=True)
             all_indicator_results[current_indicator_id_str] = {"s": "error", "errmsg": f"Error processing indicator {current_indicator_id_str}: {str(e)}"}
+
+    # 🔍 VALIDATION: Check non-null values for requested time range only
+    if df_ohlcv is not None and len(df_ohlcv) > 0:
+        logger.info(f"🔍 STARTING INDICATOR VALIDATION: Checking {len(all_indicator_results)} indicators for requested range {from_ts} to {to_ts}")
+
+        validation_results = {}
+        total_indicators = len(all_indicator_results)
+        valid_indicators = 0
+
+        for indicator_name, result in all_indicator_results.items():
+            if not isinstance(result, dict) or not result.get('t'):
+                logger.warning(f"⚠️ VALIDATION SKIPPED: {indicator_name} - Invalid result format")
+                validation_results[indicator_name] = False
+                continue
+
+            timestamps = result.get('t', [])
+            indicator_keys = [k for k in result.keys() if k not in ['t', 's', 'errmsg']]
+
+            # Filter to requested time range only
+            requested_range_indices = [i for i, ts in enumerate(timestamps) if from_ts <= ts <= to_ts]
+            requested_range_count = len(requested_range_indices)
+
+            if requested_range_count == 0:
+                logger.warning(f"⚠️ VALIDATION SKIPPED: {indicator_name} - No data in requested range {from_ts} to {to_ts}")
+                validation_results[indicator_name] = False
+                continue
+
+            logger.debug(f"🔍 VALIDATION: {indicator_name} - Checking {len(indicator_keys)} data series for {requested_range_count} points in range {from_ts} to {to_ts}")
+
+            is_valid = True
+            for key in indicator_keys:
+                data_series = result.get(key, [])
+                if not data_series or len(data_series) != len(timestamps):
+                    logger.error(f"❌ VALIDATION FAILED: {indicator_name} - {key} data length mismatch")
+                    is_valid = False
+                    continue
+
+                # Check null values only in the requested range
+                nulls_in_range = sum(1 for i in requested_range_indices if data_series[i] is None)
+                total_in_range = len(requested_range_indices)
+
+                if nulls_in_range > 0:
+                    logger.error(f"❌ VALIDATION FAILED: {indicator_name} - {key} has {nulls_in_range}/{total_in_range} null values in requested range!")
+                    logger.error(f"   Requested range: {from_ts} to {to_ts} ({requested_range_count} points)")
+                    logger.error(f"   Nulls found at indices: {[i for i in requested_range_indices if data_series[i] is None]}")
+                    is_valid = False
+                else:
+                    logger.debug(f"✅ VALIDATION: {indicator_name} - {key}: {total_in_range} points in range, 0 nulls")
+
+            validation_results[indicator_name] = is_valid
+            if is_valid:
+                valid_indicators += 1
+
+        # Log validation summary
+        failed_count = total_indicators - valid_indicators
+
+        logger.info(f"🔍 VALIDATION RESULTS: {valid_indicators}/{total_indicators} indicators valid for requested range, {failed_count} failed")
+
+        if failed_count > 0:
+            logger.error(f"🚨 CRITICAL: {failed_count}/{total_indicators} indicators have null values in the requested time range!")
+            logger.error("This will cause frontend chart display problems. Check detailed logs above for specific issues.")
+            logger.error(f"Requested range: {from_ts} to {to_ts}")
+        else:
+            logger.info(f"✅ SUCCESS: All {total_indicators} indicators have complete data for requested range {from_ts} to {to_ts}")
+    else:
+        logger.warning("⚠️ VALIDATION SKIPPED: No OHLC data available for validation")
 
     return JSONResponse({"s": "ok", "data": all_indicator_results})

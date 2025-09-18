@@ -105,7 +105,7 @@ def get_sync_redis_connection() -> SyncRedis:
 
 def get_redis_key(symbol: str, resolution: str, timestamp: int) -> str:
     from config import TRADING_TIMEFRAME
-    multipliers = {"1m": 60, "5m": 300, "1h": 3600, "1d": 86400, "1w": 604800}
+    multipliers = {"1m": 60, "5m": 300, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800}
     timeframe_seconds = multipliers.get(resolution, 3600)
     aligned_ts = (timestamp // timeframe_seconds) * timeframe_seconds
     return f"kline:{symbol}:{resolution}:{aligned_ts}"
@@ -152,7 +152,9 @@ async def get_cached_klines(symbol: str, resolution: str, start_ts: int, end_ts:
     try:
         redis = await get_redis_connection()
         sorted_set_key = get_sorted_set_key(symbol, resolution)
-        logger.info(f"Querying sorted set '{sorted_set_key}' for range [{start_ts}, {end_ts}]")
+        start_dt = datetime.fromtimestamp(start_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        end_dt = datetime.fromtimestamp(end_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        logger.info(f"Querying sorted set '{sorted_set_key}' for range [{start_ts}, {end_ts}] ({start_dt} to {end_dt})")
 
         # TIMESTAMP DEBUG: Analyze query timestamps
         logger.info(f"[TIMESTAMP DEBUG] redis_utils.py - get_cached_klines query:")
@@ -474,3 +476,131 @@ def format_kline_data(bar: list[Any]) -> Dict[str, Any]:
         "close": float(bar[4]),
         "vol": float(bar[5])
     }
+
+async def detect_gaps_in_cached_data(symbol: str, resolution: str, start_ts: int, end_ts: int) -> List[Dict[str, Any]]:
+    """Detect gaps in cached kline data for a given symbol and resolution."""
+    try:
+        redis = await get_redis_connection()
+        sorted_set_key = get_sorted_set_key(symbol, resolution)
+
+        # Get all cached data in the time range
+        klines_data_redis = await redis.zrangebyscore(
+            sorted_set_key,
+            min=start_ts,
+            max=end_ts,
+            withscores=False
+        )
+
+        cached_data = []
+        for data_item in klines_data_redis:
+            try:
+                if isinstance(data_item, bytes):
+                    data_str = data_item.decode('utf-8')
+                elif isinstance(data_item, str):
+                    data_str = data_item
+                else:
+                    continue
+                parsed_data = json.loads(data_str)
+                cached_data.append(parsed_data)
+            except json.JSONDecodeError:
+                continue
+
+        if not cached_data:
+            logger.info(f"No cached data found for {symbol} {resolution} in range {start_ts} to {end_ts}")
+            return []
+
+        # Sort by timestamp
+        cached_data.sort(key=lambda x: x['time'])
+        timestamps = [item['time'] for item in cached_data]
+
+        expected_interval = get_timeframe_seconds(resolution)
+        gaps = []
+
+        # Check for gaps between consecutive timestamps
+        for i in range(1, len(timestamps)):
+            gap = timestamps[i] - timestamps[i-1]
+            if gap > expected_interval:
+                missing_points = int(gap / expected_interval) - 1
+                gaps.append({
+                    'from_ts': timestamps[i-1] + expected_interval,
+                    'to_ts': timestamps[i] - expected_interval,
+                    'gap_seconds': gap - expected_interval,
+                    'missing_points': missing_points,
+                    'symbol': symbol,
+                    'resolution': resolution
+                })
+
+        # Check for gap at the beginning if start_ts is before first timestamp
+        if timestamps and start_ts < timestamps[0]:
+            gap = timestamps[0] - start_ts
+            if gap > expected_interval:
+                missing_points = int(gap / expected_interval) - 1
+                if missing_points > 0:
+                    gaps.append({
+                        'from_ts': start_ts,
+                        'to_ts': timestamps[0] - expected_interval,
+                        'gap_seconds': gap - expected_interval,
+                        'missing_points': missing_points,
+                        'symbol': symbol,
+                        'resolution': resolution
+                    })
+
+        # Check for gap at the end if end_ts is after last timestamp
+        if timestamps and end_ts > timestamps[-1]:
+            gap = end_ts - timestamps[-1]
+            if gap > expected_interval:
+                missing_points = int(gap / expected_interval) - 1
+                if missing_points > 0:
+                    gaps.append({
+                        'from_ts': timestamps[-1] + expected_interval,
+                        'to_ts': end_ts,
+                        'gap_seconds': gap - expected_interval,
+                        'missing_points': missing_points,
+                        'symbol': symbol,
+                        'resolution': resolution
+                    })
+
+        if gaps:
+            logger.warning(f"🚨 GAPS DETECTED for {symbol} {resolution}: {len(gaps)} gaps, {sum(g['missing_points'] for g in gaps)} total missing points")
+            for gap in gaps[:3]:  # Show first 3 gaps
+                logger.warning(f"  Gap: {datetime.fromtimestamp(gap['from_ts'], timezone.utc)} to {datetime.fromtimestamp(gap['to_ts'], timezone.utc)} ({gap['missing_points']} missing points)")
+        else:
+            logger.info(f"✅ No gaps detected for {symbol} {resolution}")
+
+        return gaps
+
+    except Exception as e:
+        logger.error(f"Error detecting gaps for {symbol} {resolution}: {e}", exc_info=True)
+        return []
+
+async def fill_data_gaps(gaps: List[Dict[str, Any]]) -> None:
+    """Fill detected data gaps by fetching missing data from Bybit."""
+    if not gaps:
+        return
+
+    # logger.info(f"🔧 Starting gap filling for {len(gaps)} gaps")
+
+    for gap in gaps:
+        try:
+            symbol = gap['symbol']
+            resolution = gap['resolution']
+            from_ts = gap['from_ts']
+            to_ts = gap['to_ts']
+
+            # logger.info(f"📥 Filling gap for {symbol} {resolution}: {datetime.fromtimestamp(from_ts, timezone.utc)} to {datetime.fromtimestamp(to_ts, timezone.utc)}")
+
+            # Fetch missing data from Bybit
+            missing_klines = fetch_klines_from_bybit(symbol, resolution, from_ts, to_ts)
+
+            if missing_klines:
+                # Cache the fetched data
+                await cache_klines(symbol, resolution, missing_klines)
+                # logger.info(f"✅ Filled gap with {len(missing_klines)} klines for {symbol} {resolution}")
+            # else:
+                # logger.warning(f"❌ No data received from Bybit for gap in {symbol} {resolution}")
+
+        except Exception as e:
+            logger.error(f"Error filling gap for {gap['symbol']} {gap['resolution']}: {e}", exc_info=True)
+            continue
+
+    logger.info("🎉 Gap filling completed")
