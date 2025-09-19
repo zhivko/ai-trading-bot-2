@@ -608,6 +608,17 @@ function initializePlotlyEventHandlers(gd) {
                 continue; // Skip this shape entirely
             }
 
+            // CRITICAL FIX: System shapes (including buy signals) should NEVER be processed for saving
+            // Additional check: Buy signals have special properties that should explicitly prevent saving
+            const isBuySignal = shapeInLayout.name && shapeInLayout.name.startsWith('buy_signal_');
+            const isSystemBuySignal = shapeInLayout.systemType === 'buy_signal';
+
+            // Skip buy signals and system shapes entirely
+            if (isBuySignal || isSystemBuySignal || shapeInLayout.isSystemShape) {
+                console.log(`[plotly_relayout] Skipping system shape: ${shapeInLayout.name} (buy_signal: ${isBuySignal}, systemType: ${shapeInLayout.systemType}, isSystemShape: ${shapeInLayout.isSystemShape})`);
+                continue; // Skip this shape entirely
+            }
+
             if (shapeInLayout.type === 'line' &&
                 !shapeInLayout.id &&
                 !shapeInLayout.isSystemShape && // Already correctly ignores system shapes

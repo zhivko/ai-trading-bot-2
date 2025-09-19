@@ -23,6 +23,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.localOllamaModelDiv = document.getElementById('local-ollama-model-selection-div');
     window.localOllamaModelSelect = document.getElementById('local-ollama-model-select');
 
+    // Stream delta slider elements
+    window.streamDeltaSlider = document.getElementById('stream-delta-slider');
+    window.streamDeltaValueDisplay = document.getElementById('stream-delta-value-display');
+
     // Initialize debounced functions
     window.debouncedUpdateShapeVisuals = debounce(updateShapeVisuals, VISUAL_UPDATE_DEBOUNCE_DELAY); // VISUAL_UPDATE_DEBOUNCE_DELAY from config.js
     window.debouncedUpdateCrosshair = debounce(updateOrAddCrosshairVLine, 100); // updateOrAddCrosshairVLine from chartInteractions.js
@@ -639,6 +643,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveSettings(); // Call saveSettings from settingsManager.js
     });
     window.localOllamaModelSelect.addEventListener('change', saveSettings);
+
+    // Stream delta slider event listener
+    if (window.streamDeltaSlider && window.streamDeltaValueDisplay) {
+        window.streamDeltaSlider.addEventListener('input', () => {
+            // Update the display value
+            window.streamDeltaValueDisplay.textContent = window.streamDeltaSlider.value;
+            // Save settings when slider value changes
+            saveSettings();
+        });
+    }
 
     // Initialize other features
     initializeReplayControls(); // From replay.js

@@ -349,7 +349,7 @@ class EmailAlertService:
                     logger.warning(f"Skipping drawing with missing symbol or email: {drawing.get('id', 'N/A')}")
                     continue
 
-                logger.debug(f"Checking drawing {idx+1}/{len(drawings)} for {symbol} by {user_email}")
+                logger.info(f"Checking drawing {idx+1}/{len(drawings)} for {symbol} by {user_email}")
 
                 resolution = drawing['resolution']
                 kline_zset_key = f"zset:kline:{symbol}:{resolution}"

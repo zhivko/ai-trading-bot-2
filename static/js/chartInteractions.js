@@ -712,11 +712,6 @@ function initializeChartInteractions() {
         console.log('[DEBUG] Mouse up detected, isMouseDown =', isMouseDown);
     }, { capture: true, passive: true });
 
-    // Add a simple mousemove test to see if events are firing at all
-    window.chartDiv.addEventListener('mousemove', function(e) {
-        console.log('[DEBUG] SIMPLE MOUSEMOVE TEST - event fired, coordinates:', e.clientX, e.clientY);
-    }, { capture: false, passive: true });
-
     // Add a test function to manually trigger colorTheLine
     window.testColorTheLine = function() {
         console.log('[DEBUG] Manually testing colorTheLine function');

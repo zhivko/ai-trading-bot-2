@@ -527,18 +527,20 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
             # Calculate timeframe seconds
             timeframe_secs = get_timeframe_seconds(client_state["resolution"])
 
-            # Determine the kline fetch window based on lookback and original request's to_ts
-            # The data for calculation must extend up to the original 'to_ts'.
-            # The start of this data window needs to be early enough to satisfy 'max_lookback_periods'
-            # for the indicators to be valid at the original 'from_ts'.
-            buffer_candles = 1
-            min_overall_candles = 1
-            lookback_candles_needed = max(max_lookback_periods + buffer_candles, min_overall_candles)
+            # CRITICAL FIX: Ensure we fetch ENOUGH historical data for the indicators to have valid values
+            # The lookback_candles_needed should actually be used properly for data fetching
+            buffer_candles = 10  # Add some buffer to ensure we have enough data
+            min_overall_candles = 100  # Minimum base dataset size
+            if max_lookback_periods > 0:
+                lookback_candles_needed = max(max_lookback_periods + buffer_candles, min_overall_candles)
+            else:
+                lookback_candles_needed = min_overall_candles
 
             kline_fetch_start_ts = client_state["from_ts"] - (lookback_candles_needed * timeframe_secs)
-            kline_fetch_end_ts = client_state["to_ts"] # This is the original 'to_ts' from the request
+            kline_fetch_end_ts = client_state["to_ts"]  # This is the original 'to_ts' from the request
 
-            logger.info(f"🔍 WEBSOCKET DATA FETCH: Will fetch from {kline_fetch_start_ts} to ensure all indicators have valid values at {client_state['from_ts']}")
+            logger.info(f"🔍 WEBSOCKET DATA FETCH: Will fetch from {kline_fetch_start_ts} to {kline_fetch_end_ts}")
+            logger.info(f"🔍 WEBSOCKET DATA FETCH: This provides {lookback_candles_needed} candles before requested range for indicator calculation")
 
             # Get historical klines from Redis with enlarged range for indicator calculation
             try:
@@ -1032,7 +1034,6 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                 timestamps = result.get('t', [])
                 indicator_keys = [k for k in result.keys() if k not in ['t', 's', 'errmsg']]
 
-                # For WebSocket, we validate all data since it's historical data being sent to client
                 # Filter to requested time range only
                 requested_range_indices = [i for i, ts in enumerate(timestamps) if client_state["from_ts"] <= ts <= client_state["to_ts"]]
                 requested_range_count = len(requested_range_indices)
@@ -1045,35 +1046,49 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                 logger.debug(f"🔍 WEBSOCKET VALIDATION: {indicator_name} - Checking {len(indicator_keys)} data series for {requested_range_count} points in range {client_state['from_ts']} to {client_state['to_ts']}")
 
                 is_valid = True
+                total_nulls_in_requested_range = 0
+
                 for key in indicator_keys:
                     data_series = result.get(key, [])
-                    logger.info(f"Validating: {indicator_name} - {key}")
                     if not data_series or len(data_series) != len(timestamps):
                         logger.error(f"❌ WEBSOCKET VALIDATION FAILED: {indicator_name} - {key} data length mismatch")
                         is_valid = False
                         continue
 
-                    # Check null values in the requested range, allowing some nulls at the beginning due to lookback
-                    nulls_in_range = sum(1 for i in requested_range_indices if data_series[i] is None)
-                    total_in_range = len(requested_range_indices)
+                    # Count nulls ONLY in the requested chart range (what user actually sees)
+                    nulls_in_requested_range = sum(1 for i in requested_range_indices if data_series[i] is None)
+                    total_nulls_in_requested_range += nulls_in_requested_range
 
-                    # Allow up to 10% nulls at the beginning of the range (due to indicator lookback)
-                    # But require complete data for the last 90% of the requested range
-                    allowed_nulls_at_start = max(5, int(total_in_range * 0.1))  # Allow at least 5, or 10% of range
-                    check_from_index = min(allowed_nulls_at_start, total_in_range - 1)
-
-                    # Check nulls in the "useful" part of the range (after the lookback period)
-                    useful_range_indices = requested_range_indices[check_from_index:]
-                    nulls_in_useful_range = sum(1 for i in useful_range_indices if data_series[i] is None)
-
-                    if nulls_in_useful_range > 0:
-                        logger.error(f"❌ WEBSOCKET VALIDATION FAILED: {indicator_name} - {key} has {nulls_in_useful_range} nulls in useful range!")
-                        logger.error(f"   Total range: {total_in_range} points, Allowed nulls at start: {allowed_nulls_at_start}")
-                        logger.error(f"   Useful range: {len(useful_range_indices)} points, Nulls found: {nulls_in_useful_range}")
-                        logger.error(f"   Requested range: {client_state['from_ts']} to {client_state['to_ts']}")
+                    if nulls_in_requested_range > 0:
+                        # For stochrsi indicators, show how many data points are actually needed
+                        if indicator_name.startswith('stochrsi'):
+                            config = next((item for item in AVAILABLE_INDICATORS if item["id"] == indicator_name), None)
+                            if config:
+                                rsi_period = config["params"]["rsi_period"]
+                                stoch_period = config["params"]["stoch_period"]
+                                k_period = config["params"]["k_period"]
+                                d_period = config["params"]["d_period"]
+                                # Calculate the actual lookback needed (same as above)
+                                rsi_warmup = rsi_period * 3
+                                stoch_warmup = stoch_period + k_period + d_period
+                                min_data_needed = rsi_warmup + stoch_warmup + 50
+                                logger.error(f"❌ WEBSOCKET VALIDATION FAILED: {indicator_name} - {key} has {nulls_in_requested_range} nulls in REQUESTED chart range!")
+                                logger.error(f"   Requested chart range: {requested_range_count} points have {nulls_in_requested_range} nulls")
+                                logger.error(f"   Indicator needs minimum {min_data_needed} data points (RSI warmup: {rsi_warmup}, Stoch warmup: {stoch_warmup}, buffer: 50)")
+                                logger.error(f"   Current data window is insufficient for this indicator length")
+                            else:
+                                logger.error(f"❌ WEBSOCKET VALIDATION FAILED: {indicator_name} - {key} has {nulls_in_requested_range} nulls in REQUESTED chart range!")
+                        else:
+                            logger.error(f"❌ WEBSOCKET VALIDATION FAILED: {indicator_name} - {key} has {nulls_in_requested_range} nulls in REQUESTED chart range!")
                         is_valid = False
                     else:
-                        logger.debug(f"✅ WEBSOCKET VALIDATION: {indicator_name} - {key}: {total_in_range} points, {nulls_in_range} nulls at start (allowed)")
+                        logger.debug(f"✅ WEBSOCKET VALIDATION: {indicator_name} - {key} has 0 nulls in {requested_range_count} requested points")
+
+                # Log summary for this indicator
+                if total_nulls_in_requested_range > 0:
+                    logger.error(f"❌ WEBSOCKET VALIDATION FAILED: {indicator_name} - Total nulls in requested chart range: {total_nulls_in_requested_range}/{requested_range_count}")
+                else:
+                    logger.info(f"✅ WEBSOCKET VALIDATION PASSED: {indicator_name} - All {requested_range_count} points in requested range are non-null")
 
                 validation_results[indicator_name] = is_valid
                 if is_valid:

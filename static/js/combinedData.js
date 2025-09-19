@@ -373,6 +373,12 @@ function handleRealtimeKlineForCombined(dataPoint) {
         return;
     }
 
+    // Check if currently dragging a shape - skip live price updates during dragging
+    if (window.isDraggingShape) {
+        console.log('🔴 Combined WebSocket: Skipping live data update during shape dragging');
+        return;
+    }
+
     // Check if chart is ready
     const gd = document.getElementById('chart');
     if (!gd || !gd.layout) {
@@ -1040,6 +1046,12 @@ function handleLivePriceUpdate(message) {
         return;
     }
 
+    // Check if currently dragging a shape - skip live price updates during dragging
+    if (window.isDraggingShape) {
+        console.log('💰 Combined WebSocket: Skipping live price update during shape dragging');
+        return;
+    }
+
     // Check if chart is ready
     const gd = document.getElementById('chart');
     if (!gd || !gd.layout) {
@@ -1304,7 +1316,9 @@ function convertBuySignalToShape(signal, index) {
                 dash: 'solid'
             },
             layer: 'above',
-            editable: false
+            editable: false,
+            isSystemShape: true,  // Mark as system shape to prevent saving
+            systemType: 'buy_signal'  // Additional identification
         };
 
         // Add a small horizontal line to make it more visible
