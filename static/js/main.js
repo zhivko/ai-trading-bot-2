@@ -870,19 +870,45 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
 
  console.log("Autoscale: Examining traces for y-axis range...");
 
+   // Get current X-axis range to filter visible data points
+   const currentXAxisRange = inputLayout.xaxis && inputLayout.xaxis.range;
+   let xMinVisible = null;
+   let xMaxVisible = null;
+
+   console.log("Autoscale: inputLayout.xaxis:", inputLayout.xaxis);
+   console.log("Autoscale: currentXAxisRange:", currentXAxisRange);
+
+   if (currentXAxisRange && currentXAxisRange.length === 2) {
+       // Plotly stores timestamps as milliseconds since epoch
+       xMinVisible = typeof currentXAxisRange[0] === 'number' ? currentXAxisRange[0] : new Date(currentXAxisRange[0]).getTime();
+       xMaxVisible = typeof currentXAxisRange[1] === 'number' ? currentXAxisRange[1] : new Date(currentXAxisRange[1]).getTime();
+       console.log(`Autoscale: Filtering data to visible X-axis range: ${xMinVisible} to ${xMaxVisible} (${new Date(xMinVisible).toISOString()} to ${new Date(xMaxVisible).toISOString()})`);
+   } else {
+       console.log("Autoscale: No X-axis range found, using all data points");
+   }
+
    fullData.forEach(trace => {
         if (trace.name === 'Buy Signal') return; // Skip traces named "Buy Signal"
         if (trace.yaxis === 'y') { // Ensure y-values are present AND for main chart
             // Iterate through open, high, low, close values
             const ohlc = [trace.open, trace.high, trace.low, trace.close];
-            ohlc.forEach(yValues => {
+            ohlc.forEach((yValues, ohlcIndex) => {
                 if (yValues && Array.isArray(yValues)) {
-                    yValues.forEach(yVal => {
+                    yValues.forEach((yVal, index) => {
                         if (typeof yVal === 'number' && !isNaN(yVal)) {
-                            if (yVal < yMin) yMin = yVal;
-                            if (yVal > yMax) yMax = yVal;
-                            yDataFound = true;
-                            //console.log(`Autoscale: Found price yVal=${yVal}`);
+                            // Check if this data point is within the visible X-axis range
+                            let isVisible = true;
+                            if (xMinVisible !== null && xMaxVisible !== null && trace.x && trace.x[index]) {
+                                const xVal = trace.x[index] instanceof Date ? trace.x[index].getTime() : new Date(trace.x[index]).getTime();
+                                isVisible = xVal >= xMinVisible && xVal <= xMaxVisible;
+                            }
+
+                            if (isVisible) {
+                                if (yVal < yMin) yMin = yVal;
+                                if (yVal > yMax) yMax = yVal;
+                                yDataFound = true;
+                                //console.log(`Autoscale: Found visible price yVal=${yVal} at index ${index}`);
+                            }
                         }
                     });
                 } else {
@@ -894,16 +920,22 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
                 }
             });
         } else if (trace.yaxis && trace.yaxis !== 'y' && trace.y && trace.y.length > 0) { // Handle indicator subplots
-            trace.y.forEach(yVal => {
+            trace.y.forEach((yVal, index) => {
                 if (typeof yVal === 'number' && !isNaN(yVal)) {
+                    // Check if this data point is within the visible X-axis range
+                    let isVisible = true;
+                    if (xMinVisible !== null && xMaxVisible !== null && trace.x && trace.x[index]) {
+                        const xVal = trace.x[index] instanceof Date ? trace.x[index].getTime() : new Date(trace.x[index]).getTime();
+                        isVisible = xVal >= xMinVisible && xVal <= xMaxVisible;
+                    }
 
-                    if (yVal < indicatorYMin) indicatorYMin = yVal;
-                    if (yVal > indicatorYMax) indicatorYMax = yVal;
-                    indicatorYDataFound = true;
+                    if (isVisible) {
+                        if (yVal < indicatorYMin) indicatorYMin = yVal;
+                        if (yVal > indicatorYMax) indicatorYMax = yVal;
+                        indicatorYDataFound = true;
+                    }
                 }
-
             });
-
         }
    });
 

@@ -33,7 +33,8 @@ async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str)
         "last_sent_timestamp": 0.0,
         "stream_delta_seconds": 1,  # Default, will be updated from settings
         "last_settings_check_timestamp": 0.0,  # For periodically re-checking settings
-        "settings_check_interval_seconds": 3  # How often to check settings (e.g., every 3 seconds)
+        "settings_check_interval_seconds": 3,  # How often to check settings (e.g., every 3 seconds)
+        "last_sent_live_price": None  # Track last sent live price to avoid duplicate sends
     }
 
     try:
@@ -129,18 +130,29 @@ async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str)
                             except Exception as e:
                                 logger.error(f"❌ Failed to get live price from Redis for {symbol}: {e}", exc_info=True)
 
-                            live_data = {
-                                "symbol": ticker_data.get("symbol", symbol),
-                                "time": int(message_timestamp_ms) // 1000,
-                                "price": float(ticker_data["lastPrice"]),
-                                "vol": float(ticker_data.get("volume24h", 0)),
-                                "live_price": live_price  # Add live price from Redis
-                            }
-                            asyncio.run_coroutine_threadsafe(
-                                send_to_client(live_data),
-                                loop
+                            # Only send update if live price has changed or is the first price
+                            should_send_price_update = (
+                                live_price is not None and
+                                live_price != client_stream_state["last_sent_live_price"]
                             )
-                            client_stream_state["last_sent_timestamp"] = current_server_timestamp_sec
+
+                            if should_send_price_update:
+                                live_data = {
+                                    "symbol": ticker_data.get("symbol", symbol),
+                                    "time": int(message_timestamp_ms) // 1000,
+                                    "price": float(ticker_data["lastPrice"]),
+                                    "vol": float(ticker_data.get("volume24h", 0)),
+                                    "live_price": live_price  # Add live price from Redis
+                                }
+                                asyncio.run_coroutine_threadsafe(
+                                    send_to_client(live_data),
+                                    loop
+                                )
+                                client_stream_state["last_sent_timestamp"] = current_server_timestamp_sec
+                                client_stream_state["last_sent_live_price"] = live_price
+                                logger.debug(f"📤 Sent live price update for {symbol}: {live_price} (changed from {client_stream_state['last_sent_live_price']})")
+                            else:
+                                logger.debug(f"⏭️ Skipped sending duplicate live price for {symbol}: {live_price} (same as last sent)")
                     except Exception as e:
                         logger.error(f"Error processing or scheduling send for Bybit ticker data for {symbol}: {e} - Data: {ticker_data}")
 

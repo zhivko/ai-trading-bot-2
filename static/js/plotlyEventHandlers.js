@@ -681,7 +681,8 @@ function initializePlotlyEventHandlers(gd) {
             await updateShapeVisuals(); // Update visuals if relayout processed new shapes
         }
         // Axis range change handling
-        let rangesChangedByEvent = false;
+        let xRangesChangedByEvent = false;
+        let yRangesChangedByEvent = false;
         let userModifiedRanges = false;
 
         console.log('[DEBUG] Checking for axis range changes in eventData:', {
@@ -741,7 +742,7 @@ function initializePlotlyEventHandlers(gd) {
         }
 
         if (!window.isApplyingAutoscale) {
-            rangesChangedByEvent = true;
+            xRangesChangedByEvent = true;
             userModifiedRanges = true;
         }
         console.log('[DEBUG] Updated currentXAxisRange (in milliseconds):', window.currentXAxisRange);
@@ -754,7 +755,7 @@ function initializePlotlyEventHandlers(gd) {
                 window.currentXAxisRange = null;
                 window.xAxisMinDisplay.textContent = 'Auto';
                 window.xAxisMaxDisplay.textContent = 'Auto';
-                rangesChangedByEvent = true;
+                xRangesChangedByEvent = true;
             } else {
                 // On first load or when no previous range, update to actual range
                 const xRange = gd.layout.xaxis.range;
@@ -780,7 +781,7 @@ function initializePlotlyEventHandlers(gd) {
 
                     console.log('[DEBUG] Autorange on first load, updating to actual range');
                     // Don't save settings for initial autorange
-                    rangesChangedByEvent = false;
+                    xRangesChangedByEvent = false;
                 }
             }
         } else {
@@ -794,7 +795,7 @@ function initializePlotlyEventHandlers(gd) {
                 window.yAxisMinDisplay.textContent = window.currentYAxisRange[0].toFixed(2);
                 window.yAxisMaxDisplay.textContent = window.currentYAxisRange[1].toFixed(2);
                 if (!window.isApplyingAutoscale) {
-                    rangesChangedByEvent = true;
+                    yRangesChangedByEvent = true;
                     userModifiedRanges = true;
                 }
             }
@@ -802,11 +803,11 @@ function initializePlotlyEventHandlers(gd) {
             window.currentYAxisRange = null;
             window.yAxisMinDisplay.textContent = 'Auto';
             window.yAxisMaxDisplay.textContent = 'Auto';
-            rangesChangedByEvent = true;
+            yRangesChangedByEvent = true;
         }
 
-        if (rangesChangedByEvent && userModifiedRanges) {
-            console.log('[plotly_relayout] Ranges changed by user. User modified:', userModifiedRanges, 'New X-Range:', window.currentXAxisRange, 'New Y-Range:', window.currentYAxisRange);
+        if (xRangesChangedByEvent && userModifiedRanges) {
+            console.log('[plotly_relayout] X-axis ranges changed by user. User modified:', userModifiedRanges, 'New X-Range:', window.currentXAxisRange, 'New Y-Range:', window.currentYAxisRange);
             saveSettings(); // from settingsManager.js
 
             // 🚨 CLEAR CHART DATA BEFORE REQUESTING NEW DATA 🚨
@@ -879,7 +880,7 @@ function initializePlotlyEventHandlers(gd) {
                     }
                 }
             }); // FETCH_DEBOUNCE_DELAY from config.js
-        } else if (rangesChangedByEvent && !userModifiedRanges) {
+        } else if ((xRangesChangedByEvent || yRangesChangedByEvent) && !userModifiedRanges) {
             console.log('[plotly_relayout] Ranges changed programmatically. User modified:', userModifiedRanges, 'New X-Range:', window.currentXAxisRange, 'New Y-Range:', window.currentYAxisRange);
             // Don't save settings for programmatic changes
         }

@@ -764,7 +764,8 @@ def find_buy_signals(df: pd.DataFrame) -> list:
                 for detail in stoch_k_details:
                     if detail['values'] is not None:
                         values_str = [f"{v:.2f}" if v is not None and not pd.isna(v) else "NaN" for v in detail['values']]
-                        print(f"  {detail['indicator']}: [{', '.join(values_str)}] | Min: {detail['min_value']:.2f if detail['min_value'] is not None else 'NaN'} | <10: {detail['below_10']}")
+                        min_value = detail['min_value'] if detail['min_value'] is not None else 'NaN'
+                        print(f"  {detail['indicator']}: [{', '.join(values_str)}] | Min: {min_value} | <10: {detail['below_10']}")
                     else:
                         print(f"  {detail['indicator']}: MISSING")
                 print(f"  ALL StochRSI K < 10: {all_stoch_k_below_10}")
