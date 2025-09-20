@@ -666,173 +666,78 @@ def calculate_rsi_sma(df_input: pd.DataFrame, sma_period: int, rsi_values: List[
 
 def find_buy_signals(df: pd.DataFrame) -> list:
     """
-    Finds buy signals based on RSI + StochRSI conditions.
-    Signal conditions:
-    - RSI below 40
-    - All StochRSI K below 20 in a 10-bar range that includes the RSI point
+    Finds buy signals based on RSI deviation from RSI_SMA14.
+    Signal condition: RSI deviates more than 90% from RSI_SMA14
     """
-    logger.debug("Starting find_buy_signals with RSI + StochRSI detection")
+    logger.debug("Starting find_buy_signals with RSI deviation analysis")
     signals = []
 
     # Reset index for easy access
     df = df.reset_index()
+
+    # Check required columns
+    if 'RSI_14' not in df.columns or 'RSI_SMA14' not in df.columns:
+        logger.warning("find_buy_signals: Required columns 'RSI_14' or 'RSI_SMA14' not found in DataFrame")
+        return signals
 
     # Define the date range for focused logging (timezone-naive to match DataFrame index)
     target_date_start = pd.to_datetime("2025-09-15 00:00:00")
     target_date_end = pd.to_datetime("2025-09-16 23:59:59")
     logger.debug(f"Enhanced logging for September 15-16, 2025: {target_date_start} to {target_date_end}")
 
-    # Debug: Check what dates are actually in the DataFrame
-    df_dates = df['time'].dt.date.unique()
-    logger.debug(f"DataFrame contains dates: {sorted(df_dates)[:5]} ... {sorted(df_dates)[-5:]}")
-    logger.debug(f"Total unique dates in DataFrame: {len(df_dates)}")
-
-    # Check if September 15th is in the data
-    sept_15_data = df[df['time'].dt.date == pd.to_datetime("2025-09-15").date()]
-    logger.debug(f"Bars on September 15, 2025: {len(sept_15_data)}")
-    if len(sept_15_data) > 0:
-        logger.debug(f"September 15 time range: {sept_15_data['time'].min()} to {sept_15_data['time'].max()}")
-        sept_15_22 = sept_15_data[(sept_15_data['time'].dt.hour == 22)]
-        logger.debug(f"Bars at 22:00 on September 15: {len(sept_15_22)}")
-        if len(sept_15_22) > 0:
-            logger.debug(f"22:00 bar timestamp: {sept_15_22['time'].iloc[0]}")
-
     for i in range(len(df)):
-        # Ensure current_time is timezone-aware (UTC) for comparison
         current_time = df['time'].iloc[i]
         is_target_date = target_date_start <= current_time <= target_date_end
 
-        # Check if RSI is below 40 (condition 1)
-        rsi_value = df['RSI_14'].iloc[i] if 'RSI_14' in df.columns else None
-        rsi_below_40 = rsi_value is not None and rsi_value < 40
+        # Get RSI and RSI_SMA14 values
+        rsi_value = df['RSI_14'].iloc[i]
+        rsi_sma14_value = df['RSI_SMA14'].iloc[i]
 
-        if rsi_below_40:
-            # Define range for StochRSI check: 10 bars including current (i-9 to i)
-            win_start = max(0, i - 9)
-            window = df.iloc[win_start : i + 1]
+        # Skip if any value is NaN
+        if pd.isna(rsi_value) or pd.isna(rsi_sma14_value):
+            continue
 
-            # Check ALL StochRSI indicators (4 different parameter sets)
-            stoch_indicators = [
-                ('STOCHRSIk_9_9_3_3', 'STOCHRSId_9_9_3_3'),      # stochrsi_9_3
-                ('STOCHRSIk_14_14_3_3', 'STOCHRSId_14_14_3_3'),  # stochrsi_14_3
-                ('STOCHRSIk_40_40_4_4', 'STOCHRSId_40_40_4_4'),  # stochrsi_40_4
-                ('STOCHRSIk_10_60_10_10', 'STOCHRSId_10_60_10_10') # stochrsi_60_10
-            ]
+        # Calculate deviation
+        if rsi_sma14_value != 0:
+            # Calculate absolute percentage deviation from SMA
+            deviation_pct = abs(rsi_value - rsi_sma14_value) / rsi_sma14_value
+        else:
+            deviation_pct = 0
 
-            # Check if ALL StochRSI K indicators have ANY value below 20 in the SAME window
-            all_stoch_k_below_10 = True
-            stoch_k_details = []  # For debugging
-            for k_col, d_col in stoch_indicators:
-                if k_col in window.columns:
-                    stoch_k_values = window[k_col]
+        # Check if deviation is more than 30%
+        signal_condition_met = deviation_pct > 0.30
 
-                    # Check for NaN values
-                    stoch_k_has_nan = stoch_k_values.isna().any()
+        if is_target_date:
+            logger.debug(f"Bar {i} at {current_time}: RSI={rsi_value:.2f}, RSI_SMA14={rsi_sma14_value:.2f}, "
+                        f"Deviation={deviation_pct:.2f}, >0.30={signal_condition_met}")
 
-                    # K must have ANY value below 10
-                    k_below_10 = (stoch_k_values < 10).any() if not stoch_k_has_nan else False
+        if signal_condition_met:
+            # Check if we recently had a signal (within 10 bars to avoid duplicates)
+            recent_signal = False
+            if i > 0:
+                for j in range(max(0, i-10), i):
+                    prev_rsi = df['RSI_14'].iloc[j]
+                    prev_rsi_sma14 = df['RSI_SMA14'].iloc[j]
+                    if not (pd.isna(prev_rsi) or pd.isna(prev_rsi_sma14)) and prev_rsi_sma14 != 0:
+                        prev_deviation_pct = abs(prev_rsi - prev_rsi_sma14) / prev_rsi_sma14
+                        if prev_deviation_pct > 0.30:
+                            recent_signal = True
+                            break
 
-                    # Store details for debugging
-                    stoch_k_details.append({
-                        'indicator': k_col,
-                        'values': stoch_k_values.tolist(),
-                        'has_nan': stoch_k_has_nan,
-                        'below_10': k_below_10,
-                        'min_value': stoch_k_values.min() if not stoch_k_has_nan else None
-                    })
-
-                    # This indicator's K must be below 10
-                    if not k_below_10:
-                        all_stoch_k_below_10 = False
-                        break
-                else:
-                    # If any indicator K column is missing, condition fails
-                    stoch_k_details.append({
-                        'indicator': k_col,
-                        'values': None,
-                        'has_nan': None,
-                        'below_10': False,
-                        'min_value': None
-                    })
-                    all_stoch_k_below_10 = False
-                    break
-
-            # Print StochRSI values for debugging when RSI < 40
-            if is_target_date:
-                print(f"\n🔍 STOCHRSI DEBUG at {current_time}:")
-                print(f"  RSI: {rsi_value:.2f} (< 40: {rsi_below_40})")
-                for detail in stoch_k_details:
-                    if detail['values'] is not None:
-                        values_str = [f"{v:.2f}" if v is not None and not pd.isna(v) else "NaN" for v in detail['values']]
-                        min_value = detail['min_value'] if detail['min_value'] is not None else 'NaN'
-                        print(f"  {detail['indicator']}: [{', '.join(values_str)}] | Min: {min_value} | <10: {detail['below_10']}")
-                    else:
-                        print(f"  {detail['indicator']}: MISSING")
-                print(f"  ALL StochRSI K < 10: {all_stoch_k_below_10}")
-                print(f"  SIGNAL CONDITION MET: {signal_condition_met}")
-
-            # Signal condition: RSI < 40 AND all StochRSI K < 20 in 10-bar window
-            signal_condition_met = rsi_below_40 and all_stoch_k_below_10
-
-            if signal_condition_met:
-                # Check if this is the first signal for this oversold period
-                # (i.e., previous bar with RSI < 40 didn't generate a signal)
-                prev_signal_generated = False
-                if i > 0:
-                    # Look back up to 10 bars to see if we already signaled recently
-                    for j in range(max(0, i-10), i):
-                        prev_rsi = df['RSI_14'].iloc[j] if 'RSI_14' in df.columns else None
-                        if prev_rsi is not None and prev_rsi < 40:
-                            prev_win_start = max(0, j - 9)
-                            prev_window = df.iloc[prev_win_start : j + 1]
-                            prev_all_stoch_k_below_10 = True
-                            for k_col, d_col in stoch_indicators:
-                                if k_col in prev_window.columns:
-                                    prev_stoch_k_values = prev_window[k_col]
-                                    prev_stoch_k_has_nan = prev_stoch_k_values.isna().any()
-                                    prev_k_below_10 = (prev_stoch_k_values < 10).any() if not prev_stoch_k_has_nan else False
-                                    if not prev_k_below_10:
-                                        prev_all_stoch_k_below_10 = False
-                                        break
-                                else:
-                                    prev_all_stoch_k_below_10 = False
-                                    break
-                            if prev_all_stoch_k_below_10:
-                                prev_signal_generated = True
-                                break
-
-                # Only generate signal if no recent signal was generated
-                if not prev_signal_generated:
-                    timestamp = int(df['time'].iloc[i].timestamp())
-                    signals.append({
-                        'timestamp': timestamp,
-                        'price': df['close'].iloc[i],
-                        'type': 'buy'
-                    })
-                    logger.info(f"BUY SIGNAL DETECTED at {current_time}: timestamp={timestamp}, "
-                               f"price={df['close'].iloc[i]:.2f}, RSI={rsi_value:.2f}")
-                    logger.info(f"  RSI < 40 and all StochRSI K < 10 in 10-bar window")
-                else:
-                    if is_target_date:
-                        logger.debug(f"Bar {i} at {current_time}: Signal conditions met but recent signal already generated")
+            # Only generate signal if no recent signal
+            if not recent_signal:
+                timestamp = int(df['time'].iloc[i].timestamp())
+                signals.append({
+                    'timestamp': timestamp,
+                    'price': df['close'].iloc[i],
+                    'type': 'buy'
+                })
+                logger.info(f"BUY SIGNAL DETECTED at {current_time}: timestamp={timestamp}, "
+                           f"price={df['close'].iloc[i]:.2f}, RSI={rsi_value:.2f}, "
+                           f"RSI_SMA14={rsi_sma14_value:.2f}, Deviation={deviation_pct:.2f}")
             else:
                 if is_target_date:
-                    # Show StochRSI details for debugging
-                    stoch_debug_info = []
-                    for detail in stoch_k_details:
-                        if detail['values'] is not None:
-                            values_str = [f"{v:.2f}" if v is not None and not pd.isna(v) else "NaN" for v in detail['values']]
-                            stoch_debug_info.append(f"{detail['indicator'].split('_')[1]}: [{', '.join(values_str[-3:])}] min={detail['min_value']:.2f if detail['min_value'] is not None else 'NaN'}")
-                        else:
-                            stoch_debug_info.append(f"{detail['indicator']}: MISSING")
-
-                    rsi_display = f"{rsi_value:.2f}" if rsi_value is not None else "N/A"
-                    logger.debug(f"Bar {i} at {current_time}: RSI={rsi_display}, rsi_below_40={rsi_below_40}, all_stoch_k_below_20={all_stoch_k_below_10}")
-                    logger.debug(f"  StochRSI details: {' | '.join(stoch_debug_info)}")
-        else:
-            if is_target_date:
-                rsi_display = f"{rsi_value:.2f}" if rsi_value is not None else "N/A"
-                logger.debug(f"Bar {i} at {current_time}: RSI={rsi_display}, rsi_below_40={rsi_below_40}")
+                    logger.debug(f"Bar {i} at {current_time}: Signal conditions met but recent signal already generated")
 
     logger.debug(f"Total buy signals detected: {len(signals)}")
     return signals

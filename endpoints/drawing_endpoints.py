@@ -155,5 +155,14 @@ async def get_shape_properties_api_endpoint(symbol: str, drawing_id: str, reques
         "end_price": drawing.get("end_price")
     }
 
+    # Also include alert status from root level for UI consistency
+    if drawing.get("alert_sent"):
+        properties_with_y["emailSent"] = True
+        if drawing.get("alert_sent_time"):
+            properties_with_y["emailDate"] = drawing["alert_sent_time"] * 1000  # convert to milliseconds for JS
+    elif "emailSent" not in properties_with_y:
+        properties_with_y["emailSent"] = False
+        properties_with_y["emailDate"] = None
+
     logger.info(f"Returning shape properties for {drawing_id}: {properties_with_y}")
     return JSONResponse(content={"status": "success", "properties": properties_with_y})

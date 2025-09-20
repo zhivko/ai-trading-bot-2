@@ -242,11 +242,11 @@ function colorTheLine(eventParam)
                     continue;
                 }
                 const distSq = distToSegmentSquared({ x: mouseX_paper, y: mouseY_paper }, p0, p1); // From utils.js
-                console.log(`[colorTheLine] Shape ${i} (ID: ${shape.id}) - DistSq: ${distSq.toFixed(2)}, Threshold: ${HOVER_THRESHOLD_PIXELS_SQ}, Mouse: (${mouseX_paper.toFixed(2)}, ${mouseY_paper.toFixed(2)}), Shape endpoints: (${p0.x.toFixed(2)}, ${p0.y.toFixed(2)}) to (${p1.x.toFixed(2)}, ${p1.y.toFixed(2)})`);
+                // console.log(`[colorTheLine] Shape ${i} (ID: ${shape.id}) - DistSq: ${distSq.toFixed(2)}, Threshold: ${HOVER_THRESHOLD_PIXELS_SQ}, Mouse: (${mouseX_paper.toFixed(2)}, ${mouseY_paper.toFixed(2)}), Shape endpoints: (${p0.x.toFixed(2)}, ${p0.y.toFixed(2)}) to (${p1.x.toFixed(2)}, ${p1.y.toFixed(2)})`);
                 if (distSq < HOVER_THRESHOLD_PIXELS_SQ && distSq < minDistanceSq) {
                     minDistanceSq = distSq;
                     window.newHoveredShapeId = shape.id;
-                    console.log(`[colorTheLine] Shape ${i} (ID: ${shape.id}) is now the closest hovered shape!`);
+                   // console.log(`[colorTheLine] Shape ${i} (ID: ${shape.id}) is now the closest hovered shape!`);
                 }
             }
         }
@@ -501,23 +501,23 @@ function handleShapeClick(event) {
                             const pixelX = xAxis._offset + xAxis.d2p(xVal instanceof Date ? xVal.getTime() : xVal);
                             const pixelY = yAxis._offset + yAxis.d2p(yVal);
 
-                            console.log(`[DEBUG] handleShapeClick - YouTube marker ${j}: data=(${xVal}, ${yVal}), pixel=(${pixelX.toFixed(2)}, ${pixelY.toFixed(2)}), mouse_paper=(${mouseX_paper.toFixed(2)}, ${mouseY_paper.toFixed(2)})`);
+                            //console.log(`[DEBUG] handleShapeClick - YouTube marker ${j}: data=(${xVal}, ${yVal}), pixel=(${pixelX.toFixed(2)}, ${pixelY.toFixed(2)}), mouse_paper=(${mouseX_paper.toFixed(2)}, ${mouseY_paper.toFixed(2)})`);
 
                             // Calculate distance using same paper coordinates as line shapes
                             const distance = Math.sqrt(Math.pow(mouseX_paper - pixelX, 2) + Math.pow(mouseY_paper - pixelY, 2));
 
-                            console.log(`[DEBUG] handleShapeClick - YouTube marker ${j} distance: ${distance.toFixed(2)}`);
+                            // console.log(`[DEBUG] handleShapeClick - YouTube marker ${j} distance: ${distance.toFixed(2)}`);
 
                             if (distance < minDistance && distance < 25) { // Slightly larger threshold for markers
                                 minDistance = distance;
                                 closestIndex = j;
-                                console.log(`[DEBUG] handleShapeClick - YouTube marker ${j} is closest so far, distance: ${distance.toFixed(2)}`);
+                                // console.log(`[DEBUG] handleShapeClick - YouTube marker ${j} is closest so far, distance: ${distance.toFixed(2)}`);
                             }
                         }
                     }
 
                     if (closestIndex !== -1) {
-                        console.log('[DEBUG] handleShapeClick - YouTube marker clicked at index:', closestIndex);
+                        // console.log('[DEBUG] handleShapeClick - YouTube marker clicked at index:', closestIndex);
 
                         // Get marker data
                         const transcript = trace.transcripts ? trace.transcripts[closestIndex] : 'No description available';

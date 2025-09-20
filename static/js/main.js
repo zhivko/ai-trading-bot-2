@@ -1167,9 +1167,11 @@ async function populateShapePropertiesDialog(activeShape) {
             if (sendEmailOnCross && properties.sendEmailOnCross !== undefined) {
                 sendEmailOnCross.checked = properties.sendEmailOnCross;
             }
-            if (emailSent && properties.emailSent !== undefined) {
-                emailSent.checked = properties.emailSent;
-            }
+    if (emailSent && properties.emailSent !== undefined) {
+        emailSent.checked = properties.emailSent;
+        // Disable the checkbox if already sent to prevent manual changes
+        emailSent.disabled = properties.emailSent;
+    }
             if (emailDateDisplay && properties.emailDate) {
                 emailDateDisplay.textContent = new Date(properties.emailDate).toLocaleString();
             }
@@ -1232,6 +1234,8 @@ async function saveShapeProperties() {
         sellOnCross,
         sendEmailOnCross
     };
+
+    // Note: emailSent is read-only and controlled by backend
 
     // Handle amount - convert to number if provided
     if (amountInput.trim() !== '') {

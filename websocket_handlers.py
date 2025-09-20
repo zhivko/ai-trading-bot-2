@@ -4,6 +4,8 @@ import asyncio
 import time
 import json
 import numpy as np
+import csv
+import os
 from typing import Dict, Any, List
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
@@ -425,6 +427,85 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
             else:
                 logger.error(f"Unexpected error sending data to client (combined data {active_symbol}): {e}", exc_info=True)
 
+    async def generate_csv_from_combined_data(symbol: str, indicators: List[str], combined_data: List[Dict], from_ts: int, to_ts: int):
+        """Generate CSV file with the exact same data structure sent to client."""
+        import os  # Local import for scoping
+
+        if not combined_data:
+            logger.info(f"No data to export to CSV for {symbol}")
+            return
+
+        # Create filename with symbol, indicators, and timestamp range for easy identification
+        indicators_str = "_".join(indicators) if indicators else "no_indicators"
+        timestamp = int(time.time())
+        csv_filename = f"data/{symbol}_{indicators_str}_{from_ts}_{to_ts}_{timestamp}.csv"
+
+        logger.info(f"📊 GENERATING CSV: {csv_filename}")
+
+        try:
+            # Build fieldnames dynamically based on ALL indicators present in data
+            fieldnames = ["timestamp", "iso_timestamp", "open", "high", "low", "close", "volume"]
+            indicator_columns = set()  # Use set to avoid duplicates
+
+            # Analyze ALL data points to determine available indicators
+            # Don't just look at first point - some indicators may only have data later
+            if combined_data:
+                for data_point in combined_data:
+                    if data_point.get("indicators"):
+                        for indicator_id, indicator_data in data_point["indicators"].items():
+                            if isinstance(indicator_data, dict):
+                                for key in indicator_data.keys():
+                                    if key != "t":  # timestamps array is not a data column
+                                        indicator_columns.add(f"{indicator_id}_{key}")
+
+            # Add unique indicator columns to fieldnames
+            fieldnames.extend(sorted(indicator_columns))
+
+            logger.debug(f"CSV fieldnames generated: {fieldnames}")
+
+            with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+
+                # Write data rows
+                for data_point in combined_data:
+                    # Convert Unix timestamp to human-readable ISO format
+                    try:
+                        iso_timestamp = datetime.fromtimestamp(data_point["time"], timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+                    except (ValueError, OSError) as e:
+                        logger.warning(f"Failed to convert timestamp {data_point['time']} to ISO format: {e}")
+                        iso_timestamp = ""  # Blank if conversion fails
+
+                    row = {
+                        "timestamp": data_point["time"],
+                        "iso_timestamp": iso_timestamp,
+                        "open": data_point["ohlc"]["open"],
+                        "high": data_point["ohlc"]["high"],
+                        "low": data_point["ohlc"]["low"],
+                        "close": data_point["ohlc"]["close"],
+                        "volume": data_point["ohlc"]["volume"]
+                    }
+
+                    # Add indicator values for this timestamp
+                    if data_point.get("indicators"):
+                        for indicator_id, indicator_data in data_point["indicators"].items():
+                            if isinstance(indicator_data, dict):
+                                for key, value in indicator_data.items():
+                                    if key != "t":  # Skip timestamps array
+                                        row[f"{indicator_id}_{key}"] = value if value is not None else ""  # Use empty string instead of null
+
+                    writer.writerow(row)
+
+            # Log CSV generation summary
+            file_size_kb = os.path.getsize(csv_filename) / 1024
+            logger.info(f"✅ CSV GENERATED: {csv_filename}")
+            logger.info(f"   Size: {file_size_kb:.1f} KB, Rows: {len(combined_data)}")
+            logger.info(f"   Columns: {len(fieldnames)} ({', '.join(fieldnames[:6])}{'...' if len(fieldnames) > 6 else ''})")
+            logger.info(f"   Time range: {from_ts} to {to_ts} (UTC)")
+
+        except Exception as e:
+            logger.error(f"❌ FAILED TO GENERATE CSV {csv_filename}: {e}", exc_info=True)
+
     async def send_historical_data():
         """Send historical OHLC data with indicators."""
         try:
@@ -502,15 +583,26 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                     elif config["id"] == "open_interest":
                         current_indicator_lookback = 0  # OI is direct data, no calculation lookback
                     elif config["id"].startswith("stochrsi"):
-                        # StochRSI: First RSI, then Stochastic oscillator
+                        # StochRSI: Precise lookback calculation based on algorithm requirements
                         rsi_period = config["params"]["rsi_period"]
                         stoch_period = config["params"]["stoch_period"]
                         k_period = config["params"]["k_period"]
                         d_period = config["params"]["d_period"]
-                        # RSI warmup + Stochastic calculation periods
+
+                        # RSI calculation: EMA(gains, period) / EMA(losses, period)
+                        # Each EMA needs ~3*period for proper stabilization
                         rsi_warmup = rsi_period * 3
+
+                        # Stochastic applied to RSI: StOCH[stoch_period](RSI[last K])
+                        # For stable Stochastic output, need enough RSI values for reliable %K calculation
+                        # %K = Current RSI - Min(RSI[stoch_period]) / Max(RSI[stoch_period]) - Min(RSI[stoch_period])
+                        # So we need: rsi_warmup + stoch_period + smoothing periods (k_period + d_period)
                         stoch_warmup = stoch_period + k_period + d_period
-                        current_indicator_lookback = rsi_warmup + stoch_warmup + 50
+
+                        # Minimal additional buffer for edge cases and stabilization
+                        minimal_buffer = max(20, rsi_period)  # At least 20 periods or one RSI cycle
+
+                        current_indicator_lookback = rsi_warmup + stoch_warmup + minimal_buffer
                     elif config["id"] == "jma":
                         # JMA (Jurik Moving Average): Complex adaptive algorithm
                         # Needs length * 4 for proper initialization + phase adaptation
@@ -528,13 +620,38 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
             timeframe_secs = get_timeframe_seconds(client_state["resolution"])
 
             # CRITICAL FIX: Ensure we fetch ENOUGH historical data for the indicators to have valid values
-            # The lookback_candles_needed should actually be used properly for data fetching
-            buffer_candles = 10  # Add some buffer to ensure we have enough data
-            min_overall_candles = 100  # Minimum base dataset size
-            if max_lookback_periods > 0:
-                lookback_candles_needed = max(max_lookback_periods + buffer_candles, min_overall_candles)
-            else:
-                lookback_candles_needed = min_overall_candles
+            # MACD and RSI need substantial lookback for proper calculation
+            macd_max_lookback = 0
+            rsi_max_lookback = 0
+
+            # Calculate actual minimum data requirements for MACD and RSI
+            for indicator_id in client_state["indicators"]:
+                config = next((item for item in AVAILABLE_INDICATORS if item["id"] == indicator_id), None)
+                if config:
+                    if config["id"] == "macd":
+                        short = config["params"]["short_period"]
+                        long = config["params"]["long_period"]
+                        signal = config["params"]["signal_period"]
+                        # MACD needs at least short + long + signal periods, plus substantial buffer
+                        macd_lookback = max(short, long) * 4 + signal + 50  # 4x periods + signal + buffer
+                        macd_max_lookback = max(macd_max_lookback, macd_lookback)
+                    elif config["id"] == "rsi":
+                        period = config["params"]["period"]
+                        # RSI needs at least period * 3 for proper stabilization + 14 for SMA + buffer
+                        rsi_lookback = period * 4 + 100  # 4x period + buffer
+                        rsi_max_lookback = max(rsi_max_lookback, rsi_lookback)
+
+            # Use the maximum lookback across all required indicators
+            base_minimum = 150  # Always fetch at least 150 candles for basic calculations
+            actual_lookback_needed = max(max_lookback_periods, macd_max_lookback, rsi_max_lookback, base_minimum)
+
+            logger.info("🔍 WEBSOCKET CALCULATION REQUIREMENTS:")
+            logger.info(f"  Max StochRSI lookback: {max_lookback_periods} periods")
+            logger.info(f"  Max MACD lookback: {macd_max_lookback} periods")
+            logger.info(f"  Max RSI lookback: {rsi_max_lookback} periods")
+            logger.info(f"  Final dataset size needed: {actual_lookback_needed} periods")
+
+            lookback_candles_needed = actual_lookback_needed
 
             kline_fetch_start_ts = client_state["from_ts"] - (lookback_candles_needed * timeframe_secs)
             kline_fetch_end_ts = client_state["to_ts"]  # This is the original 'to_ts' from the request
@@ -552,21 +669,84 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                 logger.error(f"📊 REDIS CONTEXT: symbol={active_symbol}, resolution={client_state['resolution']}, fetch_from={kline_fetch_start_ts}, fetch_to={kline_fetch_end_ts}")
                 return
 
-            # If no klines found in cache, try to fetch from Bybit as fallback
+            # Check if we have data for the FULL requested range
+            # If not, we need to fetch missing data from Bybit
+            requested_range_start = client_state["from_ts"]
+            requested_range_end = client_state["to_ts"]
+            available_data_start = min([k['time'] for k in klines]) if klines else float('inf')
+            available_data_end = max([k['time'] for k in klines]) if klines else 0
+
+            data_gap_at_start = requested_range_start < available_data_start
+            data_gap_at_end = requested_range_end > available_data_end
+
+            if data_gap_at_start or data_gap_at_end:
+                logger.warning(f"⚠️ DATA RANGE GAP DETECTED: Requested {requested_range_start} to {requested_range_end}, Available {available_data_start} to {available_data_end}")
+                logger.info(f"🔄 FETCHING MISSING DATA: gap_at_start={data_gap_at_start}, gap_at_end={data_gap_at_end}")
+
+                try:
+                    from redis_utils import fetch_klines_from_bybit, cache_klines
+
+                    # For gaps, fetch the missing period plus some buffer
+                    gap_start = requested_range_start if data_gap_at_start else available_data_start
+                    gap_end = requested_range_end if data_gap_at_end else available_data_end
+
+                    # Add buffer around the gap
+                    gap_start -= timeframe_secs * 24  # 1 day buffer before
+                    gap_end += timeframe_secs * 24    # 1 day buffer after
+
+                    logger.info(f"📡 FETCHING GAP DATA: {datetime.fromtimestamp(gap_start, timezone.utc)} to {datetime.fromtimestamp(gap_end, timezone.utc)}")
+
+                    fetched_klines = fetch_klines_from_bybit(active_symbol, client_state["resolution"], gap_start, gap_end)
+
+                    if fetched_klines and len(fetched_klines) > 0:
+                        logger.info(f"✅ BYBIT GAP SUCCESS: Fetched {len(fetched_klines)} additional klines for {active_symbol}")
+
+                        # Cache the gap data
+                        await cache_klines(active_symbol, client_state["resolution"], fetched_klines)
+                        logger.info(f"💾 GAP CACHED: Stored {len(fetched_klines)} gap klines in Redis for {active_symbol}")
+
+                        # Re-fetch from cache to get complete dataset
+                        full_klines = await get_cached_klines(active_symbol, client_state["resolution"], kline_fetch_start_ts, kline_fetch_end_ts)
+                        if full_klines:
+                            klines = full_klines
+                            logger.info(f"✅ COMPLETE DATASET: Now have {len(klines)} klines after gap filling")
+                        else:
+                            # Merge with existing klines if re-fetch fails
+                            logger.warning("Re-fetch failed, merging manually")
+                            merged_klines = klines + fetched_klines
+                            klines = sorted(merged_klines, key=lambda x: x['time'])
+                            # Remove duplicates
+                            seen = set()
+                            unique_klines = []
+                            for k in klines:
+                                if k['time'] not in seen:
+                                    seen.add(k['time'])
+                                    unique_klines.append(k)
+                            klines = unique_klines
+                            logger.info(f"✅ MANUAL MERGE: Now have {len(klines)} unique klines after gap filling")
+
+                    else:
+                        logger.warning(f"❌ BYBIT GAP FAILURE: Could not fill data gap for {active_symbol} - will proceed with available data")
+
+                except Exception as e:
+                    logger.error(f"❌ BYBIT GAP FETCH ERROR: Failed to fetch gap data for {active_symbol}: {e}", exc_info=True)
+                    logger.info("Proceeding with available cached data...")
+
+            # If STILL no klines found at all, try to fetch the full range from Bybit as last resort
             if not klines or len(klines) == 0:
-                logger.warning(f"⚠️ No historical klines found in Redis cache for {active_symbol}")
-                logger.info(f"🔄 FALLBACK: Attempting to fetch data from Bybit API for {active_symbol}")
+                logger.warning(f"⚠️ NO HISTORICAL DATA AT ALL: No historical klines found for {active_symbol}")
+                logger.info(f"🔄 LAST RESORT: Attempting full range fetch from Bybit API for {active_symbol}")
 
                 try:
                     # Import the Bybit fetch function
                     from redis_utils import fetch_klines_from_bybit, cache_klines
 
-                    # Fetch data from Bybit
-                    logger.info(f"📡 FETCHING FROM BYBIT: {active_symbol} {client_state['resolution']} from {client_state['from_ts']} to {client_state['to_ts']}")
+                    # Fetch data from Bybit - use the ORIGINAL requested range, not the expanded fetch range
+                    logger.info(f"📡 LAST RESORT FETCH: {active_symbol} {client_state['resolution']} from {client_state['from_ts']} to {client_state['to_ts']}")
                     fetched_klines = fetch_klines_from_bybit(active_symbol, client_state["resolution"], client_state["from_ts"], client_state["to_ts"])
 
                     if fetched_klines and len(fetched_klines) > 0:
-                        logger.info(f"✅ BYBIT SUCCESS: Fetched {len(fetched_klines)} klines from Bybit for {active_symbol}")
+                        logger.info(f"✅ BYBIT LAST RESORT SUCCESS: Fetched {len(fetched_klines)} klines from Bybit for {active_symbol}")
 
                         # Cache the fetched data
                         await cache_klines(active_symbol, client_state["resolution"], fetched_klines)
@@ -575,11 +755,11 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                         # Use the fetched data
                         klines = fetched_klines
                     else:
-                        logger.warning(f"❌ BYBIT FAILURE: No data fetched from Bybit for {active_symbol}")
+                        logger.warning(f"❌ BYBIT LAST RESORT FAILURE: No data available for {active_symbol}")
                         return
 
                 except Exception as e:
-                    logger.error(f"❌ BYBIT FETCH ERROR: Failed to fetch data from Bybit for {active_symbol}: {e}", exc_info=True)
+                    logger.error(f"❌ BYBIT LAST RESORT FETCH ERROR: Failed to fetch data from Bybit for {active_symbol}: {e}", exc_info=True)
                     return
             else:
                 logger.info(f"✅ CACHE HIT: Found {len(klines)} klines in Redis cache for {active_symbol}")
@@ -588,6 +768,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
             try:
                 logger.info(f"Calculating indicators for {active_symbol}: {len(client_state['indicators'])} indicators, {len(klines)} klines")
                 indicators_data = await calculate_indicators_for_data(klines, client_state["indicators"])
+                logger.info(f"📊 INDICATORS CALCULATION RESULTS: {list(indicators_data.keys()) if indicators_data else 'NONE'}")
                 logger.debug(f"Indicators calculation completed: {len(indicators_data) if indicators_data else 0} results")
             except Exception as e:
                 logger.error(f"Failed to calculate indicators for {active_symbol}: {e}", exc_info=True)
@@ -675,9 +856,63 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                     logger.error(f"Error calculating buy signals for {active_symbol}: {e}", exc_info=True)
                     buy_signals = []
 
-            # Prepare combined data
+            # 🔍 VALIDATION: Log availability but DON'T FILTER - return ALL requested data
+            # Count how many data points have ALL indicators available in the requested range
+            valid_data_range_count = 0
+
+            # Get all klines in the requested range (ALL of them, not just the valid ones)
+            all_requested_klines = [kline for kline in klines if client_state['from_ts'] <= kline['time'] <= client_state['to_ts']]
+            requested_range_count = len(all_requested_klines)
+            logger.info(f"🔍 WEBSOCKET DATA PREPARATION: Requested range {client_state['from_ts']} to {client_state['to_ts']} = {requested_range_count} candles")
+
+            if requested_range_count == 0:
+                logger.warning(f"⚠️ NO DATA IN REQUESTED RANGE: No klines found between {client_state['from_ts']} and {client_state['to_ts']}")
+                return
+
+            # Calculate how many indicators are fully available in the requested range
+            fully_available_indicators = 0
+            for indicator_id, indicator_values in indicators_data.items():
+                if "t" in indicator_values and indicator_values["t"]:
+                    # Count how many points in the requested range have this indicator available (non-null)
+                    requested_range_for_indicator = [ts for ts in indicator_values["t"] if client_state['from_ts'] <= ts <= client_state['to_ts']]
+                    requested_range_valid_count = len(requested_range_for_indicator)
+
+                    if requested_range_valid_count > 0:
+                        # Check the percentage of valid values
+                        null_count = 0
+                        for ts in requested_range_for_indicator:
+                            idx = indicator_values["t"].index(ts)
+                            for key, values in indicator_values.items():
+                                if key != "t" and idx < len(values) and values[idx] is None:
+                                    null_count += 1
+                                    break  # Count each timestamp once even if multiple values are null
+
+                        valid_percentage = ((requested_range_valid_count - null_count) / requested_range_valid_count) * 100
+                        logger.info(f"🔍 WEBSOCKET AVAILABILITY: {indicator_id} - {requested_range_valid_count - null_count}/{requested_range_valid_count} valid points ({valid_percentage:.1f}%)")
+
+                        if null_count == 0:
+                            fully_available_indicators += 1
+                    else:
+                        logger.warning(f"⚠️ WEBSOCKET AVAILABILITY: {indicator_id} has no data points in requested range")
+
+            logger.info(f"🔍 WEBSOCKET RESULT: {fully_available_indicators}/{len(indicators_data)} indicators are fully available in requested range")
+            logger.info("✅ SENDING ALL REQUESTED DATA: Even if some early indicators are null - this is normal chart behavior")
+
+            # Send ALL requested klines (within the requested range), regardless of indicator validity
             combined_data = []
-            for kline in klines:
+            requested_klines_dict = {k['time']: k for k in all_requested_klines}  # For faster lookup
+
+            # Prepare combined data - include ALL data points in requested range
+            logger.info(f"🔍 WEBSOCKET BUILDING DATA: Processing {len(all_requested_klines)} data points in requested range")
+
+            # Create timestamp mapping for faster lookups
+            timestamp_map = {}
+            for indicator_id, indicator_values in indicators_data.items():
+                if "t" in indicator_values:
+                    indicator_timestamps = indicator_values["t"]
+                    timestamp_map[indicator_id] = dict(zip(indicator_timestamps, range(len(indicator_timestamps))))
+
+            for kline in all_requested_klines:
                 data_point = {
                     "time": kline["time"],
                     "ohlc": {
@@ -690,20 +925,32 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                     "indicators": {}
                 }
 
-                # Add indicator values for this timestamp
+                # Add indicator values for this timestamp - send all OHLC data and populate indicators
                 for indicator_id, indicator_values in indicators_data.items():
                     if "t" in indicator_values:
-                        # Find the index for this timestamp
-                        try:
-                            idx = indicator_values["t"].index(kline["time"])
-                            data_point["indicators"][indicator_id] = {}
-                            for key, values in indicator_values.items():
-                                if key != "t" and idx < len(values):
-                                    data_point["indicators"][indicator_id][key] = values[idx]
-                        except (ValueError, IndexError):
-                            pass
+                        # Use pre-built timestamp map for faster lookup
+                        if indicator_id in timestamp_map and kline["time"] in timestamp_map[indicator_id]:
+                            idx = timestamp_map[indicator_id][kline["time"]]
+                            # Verify index is valid for this indicator (check the first available key)
+                            first_key = next((k for k in indicator_values.keys() if k != "t"), None)
+                            if first_key and idx < len(indicator_values.get(first_key, [])):
+                                # Always create indicator object, populating with available values
+                                temp_indicator = {}
+                                for key, values in indicator_values.items():
+                                    if key != "t" and idx < len(values):
+                                        value = values[idx]
+                                        # Use None for missing values instead of excluding them
+                                        temp_indicator[key] = value
 
+                                # Only add indicator if it has the expected data structure and at least timestamps
+                                if temp_indicator:
+                                    data_point["indicators"][indicator_id] = temp_indicator
+
+                # Always include all candles (both OHLC data and any valid indicators they have)
                 combined_data.append(data_point)
+
+            # 📊 GENERATE CSV FILE WITH COMPLETE DATA STRUCTURE
+            await generate_csv_from_combined_data(active_symbol, client_state["indicators"], combined_data, client_state["from_ts"], client_state["to_ts"])
 
             # Send historical data in batches
             batch_size = 100
@@ -972,7 +1219,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
         indicators_data = {}
 
         for indicator_id in indicators:
-            # logger.info(f"🔍 SERVER DEBUG: Processing indicator {indicator_id}")
+            logger.info(f"🔍 INDICATOR DEBUG: Processing indicator {indicator_id}")
             config = next((item for item in AVAILABLE_INDICATORS if item["id"] == indicator_id), None)
             if not config:
                 logger.warning(f"Unknown indicator {indicator_id} requested for {active_symbol}")
@@ -981,34 +1228,39 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
             try:
                 params = config["params"]
                 calc_id = config["id"]
-                # logger.info(f"🔍 SERVER DEBUG: Indicator {indicator_id} config: calc_id={calc_id}, params={params}")
+                logger.info(f"🔍 INDICATOR DEBUG: Indicator {indicator_id} config: calc_id={calc_id}, params={params}")
 
                 if calc_id == "macd":
-                    # logger.info(f"🔍 SERVER DEBUG: Calling calculate_macd for {indicator_id}")
+                    logger.info(f"🔍 INDICATOR DEBUG: Calling calculate_macd for {indicator_id}")
                     result = calculate_macd(df.copy(), **params)
+                    logger.info(f"🔍 INDICATOR DEBUG: MACD result type: {type(result)}, is None: {result is None}")
                 elif calc_id == "rsi":
-                    # logger.info(f"🔍 SERVER DEBUG: Calling calculate_rsi for {indicator_id}")
+                    logger.info(f"🔍 INDICATOR DEBUG: Calling calculate_rsi for {indicator_id}")
                     result = calculate_rsi(df.copy(), **params)
+                    logger.info(f"🔍 INDICATOR DEBUG: RSI result type: {type(result)}, is None: {result is None}")
                 elif calc_id.startswith("stochrsi"):
-                    # logger.info(f"🔍 SERVER DEBUG: Calling calculate_stoch_rsi for {indicator_id}")
+                    logger.info(f"🔍 INDICATOR DEBUG: Calling calculate_stoch_rsi for {indicator_id}")
                     result = calculate_stoch_rsi(df.copy(), **params)
+                    logger.info(f"🔍 INDICATOR DEBUG: STOCHRSI result type: {type(result)}, is None: {result is None}")
                 elif calc_id == "open_interest":
-                    # logger.info(f"🔍 SERVER DEBUG: Calling calculate_open_interest for {indicator_id}")
+                    logger.info(f"🔍 INDICATOR DEBUG: Calling calculate_open_interest for {indicator_id}")
                     result = calculate_open_interest(df.copy())
+                    logger.info(f"🔍 INDICATOR DEBUG: OI result type: {type(result)}, is None: {result is None}")
                 elif calc_id == "jma":
-                    # logger.info(f"🔍 SERVER DEBUG: Calling calculate_jma_indicator for {indicator_id}")
+                    logger.info(f"🔍 INDICATOR DEBUG: Calling calculate_jma_indicator for {indicator_id}")
                     result = calculate_jma_indicator(df.copy(), **params)
+                    logger.info(f"🔍 INDICATOR DEBUG: JMA result type: {type(result)}, is None: {result is None}")
                 else:
                     logger.warning(f"Unsupported indicator calculation {calc_id} for {active_symbol}")
                     continue
 
-                # logger.info(f"🔍 SERVER DEBUG: Indicator {indicator_id} calculation result: {result is not None}")
+                logger.info(f"🔍 INDICATOR DEBUG: Indicator {indicator_id} calculation result: {result is not None}")
                 if result:
-                    # logger.info(f"🔍 SERVER DEBUG: Indicator {indicator_id} result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
+                    logger.info(f"🔍 INDICATOR DEBUG: Indicator {indicator_id} result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
                     if "t" in result:
-                        # logger.info(f"🔍 SERVER DEBUG: Indicator {indicator_id} has 't' key with {len(result['t'])} timestamps")
+                        logger.info(f"🔍 INDICATOR DEBUG: Indicator {indicator_id} has 't' key with {len(result['t'])} timestamps")
                         indicators_data[indicator_id] = result
-                        # logger.info(f"🔍 SERVER DEBUG: Added indicator {indicator_id} to indicators_data")
+                        logger.info(f"🔍 INDICATOR DEBUG: Successfully added {indicator_id} to indicators_data")
                     else:
                         logger.warning(f"Indicator {indicator_id} calculation result missing 't' key for {active_symbol}")
                 else:
@@ -1016,6 +1268,8 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
 
             except Exception as e:
                 logger.error(f"Error calculating indicator {indicator_id} for {active_symbol}: {e}", exc_info=True)
+                import traceback
+                logger.error(f"📋 INDICATOR ERROR TRACEBACK:\n{traceback.format_exc()}")
 
         # 🔍 VALIDATION: Check non-null values for requested time range (WebSocket historical data)
         if df is not None and len(df) > 0:
@@ -1173,6 +1427,35 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                         logger.info(f"[TIMESTAMP DEBUG] websocket_handlers.py - Received timestamps:")
                         logger.info(f"  from_ts: {received_from_ts} (type: {type(received_from_ts)})")
                         logger.info(f"  to_ts: {received_to_ts} (type: {type(received_to_ts)})")
+
+                        # Parse timestamps for human-readable logging
+                        try:
+                            if isinstance(received_from_ts, str) and received_from_ts.endswith('Z'):
+                                # ISO string with Z suffix
+                                parsed_from = datetime.fromisoformat(received_from_ts.replace('Z', '+00:00'))
+                                logger.info(f"  from_ts parsed: {parsed_from.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+                            elif isinstance(received_from_ts, (int, float)):
+                                # Unix timestamp
+                                parsed_from = datetime.fromtimestamp(received_from_ts, timezone.utc)
+                                logger.info(f"  from_ts parsed: {parsed_from.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+                            else:
+                                logger.info(f"  from_ts format: Unable to parse")
+                        except Exception as e:
+                            logger.warning(f"Failed to parse from_ts for logging: {e}")
+
+                        try:
+                            if isinstance(received_to_ts, str) and received_to_ts.endswith('Z'):
+                                # ISO string with Z suffix
+                                parsed_to = datetime.fromisoformat(received_to_ts.replace('Z', '+00:00'))
+                                logger.info(f"  to_ts parsed: {parsed_to.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+                            elif isinstance(received_to_ts, (int, float)):
+                                # Unix timestamp
+                                parsed_to = datetime.fromtimestamp(received_to_ts, timezone.utc)
+                                logger.info(f"  to_ts parsed: {parsed_to.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+                            else:
+                                logger.info(f"  to_ts format: Unable to parse")
+                        except Exception as e:
+                            logger.warning(f"Failed to parse to_ts for logging: {e}")
 
                         # Check if timestamps are ISO strings or numeric
                         if received_from_ts and received_to_ts:

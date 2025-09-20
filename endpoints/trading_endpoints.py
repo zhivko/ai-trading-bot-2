@@ -201,8 +201,8 @@ async def get_order_history_endpoint(symbol: str, request: Request, cert_check: 
 
 async def get_buy_signals_endpoint(symbol: str, resolution: str, from_ts: int, to_ts: int):
     """
-    Analyzes historical data for a symbol to find moments that match the
-    "buy the dip in a downtrend" criteria.
+    Analyzes historical data for a symbol to find RSI deviation buy signals.
+    Detects when RSI deviates more than 90% from its 14-period SMA.
     """
     # Convert timestamps to human-readable format for logging
     from_dt_str = datetime.fromtimestamp(from_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
@@ -212,8 +212,8 @@ async def get_buy_signals_endpoint(symbol: str, resolution: str, from_ts: int, t
     if symbol not in SUPPORTED_SYMBOLS:
         raise HTTPException(status_code=400, detail="Unsupported symbol")
 
-    # Calculate lookback needed for indicators (EMA 200 is the longest)
-    lookback_periods = 200 + 50  # 200 for EMA, 50 as a buffer
+    # Calculate lookback needed for indicators (RSI 14 + SMA 14)
+    lookback_periods = 14 + 14 + 20  # RSI period + SMA period + buffer
     timeframe_secs = get_timeframe_seconds(resolution)
     fetch_start_ts = from_ts - (lookback_periods * timeframe_secs)
 
@@ -238,43 +238,25 @@ async def get_buy_signals_endpoint(symbol: str, resolution: str, from_ts: int, t
         # Prepare DataFrame using the same method as indicators.py
         df = _prepare_dataframe(klines_for_calc, [])
 
-        # Add all necessary indicators for the signal logic
-        df['EMA_21'] = ta.ema(df['close'], length=21)
-        df['EMA_50'] = ta.ema(df['close'], length=50)
-        df['EMA_200'] = ta.ema(df['close'], length=200)
+        if df.empty:
+            return JSONResponse({"status": "error", "message": "DataFrame preparation failed."}, status_code=500)
 
-        # RSI calculation
+        # Calculate RSI (14 period)
         rsi_result = ta.rsi(df['close'], length=14)
         if rsi_result is not None:
             df['RSI_14'] = rsi_result
         else:
             raise ValueError("RSI calculation failed - returned None")
 
-        # Stochastic RSI calculation
-        stoch_rsi_result = ta.stochrsi(df['close'], rsi_length=60, length=60, k=10, d=10)
-        if stoch_rsi_result is not None:
-            df['STOCHRSIk_60_60_10_10'] = stoch_rsi_result.iloc[:, 0]  # K value
-            df['STOCHRSId_60_60_10_10'] = stoch_rsi_result.iloc[:, 1]  # D value
+        # Calculate 14-period SMA of RSI
+        df['RSI_SMA14'] = df['RSI_14'].rolling(window=14).mean()
 
-        # MACD calculation
-        macd_result = ta.macd(df['close'], fast=12, slow=26, signal=9)
-        if macd_result is not None:
-            df['MACD_12_26_9'] = macd_result.iloc[:, 0]      # MACD line
-            df['MACDs_12_26_9'] = macd_result.iloc[:, 1]     # Signal line
-            df['MACDh_12_26_9'] = macd_result.iloc[:, 2]     # Histogram
-
-        # Calculate SMAs for RSI
-        df[f'RSI_SMA_5'] = df['RSI_14'].rolling(window=5).mean()
-        df[f'RSI_SMA_10'] = df['RSI_14'].rolling(window=10).mean()
-        df[f'RSI_SMA_3'] = df['RSI_14'].rolling(window=3).mean()
-        df[f'RSI_SMA_20'] = df['RSI_14'].rolling(window=20).mean()
-
-        # Drop rows with NaNs that result from indicator calculations
-        df.dropna(subset=[f'EMA_200', 'RSI_14', 'STOCHRSIk_60_60_10_10', 'STOCHRSId_60_60_10_10'], inplace=True)
+        # Drop rows with NaNs that result from RSI calculations (first 27 periods will be NaN)
+        df.dropna(subset=['RSI_14', 'RSI_SMA14'], inplace=True)
 
         if df.empty:
-            logger.warning(f"DataFrame for {symbol} became empty after indicator calculation and dropna.")
-            return JSONResponse({"status": "error", "message": "Not enough data to calculate all indicators for the requested range."}, status_code=500)
+            logger.warning(f"DataFrame for {symbol} became empty after RSI calculation and dropna.")
+            return JSONResponse({"status": "error", "message": "Not enough data to calculate RSI and SMA for the requested range."}, status_code=500)
 
         # Find all signals in the calculated (extended) range
         signals = find_buy_signals(df)

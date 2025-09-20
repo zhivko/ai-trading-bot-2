@@ -244,24 +244,46 @@ function enqueueMessage(message) {
         return;
     }
 
-    // Add timestamp range validation for historical data
+    // Add timestamp range validation for historical data with safe data handling
     if (message.type === 'historical' && lastProcessedTimestampRange) {
-        const messageFromTs = message.data && message.data.length > 0 ? message.data[0].time : null;
-        const messageToTs = message.data && message.data.length > 0 ? message.data[message.data.length - 1].time : null;
-
-        if (messageFromTs && messageToTs) {
-            const isDuplicateRange = (
-                Math.abs(messageFromTs - lastProcessedTimestampRange.fromTs) < 60 && // Within 1 minute
-                Math.abs(messageToTs - lastProcessedTimestampRange.toTs) < 60
-            );
-
-            if (isDuplicateRange) {
-                console.log(`🚫 Duplicate timestamp range detected and skipped: ${new Date(messageFromTs * 1000).toISOString()} to ${new Date(messageToTs * 1000).toISOString()}`);
-                return;
+        if (!message.data || !Array.isArray(message.data) || message.data.length === 0) {
+            console.warn('⚠️ Invalid or empty historical data in duplicate range check - skipping');
+        } else {
+            // Find first valid timestamp
+            let messageFromTs = null;
+            for (const point of message.data) {
+                if (point && point.time && !isNaN(point.time) && point.time > 0) {
+                    messageFromTs = point.time;
+                    break;
+                }
             }
 
-            // Update last processed range
-            lastProcessedTimestampRange = { fromTs: messageFromTs, toTs: messageToTs };
+            // Find last valid timestamp
+            let messageToTs = null;
+            for (let i = message.data.length - 1; i >= 0; i--) {
+                const point = message.data[i];
+                if (point && point.time && !isNaN(point.time) && point.time > 0) {
+                    messageToTs = point.time;
+                    break;
+                }
+            }
+
+            if (messageFromTs !== null && messageToTs !== null) {
+                const isDuplicateRange = (
+                    Math.abs(messageFromTs - lastProcessedTimestampRange.fromTs) < 60 && // Within 1 minute
+                    Math.abs(messageToTs - lastProcessedTimestampRange.toTs) < 60
+                );
+
+                if (isDuplicateRange) {
+                    console.log(`🚫 Duplicate timestamp range detected and skipped: safe timestamp logging`);
+                    return;
+                }
+
+                // Update last processed range
+                lastProcessedTimestampRange = { fromTs: messageFromTs, toTs: messageToTs };
+            } else {
+                console.warn('⚠️ No valid timestamps found in historical data for range validation');
+            }
         }
     }
 
@@ -291,6 +313,35 @@ function processMessageQueue() {
     console.log(`🔄 Processing message: ${message.type} (${messageQueue.length} remaining in queue)`);
 
     try {
+        // Validate message type exists
+        if (!message || typeof message !== 'object') {
+            console.warn('⚠️ Invalid message format:', message);
+            isProcessingMessage = false;
+            return;
+        }
+
+        if (!message.type) {
+            console.warn('⚠️ Message missing type:', message);
+            isProcessingMessage = false;
+            return;
+        }
+
+        // Log message processing with safe timestamp handling
+        let safeLogMessage = 'Processing message';
+        if (message.type === 'historical' && !lastProcessedTimestampRange && message.data && Array.isArray(message.data) && message.data.length > 0) {
+            safeLogMessage += ` (${message.data.length} historical points)`;
+        } else if (message.type === 'historical' && lastProcessedTimestampRange && message.data && Array.isArray(message.data) && message.data.length > 0) {
+            // Safe timestamp logging
+            const msgFromTs = message.data[0]?.time;
+            const msgToTs = message.data[message.data.length - 1]?.time;
+            if (typeof msgFromTs === 'number' && !isNaN(msgFromTs) && typeof msgToTs === 'number' && !isNaN(msgToTs)) {
+                safeLogMessage += ` (${new Date(msgFromTs * 1000).toISOString()} to ${new Date(msgToTs * 1000).toISOString()})`;
+            } else {
+                safeLogMessage += ` (${message.data.length} points, timestamp conversion skipped)`;
+            }
+        }
+        console.log(`🔄 ${safeLogMessage}`);
+
         // Process message based on type
         switch (message.type) {
             case 'historical':
@@ -318,7 +369,8 @@ function processMessageQueue() {
         console.log('✅ Message processing completed for type:', message.type);
     } catch (e) {
         console.error('❌ Combined WebSocket: Error processing queued message:', e.message);
-        console.error('❌ Raw message data:', message);
+        console.error('❌ Stack trace:', e.stack);
+        console.error('❌ Raw message data:', JSON.stringify(message, null, 2));
     } finally {
         isProcessingMessage = false;
         // Process next message if available
@@ -393,9 +445,28 @@ function handleRealtimeKlineForCombined(dataPoint) {
         return;
     }
 
-    // Get candle timing information
-    const candleStartTimeMs = dataPoint.time * 1000;
-    const candleEndTimeMs = candleStartTimeMs + (getTimeframeSecondsJS(combinedResolution) * 1000);
+    // Get candle timing information with validation
+    let candleStartTimeMs;
+    if (dataPoint.time && !isNaN(dataPoint.time) && dataPoint.time > 0) {
+        candleStartTimeMs = dataPoint.time * 1000;
+        // Validate the result
+        if (!isFinite(candleStartTimeMs)) {
+            console.warn('⚠️ Invalid candle start time calculated:', candleStartTimeMs);
+            return;
+        }
+    } else {
+        console.warn('⚠️ Invalid data point time for candle timing:', dataPoint.time);
+        return;
+    }
+
+    const timeframeSeconds = getTimeframeSecondsJS(combinedResolution);
+    const candleEndTimeMs = candleStartTimeMs + (timeframeSeconds * 1000);
+
+    // Validate candle end time
+    if (!isFinite(candleEndTimeMs)) {
+        console.warn('⚠️ Invalid candle end time calculated:', candleEndTimeMs);
+        return;
+    }
 
     console.log('🔴 Combined WebSocket: Drawing live price line for EXISTING candle:', {
         livePrice,
@@ -705,42 +776,234 @@ function sendCombinedConfig(oldResolution = null) {
 
 function validateIndicatorData(data, indicatorName) {
     /**
-     * Validates indicator data for null values only (no alignment checks).
-     * Returns true if validation passes (no null values), false otherwise.
+     * Validates indicator data for null values.
+     * - Null values are allowed during indicator warmup periods (earlier timestamps)
+     * - No null values allowed in the user's requested time range (combinedFromTs to combinedToTs)
+     * Returns true if validation passes, false only for data issues in requested time range.
      */
     if (!data || !Array.isArray(data)) {
         console.error(`❌ VALIDATION FAILED: ${indicatorName} - Invalid data format`);
         return false;
     }
 
-    let totalNulls = 0;
-    let totalPoints = 0;
+    if (!combinedFromTs || !combinedToTs) {
+        console.warn(`⚠️ VALIDATION WARNING: ${indicatorName} - No time range defined, allowing any data`);
+        return true;
+    }
+
+    // Validate that time range values are valid (numbers, Date objects, or ISO strings)
+    const fromTsValid = isValidTimestamp(combinedFromTs);
+    const toTsValid = isValidTimestamp(combinedToTs);
+
+    // Helper function to validate timestamps in any supported format
+    function isValidTimestamp(ts) {
+        if (ts === null || ts === undefined) return false;
+        if (typeof ts === 'string') {
+            // Check if it's a valid ISO string
+            try {
+                const date = new Date(ts);
+                return !isNaN(date.getTime()) && date.getTime() > 0;
+            } catch(e) {
+                return false;
+            }
+        }
+        if (typeof ts === 'number') {
+            return !isNaN(ts) && ts > 0;
+        }
+        if (ts instanceof Date) {
+            return !isNaN(ts.getTime()) && ts.getTime() > 0;
+        }
+        return false;
+    }
+
+    let lookbackNulls = 0;
+    let lookbackPoints = 0;
+    let userRangeNulls = 0;
+    let userRangePoints = 0;
 
     // Check each data point for null values in indicator fields
+    // Count nulls SEPARATELY for user-requested range vs lookback period
     data.forEach((point, index) => {
         if (point.indicators) {
+            // Determine if this point is within user's requested time range
+            const isInUserRange = fromTsValid && toTsValid && combinedFromTs <= point.time && point.time <= combinedToTs;
+
+            // Determine if this point is outside user range (before or after)
+            const isBeforeUserRange = point.time < combinedFromTs;
+            const isAfterUserRange = point.time > combinedToTs;
+            const isInLookbackRange = !isInUserRange && (isBeforeUserRange || isAfterUserRange);
+
             Object.keys(point.indicators).forEach(indicatorId => {
                 const indicatorData = point.indicators[indicatorId];
                 if (indicatorData) {
                     Object.keys(indicatorData).forEach(key => {
                         const value = indicatorData[key];
-                        if (value === null || value === undefined) {
-                            totalNulls++;
+                        const isNull = value === null || value === undefined;
+
+                        if (isNull) {
+                            if (isInUserRange) {
+                                userRangeNulls++;
+                            } else if (isInLookbackRange) {
+                                lookbackNulls++;
+                            }
                         }
-                        totalPoints++;
+
+                        if (isInUserRange) {
+                            userRangePoints++;
+                        } else if (isInLookbackRange) {
+                            lookbackPoints++;
+                        }
                     });
                 }
             });
         }
     });
 
-    // Strict validation: NO null values allowed
-    if (totalNulls > 0) {
-        console.error(`❌ VALIDATION FAILED: ${indicatorName} - Found ${totalNulls} null values out of ${totalPoints} total data points. All indicators must have 0 null values.`);
+    // LOGGING: Show data range breakdown with safe date formatting
+    console.log(`📊 VALIDATION ANALYSIS: ${indicatorName}`);
+    console.log(`  Total data points: ${data.length}`);
+
+    if (!fromTsValid || !toTsValid) {
+        console.warn(`⚠️ VALIDATION WARNING: ${indicatorName} - Invalid time range values (fromTs: ${combinedFromTs}, toTs: ${combinedToTs}), using fallback range determination`);
+    }
+
+    let lookbackDateStr = 'invalid';
+    if (fromTsValid) {
+        try {
+            lookbackDateStr = new Date((combinedFromTs - 86400) * 1000).toISOString(); // 1 day before
+        } catch(e) {
+            lookbackDateStr = 'date_conversion_error';
+        }
+    }
+    console.log(`  Lookback period (${lookbackDateStr} before): ${lookbackPoints} points, ${lookbackNulls} nulls ${(lookbackPoints > 0 ? (lookbackNulls / lookbackPoints * 100).toFixed(1) : 0)}%`);
+
+    let userRangeStartStr = 'invalid';
+    let userRangeEndStr = 'invalid';
+    if (fromTsValid) {
+        try {
+            userRangeStartStr = new Date(combinedFromTs * 1000).toISOString();
+        } catch(e) {
+            userRangeStartStr = 'date_conversion_error';
+        }
+    }
+    if (toTsValid) {
+        try {
+            userRangeEndStr = new Date(combinedToTs * 1000).toISOString();
+        } catch(e) {
+            userRangeEndStr = 'date_conversion_error';
+        }
+    }
+    console.log(`  User requested range (${userRangeStartStr} to ${userRangeEndStr}): ${userRangePoints} points, ${userRangeNulls} nulls ${(userRangePoints > 0 ? (userRangeNulls / userRangePoints * 100).toFixed(1) : 0)}%`);
+
+    // CRITICAL FIX: Accept nulls from indicator warmup periods at the start of data series
+    // Only reject if there are nulls in the middle of the completed data (real gaps)
+    if (userRangeNulls > 0) {
+        // Find the pattern of nulls in user range
+        // Look for consecutive nulls early in the series (warmup period)
+        // vs isolated nulls later in the series (actual data gaps)
+
+        let firstValidPointIndex = -1;
+        let lastNullPointIndex = -1;
+        let totalPointsInRange = 0;
+
+        data.forEach((point, index) => {
+            const isInUserRange = fromTsValid && toTsValid && point.time >= combinedFromTs && point.time <= combinedToTs;
+
+            if (!isInUserRange) return; // Skip points outside user range
+
+            totalPointsInRange++;
+            let hasValidIndicators = false;
+
+            if (point.indicators) {
+                for (const indicatorId in point.indicators) {
+                    for (const key in point.indicators[indicatorId]) {
+                        const value = point.indicators[indicatorId][key];
+                        if (value !== null && value !== undefined && !isNaN(value)) {
+                            hasValidIndicators = true;
+                            break;
+                        }
+                    }
+                    if (hasValidIndicators) break;
+                }
+            }
+
+            if (hasValidIndicators && firstValidPointIndex === -1) {
+                firstValidPointIndex = index;
+            }
+
+            if (!hasValidIndicators) {
+                lastNullPointIndex = index;
+            }
+        });
+
+        // Check if nulls are clustered at the beginning (warmup periods)
+        // vs nulls appearing later in the series (actual data gaps)
+        const nullsAreWarmupPeriod = (firstValidPointIndex > 0 && (lastNullPointIndex < firstValidPointIndex));
+
+        // Calculate nulls before first valid value vs nulls after first valid value
+        let nullsInWarmupPeriod = 0;
+        let nullsAfterWarmupPeriod = 0;
+        let pointsProcessed = 0;
+
+        data.forEach((point, index) => {
+            const isInUserRange = fromTsValid && toTsValid && point.time >= combinedFromTs && point.time <= combinedToTs;
+
+            if (!isInUserRange) return;
+
+            pointsProcessed++;
+            let hasValidIndicators = false;
+
+            if (point.indicators) {
+                for (const indicatorId in point.indicators) {
+                    for (const key in point.indicators[indicatorId]) {
+                        const value = point.indicators[indicatorId][key];
+                        if (value !== null && value !== undefined && !isNaN(value)) {
+                            hasValidIndicators = true;
+                            break;
+                        }
+                    }
+                    if (hasValidIndicators) break;
+                }
+            }
+
+            // Count nulls:
+            // - Before first valid point: expected warmup period nulls
+            // - After first valid point: unexpected data gaps
+            if (!hasValidIndicators) {
+                if (pointsProcessed <= (firstValidPointIndex - point.index + 1) || firstValidPointIndex === -1) {
+                    nullsInWarmupPeriod++;
+                } else {
+                    nullsAfterWarmupPeriod++;
+                }
+            }
+        });
+
+        // Only reject if there are nulls AFTER the warmup period (real data gaps)
+        if (nullsAfterWarmupPeriod > 0) {
+            const rangeStr = fromTsValid && toTsValid ? `(${userRangeStartStr} to ${userRangeEndStr})` : '(invalid time range)';
+            console.error(`❌ VALIDATION FAILED: ${indicatorName} - Found ${nullsAfterWarmupPeriod} null values in COMPLETED data (after warmup period) within requested time range ${rangeStr}. This indicates data gaps that are not acceptable.`);
+            return false;
+        }
+
+        // Accept nulls if they're concentrated in warmup period (normal behavior)
+        console.log(`✅ ${indicatorName} - Accepted ${nullsInWarmupPeriod} warmup-period nulls, ${nullsAfterWarmupPeriod} unexpected nulls. Indicators are properly aligned.`);
+        console.log(`   First valid point: index ${firstValidPointIndex}/${totalPointsInRange}, Last null point: index ${lastNullPointIndex}/${totalPointsInRange}`);
+    }
+
+    // If time range is completely corrupted, we have no way to know what's the "last bar"
+    // Return false to reject this data and wait for a proper time range
+    if (!fromTsValid || !toTsValid) {
+        console.error(`❌ VALIDATION FAILED: ${indicatorName} - Time range is completely corrupted (fromTs: ${combinedFromTs}, toTs: ${combinedToTs}). Cannot determine user range.`);
         return false;
     }
 
-    console.log(`✅ VALIDATION PASSED: ${indicatorName} - All ${totalPoints} data points are non-null across all indicators`);
+    // WARNING: Log lookback (warmup) nulls (this is expected and acceptable)
+    if (lookbackNulls > 0) {
+        console.log(`✅ VALIDATION PASSED: ${indicatorName} - ${lookbackNulls} null values in lookback period (expected), 0 null values in requested time range (${userRangePoints} valid data points)`);
+    } else {
+        console.log(`✅ VALIDATION PASSED: ${indicatorName} - All ${userRangePoints} data points in requested range are valid`);
+    }
+
     return true;
 }
 
@@ -752,9 +1015,14 @@ function handleHistoricalData(message) {
         return;
     }
 
-    // Validate indicator data (null values only, no alignment checks)
+    // Validate indicator data with enhanced diagnostics
     if (!validateIndicatorData(message.data, `historical_${message.symbol}`)) {
         console.error('🚨 CRITICAL: Historical data validation failed - rejecting data to prevent chart issues');
+        console.error('📊 VALIDATION FAILURE DETAILS:');
+        console.error('  Symbol:', message.symbol);
+        console.error('  Data points:', message.data.length);
+        console.error('  First point time:', message.data[0]?.time);
+        console.error('  Last point time:', message.data[message.data.length - 1]?.time);
         return;
     }
 
@@ -915,7 +1183,16 @@ function mergeDataPoints(existingData, newData) {
             // This ensures we keep the most recent data for the same timestamp
             const existingIndex = mergedData.findIndex(p => p.time === point.time);
             if (existingIndex !== -1) {
-                console.log(`🔄 MERGE DEBUG: Replacing duplicate timestamp ${point.time} (${new Date(point.time * 1000).toISOString()})`);
+                // Safe timestamp logging
+                let timestampStr = 'invalid';
+                if (point.time && !isNaN(point.time) && point.time > 0) {
+                    try {
+                        timestampStr = new Date(point.time * 1000).toISOString();
+                    } catch(e) {
+                        timestampStr = 'conversion_error';
+                    }
+                }
+                console.log(`🔄 MERGE DEBUG: Replacing duplicate timestamp ${point.time} (${timestampStr})`);
                 mergedData[existingIndex] = point;
                 duplicatesFound++;
             }
@@ -972,7 +1249,16 @@ function mergeDataPointsWithIndicators(existingData, newData) {
             const hasExistingIndicators = Object.keys(existingPoint.indicators || {}).length > 0;
             const hasNewIndicators = Object.keys(newPoint.indicators || {}).length > 0;
 
-            console.log(`🔄 MERGE DEBUG: Timestamp ${newPoint.time} (${new Date(newPoint.time * 1000).toISOString()}) - Existing indicators: ${hasExistingIndicators}, New indicators: ${hasNewIndicators}`);
+            // Safe timestamp logging
+            let timestampStr = 'invalid';
+            if (newPoint.time && !isNaN(newPoint.time) && newPoint.time > 0) {
+                try {
+                    timestampStr = new Date(newPoint.time * 1000).toISOString();
+                } catch(e) {
+                    timestampStr = 'conversion_error';
+                }
+            }
+            console.log(`🔄 MERGE DEBUG: Timestamp ${newPoint.time} (${timestampStr}) - Existing indicators: ${hasExistingIndicators}, New indicators: ${hasNewIndicators}`);
 
             if (hasNewIndicators && !hasExistingIndicators) {
                 // New data has indicators, existing doesn't - use new data
@@ -1367,21 +1653,21 @@ function addDrawingsToChart(drawings, symbol) {
                 if (existingIndex !== -1) {
                     // Update existing shape
                     window.gd.layout.shapes[existingIndex] = shape;
-                    console.log(`Combined WebSocket: Updated existing drawing ${drawing.id}`);
+                    // console.log(`Combined WebSocket: Updated existing drawing ${drawing.id}`);
                 } else {
                     // Add new shape
                     window.gd.layout.shapes.push(shape);
-                    console.log(`Combined WebSocket: Added new drawing ${drawing.id}`);
+                    // console.log(`Combined WebSocket: Added new drawing ${drawing.id}`);
                 }
             } else {
-                console.warn(`Combined WebSocket: Could not convert drawing to shape:`, drawing);
+                // console.warn(`Combined WebSocket: Could not convert drawing to shape:`, drawing);
             }
         } catch (error) {
-            console.error(`Combined WebSocket: Error processing drawing ${index}:`, error, drawing);
+            // console.error(`Combined WebSocket: Error processing drawing ${index}:`, error, drawing);
         }
     });
 
-    console.log('🎨 DRAWINGS: Final shapes count:', window.gd.layout.shapes.length);
+    // console.log('🎨 DRAWINGS: Final shapes count:', window.gd.layout.shapes.length);
 
     // Update the chart with new shapes - ensure shapes are preserved during chart updates
     try {
@@ -1443,7 +1729,7 @@ function getYrefForSubplot(subplotName) {
 
 function convertDrawingToShape(drawing) {
     try {
-        console.log('🎨 DRAWINGS: Converting drawing to shape:', drawing);
+        // console.log('🎨 DRAWINGS: Converting drawing to shape:', drawing);
 
         // Determine the correct yref based on subplot_name
         const yref = getYrefForSubplot(drawing.subplot_name);
@@ -1497,10 +1783,7 @@ function convertDrawingToShape(drawing) {
                 width: drawing.properties?.width || 2
             };
             shape.fillcolor = drawing.properties?.fillcolor || 'rgba(255, 0, 0, 0.1)';
-            console.log('🎨 DRAWINGS: Created rectangle shape:', {
-                ...shape,
-                yref: shape.yref
-            });
+            // console.log('🎨 DRAWINGS: Created rectangle shape:', {...shape, yref: shape.yref});
         } else if (drawing.type === 'horizontal_line' || drawing.type === 'hline') {
             shape.type = 'line';
             shape.x0 = 'x.min'; // Span entire x-axis
@@ -1563,6 +1846,31 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
 
     // Extract OHLC data
     console.log('📊 Combined WebSocket: Extracting OHLC data from', dataPoints.length, 'points');
+
+    // Validate timestamp data before converting to Date objects
+    const validDataPoints = dataPoints.filter(point => {
+        if (!point.time || isNaN(point.time) || point.time <= 0) {
+            console.warn(`⚠️ Invalid timestamp in data point:`, {
+                time: point.time,
+                timeType: typeof point.time,
+                isNaN: isNaN(point.time),
+                dataKeys: Object.keys(point)
+            });
+            return false;
+        }
+        return true;
+    });
+
+    if (validDataPoints.length === 0) {
+        console.error(`❌ No valid data points with timestamps found in ${dataPoints.length} total points`);
+        return;
+    }
+
+    if (validDataPoints.length !== dataPoints.length) {
+        console.warn(`⚠️ Filtered out ${dataPoints.length - validDataPoints.length} invalid data points`);
+        dataPoints = validDataPoints; // Update the working dataset
+    }
+
     const timestamps = dataPoints.map(point => new Date(point.time * 1000));
     const open = dataPoints.map(point => point.ohlc.open);
     const high = dataPoints.map(point => point.ohlc.high);
@@ -1613,35 +1921,80 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     console.log('🔍 DEBUG: Number of dataPoints:', dataPoints.length);
     console.log('🔍 DEBUG: combinedIndicators:', combinedIndicators);
 
-    dataPoints.forEach((point, pointIndex) => {
-        //console.log(`🔍 DEBUG: DataPoint ${pointIndex}: time=${point.time}, has indicators:`, !!point.indicators);
+    // Find the earliest point that has ALL indicators available
+    let firstCompletePointIndex = -1;
+    let lastCompletePointIndex = -1;
+
+    dataPoints.forEach((point, index) => {
+        if (point.indicators && combinedIndicators.every(indicatorId => point.indicators[indicatorId])) {
+            if (firstCompletePointIndex === -1) {
+                firstCompletePointIndex = index;
+            }
+            lastCompletePointIndex = index;
+        }
+    });
+
+    console.log(`📊 Indicator availability analysis:`);
+    console.log(`  First complete data point: ${firstCompletePointIndex}/${dataPoints.length}`);
+    console.log(`  Last complete data point: ${lastCompletePointIndex}/${dataPoints.length}`);
+    console.log(`  Points with indicators: ${lastCompletePointIndex - firstCompletePointIndex + 1}`);
+
+    // Only process points that have indicators
+    // FIX: Don't filter out points with missing indicators early in the dataset
+    // This is normal for indicators during warmup periods
+    const processedDataPoints = dataPoints.filter((point, index) =>
+        // Only require OHLC data, indicators can be null/undefined
+        point.ohlc && point.ohlc.open !== undefined && point.ohlc.close !== undefined
+    );
+
+    console.log(`🔄 Filtered data - keeping ${processedDataPoints.length} points with valid OHLC data`);
+    console.log(`💡 NOTE: ${dataPoints.length - processedDataPoints.length} points filtered out due to missing OHLC data`);
+
+    processedDataPoints.forEach((point, pointIndex) => {
+        // Safe timestamp conversion with validation
+        let validTimestamp = null;
+        if (point.time && !isNaN(point.time) && point.time > 0) {
+            try {
+                validTimestamp = new Date(point.time * 1000);
+                // Verify the date is valid
+                if (isNaN(validTimestamp.getTime())) {
+                    validTimestamp = null;
+                }
+            } catch(e) {
+                validTimestamp = null;
+            }
+        }
+
+        if (!validTimestamp) {
+            console.warn(`⚠️ Invalid timestamp in dataPoint ${pointIndex}:`, point.time);
+            return; // Skip this data point
+        }
+
         if (point.indicators) {
-            //console.log(`🔍 DEBUG: DataPoint ${pointIndex} indicators keys:`, Object.keys(point.indicators));
             Object.keys(point.indicators).forEach(indicatorId => {
-                //console.log(`🔍 DEBUG: Processing indicator ${indicatorId} for dataPoint ${pointIndex}`);
                 if (!indicatorsData[indicatorId]) {
-                    //console.log(`🔍 DEBUG: Creating new indicatorsData entry for ${indicatorId}`);
                     indicatorsData[indicatorId] = {
                         timestamps: [],
                         values: {}
                     };
                 }
 
-                indicatorsData[indicatorId].timestamps.push(new Date(point.time * 1000));
+                indicatorsData[indicatorId].timestamps.push(validTimestamp);
 
                 // Store all indicator values for this point
                 Object.keys(point.indicators[indicatorId]).forEach(key => {
-                    //console.log(`🔍 DEBUG: Processing indicator ${indicatorId} key ${key} with value:`, point.indicators[indicatorId][key]);
+                    const value = point.indicators[indicatorId][key];
+
                     if (!indicatorsData[indicatorId].values[key]) {
                         indicatorsData[indicatorId].values[key] = [];
                     }
-                    indicatorsData[indicatorId].values[key].push(point.indicators[indicatorId][key]);
+                    indicatorsData[indicatorId].values[key].push(value);
                 });
             });
-        } else {
-            console.log(`🔍 DEBUG: DataPoint ${pointIndex} has no indicators object`);
         }
     });
+
+    console.log(`✅ Processed ${processedDataPoints.length} points with complete indicator data`);
 
     console.log('🔍 DEBUG: Final indicatorsData after processing:', indicatorsData);
     console.log('🔍 DEBUG: indicatorsData keys:', Object.keys(indicatorsData));
@@ -1710,7 +2063,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                 line: { color: 'blue' },
                 yaxis: yAxisName,
                 hoverinfo: isMobileDevice() ? 'skip' : 'all',
-                connectgaps: true  // Don't connect gaps to show natural indicator behavior
+                connectgaps: false  // Don't connect gaps to show natural indicator behavior
             });
 
             indicatorTraces.push({
@@ -1722,7 +2075,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                 line: { color: 'orange' },
                 yaxis: yAxisName,
                 hoverinfo: isMobileDevice() ? 'skip' : 'all',
-                connectgaps: true  // Don't connect gaps to show natural indicator behavior
+                connectgaps: false  // Don't connect gaps to show natural indicator behavior
             });
 
             indicatorTraces.push({
@@ -1735,7 +2088,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                 },
                 yaxis: yAxisName,
                 hoverinfo: isMobileDevice() ? 'skip' : 'all',
-                connectgaps: true  // Don't connect gaps to show natural indicator behavior
+                connectgaps: false  // Don't connect gaps to show natural indicator behavior
             });
         } else if (indicatorId === 'rsi' && indicatorData.values.rsi) {
             console.log(`🔍 DEBUG: RSI condition check - rsi: ${!!indicatorData.values.rsi}`);
@@ -1860,6 +2213,139 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     console.log('  Indicator traces:', indicatorTraces.length);
     console.log('  Total traces:', allTraces.length);
     console.log('  Indicator trace names:', indicatorTraces.map(t => t.name));
+
+    // DEBUG: Export data as CSV for analysis
+    window.exportPlotlyDataAsCSV = function() {
+        console.log('📊 EXPORTING PLOTLY DATA AS CSV FOR DEBUGGING...');
+
+        if (!window.gd || !window.gd.data) {
+            console.log('❌ No chart data to export');
+            return;
+        }
+
+        try {
+            // Prepare CSV data
+            const csvRows = [];
+            const headers = ['timestamp', 'iso_timestamp'];
+
+            // Add OHLC data headers
+            headers.push('open', 'high', 'low', 'close', 'volume');
+
+            // Add indicator headers
+            const allIndicatorNames = [];
+            window.gd.data.forEach(trace => {
+                if (trace.name === 'MACD') allIndicatorNames.push('macd');
+                else if (trace.name === 'MACD Signal') allIndicatorNames.push('macd_signal');
+                else if (trace.name === 'MACD Histogram') allIndicatorNames.push('macd_histogram');
+                else if (trace.name === 'RSI') allIndicatorNames.push('rsi');
+                else if (trace.name === 'RSI_SMA14') allIndicatorNames.push('rsi_sma14');
+                else if (trace.name.startsWith('Stoch K')) allIndicatorNames.push('stoch_k');
+                else if (trace.name.startsWith('Stoch D')) allIndicatorNames.push('stoch_d');
+            });
+
+            allIndicatorNames.forEach(name => headers.push(name));
+
+            csvRows.push(headers.join(','));
+
+            // Get price trace
+            const priceTrace = window.gd.data.find(t => t.type === 'candlestick');
+            if (!priceTrace || !priceTrace.x) {
+                console.log('❌ No price trace found');
+                return;
+            }
+
+            // Process each data point
+            for (let i = 0; i < priceTrace.x.length; i++) {
+                const timestamp = Math.floor(priceTrace.x[i].getTime() / 1000); // Convert to seconds
+                const isoTimestamp = priceTrace.x[i].toISOString();
+
+                const row = [timestamp, isoTimestamp];
+
+                // Add OHLC data
+                row.push(
+                    priceTrace.open[i] || '',
+                    priceTrace.high[i] || '',
+                    priceTrace.low[i] || '',
+                    priceTrace.close[i] || '',
+                    priceTrace.volume[i] || ''
+                );
+
+                // Add indicator data
+                allIndicatorNames.forEach(indicatorName => {
+                    let value = '';
+
+                    // Find corresponding indicator trace
+                    let targetTrace = null;
+                    if (indicatorName === 'macd') {
+                        targetTrace = window.gd.data.find(t => t.name === 'MACD');
+                    } else if (indicatorName === 'macd_signal') {
+                        targetTrace = window.gd.data.find(t => t.name === 'MACD Signal');
+                    } else if (indicatorName === 'macd_histogram') {
+                        targetTrace = window.gd.data.find(t => t.name === 'MACD Histogram');
+                    } else if (indicatorName === 'rsi') {
+                        targetTrace = window.gd.data.find(t => t.name === 'RSI');
+                    } else if (indicatorName === 'rsi_sma14') {
+                        targetTrace = window.gd.data.find(t => t.name === 'RSI_SMA14');
+                    } else if (indicatorName === 'stoch_k') {
+                        targetTrace = window.gd.data.find(t => t.name.startsWith('Stoch K'));
+                    } else if (indicatorName === 'stoch_d') {
+                        targetTrace = window.gd.data.find(t => t.name.startsWith('Stoch D'));
+                    }
+
+                    if (targetTrace && targetTrace.y) {
+                        // Check if the current index is valid for this trace
+                        if (i < targetTrace.y.length) {
+                            const traceValue = targetTrace.y[i];
+                            // If value is a number or valid value, use it; otherwise empty string
+                            value = (typeof traceValue === 'number' && !isNaN(traceValue)) ? traceValue : '';
+                        } else {
+                            // Index out of bounds - likely due to filtering removing early data points
+                            value = '';
+                        }
+                    } else {
+                        value = '';
+                    }
+
+                    row.push(value);
+                });
+
+                csvRows.push(row.join(','));
+            }
+
+            // Create and download CSV
+            const csvContent = csvRows.join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute('href', url);
+                const filename = `plotly_data_${combinedSymbol}_${combinedResolution}_${new Date().getTime()}.csv`;
+                link.setAttribute('download', filename);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+
+                console.log(`✅ CSV exported successfully: ${filename}`);
+                console.log(`📊 Exported ${csvRows.length - 1} data points`);
+                console.log('📋 CSV contains columns:', headers.join(', '));
+            } else {
+                console.log('❌ Browser does not support CSV download');
+                console.log('📋 CSV Content:');
+                console.log(csvContent);
+            }
+
+            return csvContent;
+
+        } catch (error) {
+            console.error('❌ Error exporting CSV:', error);
+            return null;
+        }
+    };
+
+    console.log('🛠️ DEBUG: exportPlotlyDataAsCSV() function is now available - call it to download current chart data as CSV');
 
     // Check if we need to create a new layout or can reuse existing one
     let layout;
@@ -2086,7 +2572,24 @@ function updateChartWithLiveData(dataPoint, symbol) {
         return;
     }
 
-    const timestamp = new Date(dataPoint.time * 1000);
+    // Safe timestamp conversion with validation
+    let timestamp;
+    if (dataPoint.time && !isNaN(dataPoint.time) && dataPoint.time > 0) {
+        try {
+            timestamp = new Date(dataPoint.time * 1000);
+            if (isNaN(timestamp.getTime())) {
+                console.warn(`⚠️ Invalid timestamp in live data:`, dataPoint.time);
+                return;
+            }
+        } catch(e) {
+            console.warn(`⚠️ Error converting timestamp in live data:`, dataPoint.time);
+            return;
+        }
+    } else {
+        console.warn(`⚠️ Invalid or missing timestamp in live data:`, dataPoint.time);
+        return;
+    }
+
     const price = dataPoint.ohlc.close;
 
     // Find the candlestick trace

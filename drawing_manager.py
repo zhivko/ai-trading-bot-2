@@ -102,6 +102,12 @@ async def update_drawing(symbol: str, drawing_id: str, drawing_data: DrawingData
             update_payload['properties'] = existing_properties
             update_payload['id'] = drawing_id  # Ensure the ID is preserved.
 
+            # Preserve alert status fields
+            if 'alert_sent' in drawing_item:
+                update_payload['alert_sent'] = drawing_item['alert_sent']
+            if 'alert_sent_time' in drawing_item:
+                update_payload['alert_sent_time'] = drawing_item['alert_sent_time']
+
             if isinstance(update_payload, dict):
                 drawings[i] = update_payload
             found = True

@@ -324,24 +324,32 @@ class EmailAlertService:
         logger.info("Starting check_price_alerts cycle.")
         try:
             redis = await get_redis_connection()
+            logger.info("Redis connection established.")
             drawings = await self.get_all_drawings(redis)
-            # logger.info(f"Found {len(drawings)} drawings to check.")
+            logger.info(f"Found {len(drawings)} total drawings.")
         except Exception as e:
             logger.error(f"Error connecting to Redis or getting drawings: {e}", exc_info=True)
             return
 
         alerts_by_user = {}
 
+        logger.info(f"Filtering {len(drawings)} drawings for alerts...")
+        eligible_drawings = 0
+
         for idx, drawing in enumerate(drawings):
             # Filter drawings that have alert_sent property equals to false
             if drawing.get('alert_sent') is not False:
+                # logger.info(f"Drawing {drawing.get('id')} already sent, skipping.")
                 continue
 
             # Check if sendEmailOnCross is enabled (default to True if not set)
             properties = drawing.get('properties', {})
             send_email_on_cross = properties.get('sendEmailOnCross', True)
             if not send_email_on_cross:
+                logger.info(f"Drawing {drawing.get('id')} has sendEmailOnCross disabled, skipping.")
                 continue
+
+            eligible_drawings += 1
             try:
                 symbol = drawing.get('symbol')
                 user_email = drawing.get('user_email')
@@ -353,6 +361,7 @@ class EmailAlertService:
 
                 resolution = drawing['resolution']
                 kline_zset_key = f"zset:kline:{symbol}:{resolution}"
+                logger.debug(f"Fetching klines for {symbol} from {kline_zset_key}")
                 latest_kline_list = await redis.zrevrange(kline_zset_key, 0, 1)
 
                 if not latest_kline_list or len(latest_kline_list) < 2:
@@ -361,17 +370,21 @@ class EmailAlertService:
 
                 latest_kline = json.loads(latest_kline_list[0])
                 prev_kline = json.loads(latest_kline_list[1])
-                
+                logger.debug(f"Latest kline time: {latest_kline.get('time')}, prev: {prev_kline.get('time')}")
+
                 bar_time = latest_kline['time']
                 start_time = drawing.get('start_time')
                 end_time = drawing.get('end_time')
 
                 # Filter drawings where the current bar time is not between the start and end time of the drawing
                 if not (start_time and end_time and start_time <= bar_time <= end_time):
+                    logger.debug(f"Drawing time range {start_time}-{end_time} not matching bar time {bar_time}")
                     continue
 
+                logger.info(f"Calling detect_cross for drawing {drawing.get('id')}")
                 cross_info = await self.detect_cross(redis, drawing, latest_kline, prev_kline)
-                
+                logger.info(f"Cross detection result: {cross_info}")
+
                 if cross_info:
                     logger.info(f"Cross detected for {symbol} by {user_email}: {cross_info}")
                     alert_details = {
@@ -392,6 +405,9 @@ class EmailAlertService:
             except Exception as e:
                 logger.error(f"Error processing drawing {drawing.get('id', 'N/A')}: {e}", exc_info=True)
 
+        logger.info(f"Eligible drawings: {eligible_drawings}")
+        logger.info(f"Alerts by user: {list(alerts_by_user.keys())}")
+
         for user_email, symbol_alerts in alerts_by_user.items():
             for symbol, alerts in symbol_alerts.items():
                 try:
@@ -404,18 +420,22 @@ class EmailAlertService:
                         else:
                             message_body += f"<p><b>{alert['symbol']}</b> indicator <b>{alert['indicator_name']}</b> crossed a trendline at <b>{alert['cross_value']:.2f}</b> on {cross_time_str}.</p>"
                     
+                    logger.info(f"Generating chart image for {symbol}")
                     chart_image = await self.generate_alert_chart(user_email, symbol, alerts[0]['resolution'], alerts)
                     images = [(f"{symbol}_alert_chart.png", chart_image)] if chart_image else []
+                    logger.info(f"Chart generated: {'Yes' if chart_image else 'No'}")
 
+                    logger.info(f"Sending email to {user_email} for {len(alerts)} alerts on {symbol}")
                     await self.send_alert_email(user_email, f"Price Alerts for {symbol}", message_body, images)
-                    logger.info(f"Sent cumulative alert email to {user_email} for {len(alerts)} events on {symbol}.")
-                    
+                    logger.info(f"Email sent successfully to {user_email}")
+
                     # Mark drawings as sent to avoid re-triggering
                     await self.mark_drawings_as_sent(redis, alerts)
                 except Exception as e:
                     logger.error(f"Failed to send alert email to {user_email} for {symbol}: {e}", exc_info=True)
 
     def _send_email_sync(self, to_email: str, subject: str, body: str, images: List[tuple[str, bytes]] = None):
+        logger.info(f"Attempting to send email to {to_email}, subject: {subject}")
         msg = MIMEMultipart('related')
         msg['Subject'] = subject
         msg['From'] = self.smtp_config.from_email
@@ -426,6 +446,7 @@ class EmailAlertService:
         msg_alt.attach(MIMEText(body, 'html'))
 
         if images:
+            logger.debug(f"Including {len(images)} image(s) in email")
             for cid, (filename, img_data) in enumerate(images):
                 image = MIMEImage(img_data, name=filename)
                 image.add_header('Content-ID', f'<{cid}>')
@@ -433,20 +454,30 @@ class EmailAlertService:
                 msg.attach(image)
 
         try:
+            logger.debug(f"Connecting to SMTP server {self.smtp_config.server}:{self.smtp_config.port}, use_tls={self.smtp_config.use_tls}")
             if self.smtp_config.port == 465:
                 with smtplib.SMTP_SSL(self.smtp_config.server, self.smtp_config.port) as server:
+                    logger.debug("Connected with SSL")
                     if self.smtp_config.username and self.smtp_config.password:
+                        logger.debug("Attempting login")
                         server.login(self.smtp_config.username, self.smtp_config.password)
+                        logger.debug("Login successful")
+                    logger.debug("Sending message")
                     server.send_message(msg)
             else:
                 with smtplib.SMTP(self.smtp_config.server, self.smtp_config.port) as server:
+                    logger.debug("Connected without SSL")
                     if self.smtp_config.use_tls:
+                        logger.debug("Starting TLS")
                         server.starttls()
+                    logger.debug("Attempting login")
                     server.login(self.smtp_config.username, self.smtp_config.password)
+                    logger.debug("Login successful")
+                    logger.debug("Sending message")
                     server.send_message(msg)
             logger.info(f"Sent alert email to {to_email}")
         except Exception as e:
-            logger.error(f"Failed to send email: {e}", exc_info=True)
+            logger.error(f"Failed to send email to {to_email}: {e}", exc_info=True)
 
     async def send_alert_email(self, to_email: str, subject: str, body: str, images: List[tuple[str, bytes]] = None):
         loop = asyncio.get_running_loop()
@@ -488,9 +519,17 @@ class EmailAlertService:
                     for i, drawing in enumerate(user_drawings):
                         if drawing.get('id') in drawing_ids:
                             user_drawings[i]['alert_sent'] = True
-                            user_drawings[i]['alert_sent_time'] = int(datetime.now(timezone.utc).timestamp())
+                            alert_sent_time = int(datetime.now(timezone.utc).timestamp())
+                            user_drawings[i]['alert_sent_time'] = alert_sent_time
+
+                            # Also update properties for UI consistency
+                            if 'properties' not in user_drawings[i]:
+                                user_drawings[i]['properties'] = {}
+                            user_drawings[i]['properties']['emailSent'] = True
+                            user_drawings[i]['properties']['emailDate'] = alert_sent_time * 1000  # milliseconds for JS
+
                             updated = True
-                    
+
                     if updated:
                         pipe.multi()
                         pipe.set(redis_key, json.dumps(user_drawings))
@@ -516,7 +555,7 @@ def get_smtp_config() -> SMTPConfig:
     logger.info("Loading SMTP config...")
     try:
         creds = BybitCredentials.from_file(Path("c:/git/VidWebServer/authcreds.json"))
-        logger.info("SMTP config loaded successfully.")
+        logger.info(f"SMTP config loaded successfully: server={creds.SMTP_SERVER}, port={creds.SMTP_PORT}, user={creds.gmailEmail}")
     except (FileNotFoundError, json.JSONDecodeError) as e:
         logger.error(f"Failed to load credentials: {e}")
         raise
