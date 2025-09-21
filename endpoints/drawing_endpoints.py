@@ -155,14 +155,32 @@ async def get_shape_properties_api_endpoint(symbol: str, drawing_id: str, reques
         "end_price": drawing.get("end_price")
     }
 
-    # Also include alert status from root level for UI consistency
-    if drawing.get("alert_sent"):
-        properties_with_y["emailSent"] = True
+    # Debug logging to understand the drawing state
+    logger.info(f"Drawing data for {drawing_id}: alert_sent={drawing.get('alert_sent')}, alert_sent_time={drawing.get('alert_sent_time')}, properties.emailSent={properties.get('emailSent')}, properties.emailDate={properties.get('emailDate')}")
+
+    # Determine emailSent status with proper priority and fallback
+    email_sent = None
+    email_date = None
+
+    # Priority 1: Properties level (most up-to-date)
+    if 'emailSent' in properties:
+        email_sent = properties['emailSent']
+        email_date = properties.get('emailDate')
+
+    # Priority 2: Root level (legacy/backup)
+    elif drawing.get("alert_sent") is True:
+        email_sent = True
         if drawing.get("alert_sent_time"):
-            properties_with_y["emailDate"] = drawing["alert_sent_time"] * 1000  # convert to milliseconds for JS
-    elif "emailSent" not in properties_with_y:
-        properties_with_y["emailSent"] = False
-        properties_with_y["emailDate"] = None
+            email_date = drawing["alert_sent_time"] * 1000  # convert to milliseconds for JS
+
+    # Priority 3: Default to False if neither exists
+    if email_sent is None:
+        email_sent = False
+        email_date = None
+
+    # Update the response
+    properties_with_y["emailSent"] = email_sent
+    properties_with_y["emailDate"] = email_date
 
     logger.info(f"Returning shape properties for {drawing_id}: {properties_with_y}")
     return JSONResponse(content={"status": "success", "properties": properties_with_y})

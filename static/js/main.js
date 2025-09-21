@@ -117,7 +117,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('[DEBUG] Starting Plotly chart initialization');
 
     // Initialize Plotly chart (empty initially)
-    const initialLayout = {}; // Basic layout - full layout configuration handled in combinedData.js
+    const initialLayout = {
+        title: 'Loading chart data...',
+        xaxis: {
+            rangeslider: { visible: false },
+            type: 'date',
+            autorange: true
+        },
+        yaxis: {
+            title: 'Price',
+            autorange: true
+        },
+        showlegend: false
+    }; // Basic layout - full layout configuration handled in combinedData.js
     console.log('[DEBUG] Initial layout:', initialLayout);
 
     Plotly.newPlot('chart', [], initialLayout, config).then(function(gd) { // layout & config from config.js

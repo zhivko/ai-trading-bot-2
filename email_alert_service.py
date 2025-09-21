@@ -61,9 +61,11 @@ class EmailAlertService:
                 if drawing_data:
                     try:
                         user_drawings = json.loads(drawing_data)
-                        for drawing in user_drawings:
+                        # Filter out None and non-dict items before processing
+                        valid_drawings = [d for d in user_drawings if isinstance(d, dict) and d is not None]
+                        for drawing in valid_drawings:
                             drawing['user_email'] = user_email
-                        drawings.extend(user_drawings)
+                        drawings.extend(valid_drawings)
                     except json.JSONDecodeError:
                         logger.error(f"Invalid drawing data in {key_str}")
         return drawings
@@ -234,12 +236,14 @@ class EmailAlertService:
                 'yanchor': 'top'
             },
             template='plotly_white',
-            showlegend=True,
+            showlegend=False,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             margin=dict(l=70, r=70, t=120, b=80), # Increased top margin
             xaxis_rangeslider_visible=False,
             font=dict(family="Arial, sans-serif", size=12, color="black")
         )
+        fig.update_xaxes(autorange=True)
+        fig.update_yaxes(autorange=True)
         fig.update_yaxes(title_text="Price (USD)", row=1, col=1)
 
         try:
@@ -337,9 +341,22 @@ class EmailAlertService:
         eligible_drawings = 0
 
         for idx, drawing in enumerate(drawings):
-            # Filter drawings that have alert_sent property equals to false
-            if drawing.get('alert_sent') is not False:
-                # logger.info(f"Drawing {drawing.get('id')} already sent, skipping.")
+            # Validate that drawing is a dict
+            if not isinstance(drawing, dict) or drawing is None:
+                logger.warning(f"Skipping invalid drawing at index {idx}: {drawing}")
+                continue
+
+            # Filter drawings that have been sent already - check both root and properties levels
+            alert_sent_value = drawing.get('alert_sent')
+            properties = drawing.get('properties', {})
+            if properties is None:
+                logger.warning(f"Skipping drawing {drawing.get('id')} with None properties")
+                continue
+            properties_email_sent = properties.get('emailSent')
+            already_sent = alert_sent_value is True or properties_email_sent is True
+
+            if already_sent:
+                # logger.info(f"Drawing {drawing.get('id')} already sent (alert_sent={alert_sent_value}, properties.emailSent={properties_email_sent}), skipping.")
                 continue
 
             # Check if sendEmailOnCross is enabled (default to True if not set)
@@ -351,17 +368,22 @@ class EmailAlertService:
 
             eligible_drawings += 1
             try:
+                # Double-check drawing validity before processing
+                if not isinstance(drawing, dict) or drawing is None:
+                    logger.warning(f"Skipping invalid drawing in try block at index {idx}: {drawing}")
+                    continue
+
                 symbol = drawing.get('symbol')
                 user_email = drawing.get('user_email')
                 if not symbol or not user_email:
                     logger.warning(f"Skipping drawing with missing symbol or email: {drawing.get('id', 'N/A')}")
                     continue
 
-                logger.info(f"Checking drawing {idx+1}/{len(drawings)} for {symbol} by {user_email}")
+                # logger.info(f"Checking drawing {idx+1}/{len(drawings)} for {symbol} by {user_email}")
 
                 resolution = drawing['resolution']
                 kline_zset_key = f"zset:kline:{symbol}:{resolution}"
-                logger.debug(f"Fetching klines for {symbol} from {kline_zset_key}")
+                # logger.debug(f"Fetching klines for {symbol} from {kline_zset_key}")
                 latest_kline_list = await redis.zrevrange(kline_zset_key, 0, 1)
 
                 if not latest_kline_list or len(latest_kline_list) < 2:
@@ -370,15 +392,18 @@ class EmailAlertService:
 
                 latest_kline = json.loads(latest_kline_list[0])
                 prev_kline = json.loads(latest_kline_list[1])
-                logger.debug(f"Latest kline time: {latest_kline.get('time')}, prev: {prev_kline.get('time')}")
+                # logger.debug(f"Latest kline time: {latest_kline.get('time')}, prev: {prev_kline.get('time')}")
 
                 bar_time = latest_kline['time']
                 start_time = drawing.get('start_time')
                 end_time = drawing.get('end_time')
 
                 # Filter drawings where the current bar time is not between the start and end time of the drawing
-                if not (start_time and end_time and start_time <= bar_time <= end_time):
-                    logger.debug(f"Drawing time range {start_time}-{end_time} not matching bar time {bar_time}")
+                # Handle cases where end_time might be smaller than start_time (drawings drawn right-to-left)
+                line_start = min(start_time, end_time)
+                line_end = max(start_time, end_time)
+                if not (line_start <= bar_time <= line_end):
+                    logger.debug(f"Drawing time range {start_time}-{end_time} (normalized: {line_start}-{line_end}) not matching bar time {bar_time}")
                     continue
 
                 logger.info(f"Calling detect_cross for drawing {drawing.get('id')}")

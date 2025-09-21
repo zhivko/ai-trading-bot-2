@@ -2402,6 +2402,10 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         return;
     }
 
+    console.log('🔔 DEBUG: About to call Plotly.react with', allTraces.length, 'traces');
+    console.log('🔔 DEBUG: Layout object keys:', Object.keys(layout));
+    console.log('🔔 DEBUG: Price trace has', priceTrace.x ? priceTrace.x.length : 0, 'data points');
+
     // Preserve existing shapes when updating chart with historical data
     if (window.gd && window.gd.layout && window.gd.layout.shapes) {
         layout.shapes = window.gd.layout.shapes;
