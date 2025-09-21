@@ -566,19 +566,19 @@ function handleShapeClick(event) {
     let minDistance = Infinity;
     const CLICK_THRESHOLD = 20; // pixels
 
-    console.groupCollapsed("handleShapeClick");
+    //console.groupCollapsed("handleShapeClick");
     for (let i = 0; i < currentShapes.length; i++) {
         const shape = currentShapes[i];
-        console.log(`[DEBUG] handleShapeClick - shape ${i}: type=${shape.type}, id=${shape.id}, isSystemShape=${shape.isSystemShape}`);
+        //console.log(`[DEBUG] handleShapeClick - shape ${i}: type=${shape.type}, id=${shape.id}, isSystemShape=${shape.isSystemShape}`);
         if (shape.type === 'line' && shape.id && !shape.isSystemShape) {
-            console.log(`[DEBUG] handleShapeClick - processing clickable shape ${i} (ID: ${shape.id})`);
+            //console.log(`[DEBUG] handleShapeClick - processing clickable shape ${i} (ID: ${shape.id})`);
             const xrefKey = getAxisLayoutKey(shape.xref, 'xaxis');
             const yrefKey = getAxisLayoutKey(shape.yref, 'yaxis');
             const shapeXaxis = window.gd._fullLayout[xrefKey];
             const shapeYaxis = window.gd._fullLayout[yrefKey];
 
             if (!shapeXaxis || !shapeYaxis || typeof shapeXaxis.d2p !== 'function' || typeof shapeYaxis.d2p !== 'function') {
-                console.log(`[DEBUG] handleShapeClick - invalid axes for shape ${i}`);
+                // console.log(`[DEBUG] handleShapeClick - invalid axes for shape ${i}`);
                 continue;
             }
 
@@ -593,22 +593,22 @@ function handleShapeClick(event) {
             const p0 = { x: shapeXaxis._offset + p0x, y: shapeYaxis._offset + p0y };
             const p1 = { x: shapeXaxis._offset + p1x, y: shapeYaxis._offset + p1y };
 
-            console.log(`[DEBUG] handleShapeClick - shape ${i} pixel endpoints: p0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}), p1=(${p1.x.toFixed(2)},${p1.y.toFixed(2)}), mouse=(${mouseX_paper.toFixed(2)},${mouseY_paper.toFixed(2)})`);
+            // console.log(`[DEBUG] handleShapeClick - shape ${i} pixel endpoints: p0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}), p1=(${p1.x.toFixed(2)},${p1.y.toFixed(2)}), mouse=(${mouseX_paper.toFixed(2)},${mouseY_paper.toFixed(2)})`);
 
             if (!isNaN(p0.x) && !isNaN(p0.y) && !isNaN(p1.x) && !isNaN(p1.y)) {
                 const distSq = distToSegmentSquared({ x: mouseX_paper, y: mouseY_paper }, p0, p1);
-                console.log(`[DEBUG] handleShapeClick - shape ${i} distance squared: ${distSq.toFixed(2)}, threshold: ${(CLICK_THRESHOLD * CLICK_THRESHOLD)}`);
+                // console.log(`[DEBUG] handleShapeClick - shape ${i} distance squared: ${distSq.toFixed(2)}, threshold: ${(CLICK_THRESHOLD * CLICK_THRESHOLD)}`);
                 if (distSq < CLICK_THRESHOLD * CLICK_THRESHOLD && distSq < minDistance) {
                     minDistance = distSq;
                     closestShape = shape;
-                    console.log(`[DEBUG] handleShapeClick - shape ${i} is now closest`);
+                    //console.log(`[DEBUG] handleShapeClick - shape ${i} is now closest`);
                 }
             } else {
-                console.log(`[DEBUG] handleShapeClick - shape ${i} has NaN coordinates`);
+                //console.log(`[DEBUG] handleShapeClick - shape ${i} has NaN coordinates`);
             }
         }
     }
-    console.groupEnd();
+    // console.groupEnd();
 
     // Handle shape selection
     if (closestShape) {

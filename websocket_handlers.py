@@ -320,6 +320,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
 
     # Initialize active_symbol with URL path symbol (will be updated from message if provided)
     active_symbol = symbol
+    last_active_symbol = None  # Track for live streaming symbol changes
 
     # Register client in Redis for smart notifications
     client_id = f"client:{id(websocket)}"
@@ -670,7 +671,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                 return
 
             # Check if we have data for the FULL requested range
-            # If not, we need to fetch missing data from Bybit
+            # If not, we need to fetch missing data from Bybit (for non-BTCDOM symbols)
             requested_range_start = client_state["from_ts"]
             requested_range_end = client_state["to_ts"]
             available_data_start = min([k['time'] for k in klines]) if klines else float('inf')
@@ -684,52 +685,87 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                 logger.info(f"🔄 FETCHING MISSING DATA: gap_at_start={data_gap_at_start}, gap_at_end={data_gap_at_end}")
 
                 try:
-                    from redis_utils import fetch_klines_from_bybit, cache_klines
+                    # For BTCDOM, fetch from CoinMarketCap
+                    if active_symbol == "BTCDOM":
+                        from redis_utils import fetch_btc_dominance, cache_klines
 
-                    # For gaps, fetch the missing period plus some buffer
-                    gap_start = requested_range_start if data_gap_at_start else available_data_start
-                    gap_end = requested_range_end if data_gap_at_end else available_data_end
+                        gap_start = requested_range_start if data_gap_at_start else available_data_start
+                        gap_end = requested_range_end if data_gap_at_end else available_data_end
 
-                    # Add buffer around the gap
-                    gap_start -= timeframe_secs * 24  # 1 day buffer before
-                    gap_end += timeframe_secs * 24    # 1 day buffer after
+                        gap_start -= 86400 * 7  # 7 day buffer for CoinGecko
+                        gap_end += 86400 * 7
 
-                    logger.info(f"📡 FETCHING GAP DATA: {datetime.fromtimestamp(gap_start, timezone.utc)} to {datetime.fromtimestamp(gap_end, timezone.utc)}")
+                        logger.info(f"📡 FETCHING BTC DOMINANCE GAP DATA from CoinGecko: {datetime.fromtimestamp(gap_start, timezone.utc)} to {datetime.fromtimestamp(gap_end, timezone.utc)}")
 
-                    fetched_klines = fetch_klines_from_bybit(active_symbol, client_state["resolution"], gap_start, gap_end)
+                        fetched_klines = await fetch_btc_dominance(active_symbol, client_state["resolution"], gap_start, gap_end)
 
-                    if fetched_klines and len(fetched_klines) > 0:
-                        logger.info(f"✅ BYBIT GAP SUCCESS: Fetched {len(fetched_klines)} additional klines for {active_symbol}")
-
-                        # Cache the gap data
-                        await cache_klines(active_symbol, client_state["resolution"], fetched_klines)
-                        logger.info(f"💾 GAP CACHED: Stored {len(fetched_klines)} gap klines in Redis for {active_symbol}")
-
-                        # Re-fetch from cache to get complete dataset
-                        full_klines = await get_cached_klines(active_symbol, client_state["resolution"], kline_fetch_start_ts, kline_fetch_end_ts)
-                        if full_klines:
-                            klines = full_klines
-                            logger.info(f"✅ COMPLETE DATASET: Now have {len(klines)} klines after gap filling")
+                        if fetched_klines and len(fetched_klines) > 0:
+                            logger.info(f"✅ COINGECKO GAP SUCCESS: Fetched {len(fetched_klines)} additional klines for {active_symbol}")
+                            await cache_klines(active_symbol, client_state["resolution"], fetched_klines)
+                            full_klines = await get_cached_klines(active_symbol, client_state["resolution"], kline_fetch_start_ts, kline_fetch_end_ts)
+                            if full_klines:
+                                klines = full_klines
+                                logger.info(f"✅ COMPLETE DATASET: Now have {len(klines)} klines after gap filling")
+                            else:
+                                merged_klines = klines + fetched_klines
+                                klines = sorted(merged_klines, key=lambda x: x['time'])
+                                seen = set()
+                                unique_klines = []
+                                for k in klines:
+                                    if k['time'] not in seen:
+                                        seen.add(k['time'])
+                                        unique_klines.append(k)
+                                klines = unique_klines
+                                logger.info(f"✅ MANUAL MERGE: Now have {len(klines)} unique klines after gap filling")
                         else:
-                            # Merge with existing klines if re-fetch fails
-                            logger.warning("Re-fetch failed, merging manually")
-                            merged_klines = klines + fetched_klines
-                            klines = sorted(merged_klines, key=lambda x: x['time'])
-                            # Remove duplicates
-                            seen = set()
-                            unique_klines = []
-                            for k in klines:
-                                if k['time'] not in seen:
-                                    seen.add(k['time'])
-                                    unique_klines.append(k)
-                            klines = unique_klines
-                            logger.info(f"✅ MANUAL MERGE: Now have {len(klines)} unique klines after gap filling")
-
+                            logger.warning(f"❌ COINGECKO GAP FAILURE: Could not fill data gap for {active_symbol}")
                     else:
-                        logger.warning(f"❌ BYBIT GAP FAILURE: Could not fill data gap for {active_symbol} - will proceed with available data")
+                        from redis_utils import fetch_klines_from_bybit, cache_klines
+
+                        # For gaps, fetch the missing period plus some buffer
+                        gap_start = requested_range_start if data_gap_at_start else available_data_start
+                        gap_end = requested_range_end if data_gap_at_end else available_data_end
+
+                        # Add buffer around the gap
+                        gap_start -= timeframe_secs * 24  # 1 day buffer before
+                        gap_end += timeframe_secs * 24    # 1 day buffer after
+
+                        logger.info(f"📡 FETCHING GAP DATA: {datetime.fromtimestamp(gap_start, timezone.utc)} to {datetime.fromtimestamp(gap_end, timezone.utc)}")
+
+                        fetched_klines = fetch_klines_from_bybit(active_symbol, client_state["resolution"], gap_start, gap_end)
+
+                        if fetched_klines and len(fetched_klines) > 0:
+                            logger.info(f"✅ BYBIT GAP SUCCESS: Fetched {len(fetched_klines)} additional klines for {active_symbol}")
+
+                            # Cache the gap data
+                            await cache_klines(active_symbol, client_state["resolution"], fetched_klines)
+                            logger.info(f"💾 GAP CACHED: Stored {len(fetched_klines)} gap klines in Redis for {active_symbol}")
+
+                            # Re-fetch from cache to get complete dataset
+                            full_klines = await get_cached_klines(active_symbol, client_state["resolution"], kline_fetch_start_ts, kline_fetch_end_ts)
+                            if full_klines:
+                                klines = full_klines
+                                logger.info(f"✅ COMPLETE DATASET: Now have {len(klines)} klines after gap filling")
+                            else:
+                                # Merge with existing klines if re-fetch fails
+                                logger.warning("Re-fetch failed, merging manually")
+                                merged_klines = klines + fetched_klines
+                                klines = sorted(merged_klines, key=lambda x: x['time'])
+                                # Remove duplicates
+                                seen = set()
+                                unique_klines = []
+                                for k in klines:
+                                    if k['time'] not in seen:
+                                        seen.add(k['time'])
+                                        unique_klines.append(k)
+                                klines = unique_klines
+                                logger.info(f"✅ MANUAL MERGE: Now have {len(klines)} unique klines after gap filling")
+
+                        else:
+                            logger.warning(f"❌ BYBIT GAP FAILURE: Could not fill data gap for {active_symbol} - will proceed with available data")
 
                 except Exception as e:
-                    logger.error(f"❌ BYBIT GAP FETCH ERROR: Failed to fetch gap data for {active_symbol}: {e}", exc_info=True)
+                    logger.error(f"❌ GAP FETCH ERROR: Failed to fetch gap data for {active_symbol}: {e}", exc_info=True)
                     logger.info("Proceeding with available cached data...")
 
             # If STILL no klines found at all, try to fetch the full range from Bybit as last resort
@@ -789,8 +825,8 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                     # Try to get Open Interest data from cache first
                     oi_data = await get_cached_open_interest(active_symbol, client_state["resolution"], client_state["from_ts"], client_state["to_ts"])
 
-                    # If no OI data in cache, try to fetch from Bybit as fallback
-                    if not oi_data or len(oi_data) == 0:
+                    # If no OI data in cache, try to fetch from Bybit as fallback (except for BTCDOM)
+                    if active_symbol != "BTCDOM" and (not oi_data or len(oi_data) == 0):
                         logger.info(f"🔄 OI FALLBACK: No Open Interest data in cache for {active_symbol}, attempting to fetch from Bybit")
                         try:
                             from indicators import fetch_open_interest_from_bybit
@@ -821,9 +857,9 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                                 rsi_sma14_map = dict(zip(timestamps, rsi_sma14_values))
                                 # Add RSI columns to DataFrame
                                 df_for_signals['RSI_14'] = df_for_signals.index.map(lambda ts: rsi_map.get(ts.timestamp(), np.nan))
-                                df_for_signals['RSI_SMA_14'] = df_for_signals.index.map(lambda ts: rsi_sma14_map.get(ts.timestamp(), np.nan))
+                                df_for_signals['RSI_14_sma14'] = df_for_signals.index.map(lambda ts: rsi_sma14_map.get(ts.timestamp(), np.nan))
 
-                            if indicator_id.startswith('stochrsi') and 'stoch_k' in indicator_result and 'stoch_d' in indicator_result:
+                            elif indicator_id.startswith('stochrsi') and 'stoch_k' in indicator_result and 'stoch_d' in indicator_result:
                                 # StochRSI values - need to align with DataFrame timestamps
                                 stoch_k_values = indicator_result['stoch_k']
                                 stoch_d_values = indicator_result['stoch_d']
@@ -950,7 +986,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                 combined_data.append(data_point)
 
             # 📊 GENERATE CSV FILE WITH COMPLETE DATA STRUCTURE
-            await generate_csv_from_combined_data(active_symbol, client_state["indicators"], combined_data, client_state["from_ts"], client_state["to_ts"])
+            # await generate_csv_from_combined_data(active_symbol, client_state["indicators"], combined_data, client_state["from_ts"], client_state["to_ts"])
 
             # Send historical data in batches
             batch_size = 100
@@ -1643,12 +1679,24 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                                     await send_historical_data()
 
                                 # Always activate live mode regardless of historical data status
-                                if not client_state["live_mode"]:
+                                if not client_state["live_mode"] or resolution_changed or time_range_changed:
                                     client_state["live_mode"] = True
                                     # logger.info(f"✅ LIVE MODE ACTIVATED for {active_symbol} (always active)")
 
-                                    # Start live streaming task
-                                    live_task = asyncio.create_task(stream_live_data())
+                                    # Restart live streaming task if symbol changed or it doesn't exist/isn't running
+                                    if not 'live_task' in locals() or live_task.done():
+                                        live_task = asyncio.create_task(stream_live_data())
+                                    elif active_symbol != last_active_symbol:
+                                        # Cancel current live task and restart for new symbol
+                                        live_task.cancel()
+                                        try:
+                                            await live_task
+                                        except asyncio.CancelledError:
+                                            pass
+                                        live_task = asyncio.create_task(stream_live_data())
+
+                                # Track the last active symbol for comparison
+                                last_active_symbol = active_symbol
 
                         except Exception as e:
                             logger.error(f"Error processing config message for {active_symbol}: {e}", exc_info=True)

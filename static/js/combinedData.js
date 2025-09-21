@@ -1586,7 +1586,7 @@ function convertBuySignalToShape(signal, index) {
     try {
         console.log('💰 BUY SIGNALS: Converting buy signal to shape:', signal);
 
-        // Basic shape properties for buy signal marker
+        // Basic shape properties for buy signal marker - made much larger and more visible
         const shape = {
             name: `buy_signal_${signal.timestamp}_${index}`,
             type: 'line',
@@ -1597,8 +1597,8 @@ function convertBuySignalToShape(signal, index) {
             y0: signal.price,
             y1: signal.price,
             line: {
-                color: 'green',
-                width: 3,
+                color: 'lime',  // Bright green for better visibility
+                width: 8,       // Much thicker line
                 dash: 'solid'
             },
             layer: 'above',
@@ -1607,9 +1607,9 @@ function convertBuySignalToShape(signal, index) {
             systemType: 'buy_signal'  // Additional identification
         };
 
-        // Add a small horizontal line to make it more visible
-        shape.x0 = new Date((signal.timestamp - 3600) * 1000); // 1 hour before
-        shape.x1 = new Date((signal.timestamp + 3600) * 1000); // 1 hour after
+        // Make a longer horizontal line with time span for better visibility
+        shape.x0 = new Date((signal.timestamp - 7200) * 1000); // 2 hours before
+        shape.x1 = new Date((signal.timestamp + 7200) * 1000); // 2 hours after (4 hour span total)
         shape.y0 = signal.price;
         shape.y1 = signal.price;
 

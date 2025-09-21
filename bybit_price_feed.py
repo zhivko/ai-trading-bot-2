@@ -89,7 +89,7 @@ async def bybit_price_feed_task():
     # Subscribe to ticker updates for all supported symbols
     # Use the same pattern as existing WebSocket handlers
     topic_template = 'tickers.{symbol}'
-    symbols_list = SUPPORTED_SYMBOLS.copy()
+    symbols_list = [symbol for symbol in SUPPORTED_SYMBOLS if symbol != "BTCDOM"]
 
     logger.info(f"Subscribing to price feeds for {len(symbols_list)} symbols: {symbols_list}")
 

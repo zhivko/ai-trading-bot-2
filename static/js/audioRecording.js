@@ -118,7 +118,7 @@ class AudioRecorder {
             console.log('📤 Sending audio to server for transcription...');
 
             // Show processing status
-            this.updateUIStatus('processing', 'Transcribing audio...');
+            this.updateUIStatus('processing', 'Transcribing audio and analyzing...');
 
             // Send to server
             const response = await fetch('/transcribe_audio', {
@@ -134,6 +134,8 @@ class AudioRecorder {
 
             if (result.status === 'success') {
                 console.log('✅ Transcription successful:', result.transcribed_text);
+                console.log('🤖 LLM Analysis received:', result.llm_analysis);
+                console.log('📊 Full result object:', result);
                 this.updateUIStatus('success', result.transcribed_text);
                 this.displayTranscriptionResult(result);
             } else {
@@ -178,6 +180,12 @@ class AudioRecorder {
         const transcriptionText = result.transcribed_text || 'No speech detected';
         const language = result.language || 'unknown';
         const confidence = result.confidence ? (result.confidence * 100).toFixed(1) : 'N/A';
+        const llmAnalysis = result.llm_analysis || 'No analysis available';
+
+        // Debug logging for LLM analysis
+        console.log('🎯 DISPLAY: Transcription result object:', result);
+        console.log('🎯 DISPLAY: LLM Analysis value:', llmAnalysis);
+        console.log('🎯 DISPLAY: LLM Analysis defined:', typeof result.llm_analysis);
 
         resultElement.innerHTML = `
             <div class="transcription-header">
@@ -189,16 +197,18 @@ class AudioRecorder {
             <div class="transcription-meta">
                 Language: ${language} | Confidence: ${confidence}%
             </div>
+            <div class="transcription-header" style="margin-top: 15px;">
+                <strong>AI Analysis:</strong>
+            </div>
+            <div class="transcription-analysis">
+                ${llmAnalysis}
+            </div>
         `;
 
         resultElement.style.display = 'block';
 
-        // Auto-hide after 10 seconds
-        setTimeout(() => {
-            if (resultElement) {
-                resultElement.style.display = 'none';
-            }
-        }, 10000);
+        // Keep visible - user can refresh page or click record again to hide
+        // Auto-hide disabled so user can read LLM analysis
     }
 
     cleanup() {

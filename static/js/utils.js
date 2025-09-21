@@ -71,3 +71,136 @@ function delay(ms) {
 
 // Make delay globally available
 window.delay = delay;
+
+// Debug function to export Plotly data as CSV - available immediately
+window.exportPlotlyDataAsCSV = function() {
+    console.log('📊 EXPORTING PLOTLY DATA AS CSV FOR DEBUGGING...');
+
+    if (!window.gd || !window.gd.data) {
+        console.log('❌ No chart data to export');
+        return;
+    }
+
+    try {
+        // Prepare CSV data
+        const csvRows = [];
+        const headers = ['timestamp', 'iso_timestamp'];
+
+        // Add OHLC data headers
+        headers.push('open', 'high', 'low', 'close', 'volume');
+
+        // Add indicator headers
+        const allIndicatorNames = [];
+        window.gd.data.forEach(trace => {
+            if (trace.name === 'MACD') allIndicatorNames.push('macd');
+            else if (trace.name === 'MACD Signal') allIndicatorNames.push('macd_signal');
+            else if (trace.name === 'MACD Histogram') allIndicatorNames.push('macd_histogram');
+            else if (trace.name === 'RSI') allIndicatorNames.push('rsi');
+            else if (trace.name === 'RSI_SMA14') allIndicatorNames.push('rsi_sma14');
+            else if (trace.name.startsWith('Stoch K')) allIndicatorNames.push('stoch_k');
+            else if (trace.name.startsWith('Stoch D')) allIndicatorNames.push('stoch_d');
+        });
+
+        allIndicatorNames.forEach(name => headers.push(name));
+
+        csvRows.push(headers.join(','));
+
+        // Get price trace
+        const priceTrace = window.gd.data.find(t => t.type === 'candlestick');
+        if (!priceTrace || !priceTrace.x) {
+            console.log('❌ No price trace found');
+            return;
+        }
+
+        // Process each data point
+        for (let i = 0; i < priceTrace.x.length; i++) {
+            const timestamp = Math.floor(priceTrace.x[i].getTime() / 1000); // Convert to seconds
+            const isoTimestamp = priceTrace.x[i].toISOString();
+
+            const row = [timestamp, isoTimestamp];
+
+            // Add OHLC data
+            row.push(
+                priceTrace.open[i] || '',
+                priceTrace.high[i] || '',
+                priceTrace.low[i] || '',
+                priceTrace.close[i] || '',
+                priceTrace.volume[i] || ''
+            );
+
+            // Add indicator data
+            allIndicatorNames.forEach(indicatorName => {
+                let value = '';
+
+                // Find corresponding indicator trace
+                let targetTrace = null;
+                if (indicatorName === 'macd') {
+                    targetTrace = window.gd.data.find(t => t.name === 'MACD');
+                } else if (indicatorName === 'macd_signal') {
+                    targetTrace = window.gd.data.find(t => t.name === 'MACD Signal');
+                } else if (indicatorName === 'macd_histogram') {
+                    targetTrace = window.gd.data.find(t => t.name === 'MACD Histogram');
+                } else if (indicatorName === 'rsi') {
+                    targetTrace = window.gd.data.find(t => t.name === 'RSI');
+                } else if (indicatorName === 'rsi_sma14') {
+                    targetTrace = window.gd.data.find(t => t.name === 'RSI_SMA14');
+                } else if (indicatorName === 'stoch_k') {
+                    targetTrace = window.gd.data.find(t => t.name.startsWith('Stoch K'));
+                } else if (indicatorName === 'stoch_d') {
+                    targetTrace = window.gd.data.find(t => t.name.startsWith('Stoch D'));
+                }
+
+                if (targetTrace && targetTrace.y) {
+                    // Check if the current index is valid for this trace
+                    if (i < targetTrace.y.length) {
+                        const traceValue = targetTrace.y[i];
+                        // If value is a number or valid value, use it; otherwise empty string
+                        value = (typeof traceValue === 'number' && !isNaN(traceValue)) ? traceValue : '';
+                    } else {
+                        // Index out of bounds - likely due to filtering removing early data points
+                        value = '';
+                    }
+                } else {
+                    value = '';
+                }
+
+                row.push(value);
+            });
+
+            csvRows.push(row.join(','));
+        }
+
+        // Create and download CSV
+        const csvContent = csvRows.join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+
+        if (link.download !== undefined) {
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            const filename = `plotly_data_${window.symbolSelect ? window.symbolSelect.value : 'trading'}_${new Date().getTime()}.csv`;
+            link.setAttribute('download', filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            console.log(`✅ CSV exported successfully: ${filename}`);
+            console.log(`📊 Exported ${csvRows.length - 1} data points`);
+            console.log('📋 CSV contains columns:', headers.join(', '));
+        } else {
+            console.log('❌ Browser does not support CSV download');
+            console.log('📋 CSV Content:');
+            console.log(csvContent);
+        }
+
+        return csvContent;
+
+    } catch (error) {
+        console.error('❌ Error exporting CSV:', error);
+        return null;
+    }
+};
+
+console.log('🛠️ DEBUG: exportPlotlyDataAsCSV() function is now available - call it to download current chart data as CSV');

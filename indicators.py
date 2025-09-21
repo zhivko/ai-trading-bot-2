@@ -53,9 +53,9 @@ def _prepare_dataframe(klines: List[Dict[str, Any]], open_interest_data: List[Di
     logger.debug(f"_prepare_dataframe: Klines DataFrame shape: {df_klines.shape}, NaN counts: {nan_counts_klines.to_dict()}")
     logger.debug(f"_prepare_dataframe: Klines timestamp range: {df_klines.index.min()} to {df_klines.index.max()}")
 
-    # Process Open Interest data
+    # Process Open Interest data - but not for BTCDOM
     df_oi = pd.DataFrame()
-    if open_interest_data:
+    if open_interest_data and len(open_interest_data) > 0:
         # De-duplicate OI data by time before DataFrame creation
         unique_oi_map: Dict[int, Dict[str, Any]] = {}
         for oi_entry in open_interest_data:
@@ -666,80 +666,94 @@ def calculate_rsi_sma(df_input: pd.DataFrame, sma_period: int, rsi_values: List[
 
 def find_buy_signals(df: pd.DataFrame) -> list:
     """
-    Finds buy signals based on RSI deviation from RSI_SMA14.
-    Signal condition: RSI deviates more than 90% from RSI_SMA14
+    Finds buy signals based on RSI trend and deviation analysis.
+    New logic:
+    1. RSI_SMA14 must be in upward trend (showing improving momentum)
+    2. RSI must then deviate below this improving RSI_SMA14 by >15 points (oversold dip in bullish trend)
     """
-    logger.debug("Starting find_buy_signals with RSI deviation analysis")
+    logger.debug("Starting find_buy_signals with RSI trend + deviation analysis")
     signals = []
 
     # Reset index for easy access
     df = df.reset_index()
 
-    # Check required columns
-    if 'RSI_14' not in df.columns or 'RSI_SMA14' not in df.columns:
-        logger.warning("find_buy_signals: Required columns 'RSI_14' or 'RSI_SMA14' not found in DataFrame")
+    # Check if we have RSI data - use the specific column names from WebSocket mapping
+    rsi_col = None
+    sma_col = None
+
+    # First, log what columns we actually have for debugging
+    logger.debug(f"find_buy_signals: DataFrame columns: {list(df.columns)}")
+
+    # The WebSocket maps RSI indicators to specific column names
+    # RSI: 'RSI_14' (raw RSI) and 'RSI_14_sma14' (SMA14 of RSI)
+    if 'RSI_14' in df.columns and 'RSI_14_sma14' in df.columns:
+        rsi_col = 'RSI_14'
+        sma_col = 'RSI_14_sma14'
+        logger.debug(f"find_buy_signals: Using mapped RSI columns: {rsi_col}, {sma_col}")
+    else:
+        # Log available columns for debugging
+        rsi_related_cols = [col for col in df.columns if 'rsi' in col.lower()]
+        logger.warning(f"find_buy_signals: RSI columns not found. Expected 'RSI_14' and 'RSI_14_sma14', found RSI-related: {rsi_related_cols}, all columns: {list(df.columns)}")
         return signals
 
-    # Define the date range for focused logging (timezone-naive to match DataFrame index)
-    target_date_start = pd.to_datetime("2025-09-15 00:00:00")
-    target_date_end = pd.to_datetime("2025-09-16 23:59:59")
-    logger.debug(f"Enhanced logging for September 15-16, 2025: {target_date_start} to {target_date_end}")
+    logger.debug(f"Using RSI columns: rsi='{rsi_col}', sma='{sma_col}'")
+
+    # Minimum lookback periods for trend analysis
+    min_lookback = 5  # Need at least 5 bars to check trend
 
     for i in range(len(df)):
         current_time = df['time'].iloc[i]
-        is_target_date = target_date_start <= current_time <= target_date_end
 
         # Get RSI and RSI_SMA14 values
-        rsi_value = df['RSI_14'].iloc[i]
-        rsi_sma14_value = df['RSI_SMA14'].iloc[i]
+        rsi_value = df[rsi_col].iloc[i]
+        rsi_sma14_value = df[sma_col].iloc[i]
 
         # Skip if any value is NaN
         if pd.isna(rsi_value) or pd.isna(rsi_sma14_value):
             continue
 
-        # Calculate deviation
-        if rsi_sma14_value != 0:
-            # Calculate absolute percentage deviation from SMA
-            deviation_pct = abs(rsi_value - rsi_sma14_value) / rsi_sma14_value
-        else:
-            deviation_pct = 0
+        # CONDITION 1: Check if RSI_SMA14 is in upward trend
+        # Look back 5-10 bars to see if SMA14 has been rising
+        rsi_sma_trend_up = False
 
-        # Check if deviation is more than 30%
-        signal_condition_met = deviation_pct > 0.30
+        if i >= min_lookback:
+            # Check the trend over the last min_lookback bars
+            recent_sma_values = []
+            for lookback_idx in range(max(0, i - min_lookback), i + 1):
+                sma_val = df[sma_col].iloc[lookback_idx]
+                if not pd.isna(sma_val):
+                    recent_sma_values.append(sma_val)
 
-        if is_target_date:
-            logger.debug(f"Bar {i} at {current_time}: RSI={rsi_value:.2f}, RSI_SMA14={rsi_sma14_value:.2f}, "
-                        f"Deviation={deviation_pct:.2f}, >0.30={signal_condition_met}")
+            # Trend is up if we have enough data points and current SMA > average of recent values
+            if len(recent_sma_values) >= 3:
+                avg_recent_sma = sum(recent_sma_values[:-1]) / len(recent_sma_values[:-1])  # Exclude current value
+                rsi_sma_trend_up = rsi_sma14_value > avg_recent_sma
+                logger.debug(f"SMA trend analysis at {current_time}: current={rsi_sma14_value:.2f}, avg_recent={avg_recent_sma:.2f}, trend_up={rsi_sma_trend_up}")
+
+        # CONDITION 2: RSI deviates below RSI_SMA14 by >15 points (but only if SMA trend is already up)
+        deviation_points = rsi_sma14_value - rsi_value  # SMA - RSI (positive when RSI is below SMA)
+        rsi_deviation_signal = deviation_points > 15.0
+
+        # FINAL SIGNAL: Both conditions must be met
+        signal_condition_met = rsi_sma_trend_up and rsi_deviation_signal
+
+        logger.debug(f"Bar {i} at {current_time}: RSI={rsi_value:.2f}, RSI_SMA={rsi_sma14_value:.2f}, "
+                    f"Deviation={deviation_points:.2f}, SMA_trend_up={rsi_sma_trend_up}, Signal={signal_condition_met}")
 
         if signal_condition_met:
-            # Check if we recently had a signal (within 10 bars to avoid duplicates)
-            recent_signal = False
-            if i > 0:
-                for j in range(max(0, i-10), i):
-                    prev_rsi = df['RSI_14'].iloc[j]
-                    prev_rsi_sma14 = df['RSI_SMA14'].iloc[j]
-                    if not (pd.isna(prev_rsi) or pd.isna(prev_rsi_sma14)) and prev_rsi_sma14 != 0:
-                        prev_deviation_pct = abs(prev_rsi - prev_rsi_sma14) / prev_rsi_sma14
-                        if prev_deviation_pct > 0.30:
-                            recent_signal = True
-                            break
+            timestamp = int(current_time.timestamp())
+            signals.append({
+                'timestamp': timestamp,
+                'price': df['close'].iloc[i],
+                'rsi': rsi_value,
+                'rsi_sma14': rsi_sma14_value,
+                'deviation': deviation_points,
+                'sma_trend_up': int(rsi_sma_trend_up),  # Convert boolean to int for JSON serialization
+                'type': 'buy'
+            })
+            logger.info(f"BUY SIGNAL DETECTED at {current_time}: RSI_SMA14 trending UP (avg_recent={avg_recent_sma:.2f}), RSI={rsi_value:.2f} is {deviation_points:.1f} points below SMA14={rsi_sma14_value:.2f}")
 
-            # Only generate signal if no recent signal
-            if not recent_signal:
-                timestamp = int(df['time'].iloc[i].timestamp())
-                signals.append({
-                    'timestamp': timestamp,
-                    'price': df['close'].iloc[i],
-                    'type': 'buy'
-                })
-                logger.info(f"BUY SIGNAL DETECTED at {current_time}: timestamp={timestamp}, "
-                           f"price={df['close'].iloc[i]:.2f}, RSI={rsi_value:.2f}, "
-                           f"RSI_SMA14={rsi_sma14_value:.2f}, Deviation={deviation_pct:.2f}")
-            else:
-                if is_target_date:
-                    logger.debug(f"Bar {i} at {current_time}: Signal conditions met but recent signal already generated")
-
-    logger.debug(f"Total buy signals detected: {len(signals)}")
+    logger.info(f"find_buy_signals completed: analyzed {len(df)} bars, found {len(signals)} buy signals")
     return signals
 
 def format_indicator_data_for_llm_as_dict(indicator_id: str, indicator_config_details: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:

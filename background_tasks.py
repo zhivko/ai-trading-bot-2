@@ -44,6 +44,9 @@ async def fetch_and_publish_klines():
                     total_klines_fetched = 0
 
                     for symbol_val in SUPPORTED_SYMBOLS:
+                        if symbol_val == "BTCDOM":
+                            continue  # BTCDOM fetched from CoinGecko, not Bybit
+
                         end_ts = int(current_time_utc.timestamp())
                         if last_fetch is None:
                             start_ts_map = {"1m": 2*3600, "5m": 24*3600, "1h": 7*24*3600, "1d": 30*24*3600, "1w": 90*24*3600}  # Added 1m
@@ -85,12 +88,15 @@ async def fetch_and_publish_klines():
                 start_ts = end_ts - (7 * 24 * 3600)  # Last 7 days
 
                 for symbol_val in SUPPORTED_SYMBOLS:
+                    if symbol_val == "BTCDOM":
+                        continue  # BTCDOM data from CoinGecko, no gaps to fill from Bybit
+
                     try:
                         # Detect gaps in cached data
                         gaps = await detect_gaps_in_cached_data(symbol_val, resolution, start_ts, end_ts)
                         if gaps:
                             all_gaps.extend(gaps)
-                            logger.info(f"📊 Found {len(gaps)} gaps for {symbol_val} {resolution}")
+                            # logger.info(f"📊 Found {len(gaps)} gaps for {symbol_val} {resolution}")
                     except Exception as e:
                         logger.error(f"Error detecting gaps for {symbol_val} {resolution}: {e}")
                         continue
@@ -117,6 +123,9 @@ async def fetch_and_publish_klines():
                 start_ts = end_ts - (24 * 3600)  # Fetch last 24 hours of OI
 
                 for symbol_val in SUPPORTED_SYMBOLS:
+                    if symbol_val == "BTCDOM":
+                        continue  # BTCDOM is indices, no OI from Bybit
+
                     # logger.info(f"📈 FETCHING OI: {symbol_val} {resolution} from {datetime.fromtimestamp(start_ts, timezone.utc)} to {datetime.fromtimestamp(end_ts, timezone.utc)}")
                     oi_data = fetch_open_interest_from_bybit(symbol_val, resolution, start_ts, end_ts)
                     if oi_data:

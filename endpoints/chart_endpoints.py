@@ -15,8 +15,14 @@ async def history_endpoint(symbol: str, resolution: str, from_ts: int, to_ts: in
 
         if symbol not in SUPPORTED_SYMBOLS:
             return JSONResponse({"s": "error", "errmsg": f"Unsupported symbol: {symbol}"}, status_code=400)
-        if resolution not in timeframe_config.supported_resolutions:
-            return JSONResponse({"s": "error", "errmsg": f"Unsupported resolution: {resolution}"}, status_code=400)
+
+        # Special resolution check for BTCDOM
+        if symbol == "BTCDOM":
+            if resolution != "1d":
+                return JSONResponse({"s": "error", "errmsg": f"Unsupported resolution for BTCDOM: {resolution}. Only 1d is supported."}, status_code=400)
+        else:
+            if resolution not in timeframe_config.supported_resolutions:
+                return JSONResponse({"s": "error", "errmsg": f"Unsupported resolution: {resolution}"}, status_code=400)
 
         current_time_sec = int(datetime.now(timezone.utc).timestamp())
         from_ts = max(0, from_ts)
@@ -32,40 +38,69 @@ async def history_endpoint(symbol: str, resolution: str, from_ts: int, to_ts: in
 
         logger.info(f"Fetching cached klines for PAXGUSDT with from_ts: {from_ts} and to_ts: {to_ts}")
 
-        klines = await get_cached_klines(symbol, resolution, from_ts, to_ts)
+        # Handle special symbol BTCDOM from CoinGecko
+        if symbol == "BTCDOM":
+            from redis_utils import fetch_btc_dominance
+            klines = await get_cached_klines(symbol, resolution, from_ts, to_ts)
 
-        should_fetch_from_bybit = False
-        if not klines:
-            should_fetch_from_bybit = True
-            logger.info("No cached klines found. Fetching from Bybit.")
+            should_fetch_from_coingecko = False
+            if not klines:
+                should_fetch_from_coingecko = True
+                logger.info("No cached klines found for BTCDOM. Fetching from CoinGecko.")
+            else:
+                cached_start_ts = klines[0]['time']
+                cached_end_ts = klines[-1]['time']
+                if cached_start_ts > from_ts or cached_end_ts < to_ts:
+                    should_fetch_from_coingecko = True
+                    logger.info(f"Cache does not fully cover requested range. Requested: {from_ts}-{to_ts}, Cached: {cached_start_ts}-{cached_end_ts}. Will fetch from CoinGecko to fill gaps.")
+
+            if should_fetch_from_coingecko:
+                logger.info(f"Attempting to fetch BTC Dominance for {symbol} {resolution} range {from_ts} to {to_ts}")
+                coingecko_klines = await fetch_btc_dominance(symbol, resolution, from_ts, to_ts)
+                if coingecko_klines:
+                    logger.info(f"Fetched {len(coingecko_klines)} klines from CoinGecko. Caching them.")
+                    await cache_klines(symbol, resolution, coingecko_klines)
+                    # Re-query cache to get a consolidated, sorted list from the precise range
+                    klines = await get_cached_klines(symbol, resolution, from_ts, to_ts)
+                elif not klines:
+                    logger.info("No data available from CoinGecko and cache is empty for this range.")
+                    return JSONResponse({"s": "no_data", "t": [], "o": [], "h": [], "l": [], "c": [], "v": []})
         else:
-            cached_start_ts = klines[0]['time']
-            cached_end_ts = klines[-1]['time']
-            if cached_start_ts > from_ts or cached_end_ts < to_ts:  # Check if cache covers the full requested range
+            # Regular symbol handling from Bybit
+            klines = await get_cached_klines(symbol, resolution, from_ts, to_ts)
+
+            should_fetch_from_bybit = False
+            if not klines:
                 should_fetch_from_bybit = True
-                logger.info(f"Cache does not fully cover requested range. Requested: {from_ts}-{to_ts}, Cached: {cached_start_ts}-{cached_end_ts}. Will fetch from Bybit to fill gaps.")
+                logger.info("No cached klines found. Fetching from Bybit.")
+            else:
+                cached_start_ts = klines[0]['time']
+                cached_end_ts = klines[-1]['time']
+                if cached_start_ts > from_ts or cached_end_ts < to_ts:  # Check if cache covers the full requested range
+                    should_fetch_from_bybit = True
+                    logger.info(f"Cache does not fully cover requested range. Requested: {from_ts}-{to_ts}, Cached: {cached_start_ts}-{cached_end_ts}. Will fetch from Bybit to fill gaps.")
 
-        kline_fetch_start_ts = from_ts  # default values
-        kline_fetch_end_ts = to_ts
+            kline_fetch_start_ts = from_ts  # default values
+            kline_fetch_end_ts = to_ts
 
-        logger.info(f"Before Bybit Fetch - From_TS: {from_ts} ({datetime.fromtimestamp(from_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}), To_TS: {to_ts} ({datetime.fromtimestamp(to_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')})")
-        logger.info(f"Before Bybit Fetch - Clamped from_ts: {kline_fetch_start_ts} ({datetime.fromtimestamp(kline_fetch_start_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}), to_ts: {kline_fetch_end_ts} ({datetime.fromtimestamp(kline_fetch_end_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')})")
-        logger.info(f"After Lookback Calc - Effective kline fetch range for Bybit: {kline_fetch_start_ts} to {kline_fetch_end_ts}")
+            logger.info(f"Before Bybit Fetch - From_TS: {from_ts} ({datetime.fromtimestamp(from_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}), To_TS: {to_ts} ({datetime.fromtimestamp(to_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')})")
+            logger.info(f"Before Bybit Fetch - Clamped from_ts: {kline_fetch_start_ts} ({datetime.fromtimestamp(kline_fetch_start_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}), to_ts: {kline_fetch_end_ts} ({datetime.fromtimestamp(kline_fetch_end_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')})")
+            logger.info(f"After Lookback Calc - Effective kline fetch range for Bybit: {kline_fetch_start_ts} to {kline_fetch_end_ts}")
 
-        if should_fetch_from_bybit:
-            logger.info(f"KLINES: Attempting to fetch from Bybit for PAXGUSDT with from_ts: {from_ts} and to_ts: {to_ts}")
-            logger.info(f"Attempting to fetch from Bybit for {symbol} {resolution} range {from_ts} to {to_ts}")
-            bybit_klines = fetch_klines_from_bybit(symbol, resolution, from_ts, to_ts)
-            if bybit_klines:
-                logger.info(f"Fetched {len(bybit_klines)} klines from Bybit. Caching them.")
-                await cache_klines(symbol, resolution, bybit_klines)
-                # Re-query cache to get a consolidated, sorted list from the precise range
-                klines = await get_cached_klines(symbol, resolution, from_ts, to_ts)
-            elif not klines:
-                logger.info(f"BYBIT: No data available from Bybit and cache is empty for this range.")
-                logger.info("No data available from Bybit and cache is empty for this range.")
+            if should_fetch_from_bybit:
+                logger.info(f"KLINES: Attempting to fetch from Bybit for PAXGUSDT with from_ts: {from_ts} and to_ts: {to_ts}")
+                logger.info(f"Attempting to fetch from Bybit for {symbol} {resolution} range {from_ts} to {to_ts}")
+                bybit_klines = fetch_klines_from_bybit(symbol, resolution, from_ts, to_ts)
+                if bybit_klines:
+                    logger.info(f"Fetched {len(bybit_klines)} klines from Bybit. Caching them.")
+                    await cache_klines(symbol, resolution, bybit_klines)
+                    # Re-query cache to get a consolidated, sorted list from the precise range
+                    klines = await get_cached_klines(symbol, resolution, from_ts, to_ts)
+                elif not klines:
+                    logger.info(f"BYBIT: No data available from Bybit and cache is empty for this range.")
+                    logger.info("No data available from Bybit and cache is empty for this range.")
 
-                return JSONResponse({"s": "no_data", "t": [], "o": [], "h": [], "l": [], "c": [], "v": []})
+                    return JSONResponse({"s": "no_data", "t": [], "o": [], "h": [], "l": [], "c": [], "v": []})
 
         # Final filter and sort, in case cache operations or Bybit fetches returned slightly outside the exact ts range
         klines = [k for k in klines if from_ts <= k['time'] <= to_ts]
@@ -131,6 +166,17 @@ async def initial_chart_config():
 async def symbols_endpoint(symbol: str):
     if symbol not in SUPPORTED_SYMBOLS:
         return JSONResponse({"s": "error", "errmsg": "Symbol not supported"}, status_code=404)
+
+    # Special handling for BTCDOM
+    if symbol == "BTCDOM":
+        return JSONResponse({
+            "name": symbol, "ticker": symbol, "description": "Bitcoin Dominance",
+            "type": "indices", "exchange": "CoinGecko", "session": "24x7", "timezone": "UTC",
+            "minmovement": 1, "pricescale": 10000, "has_intraday": False,  # No intraday for dominance
+            "supported_resolutions": ["1d"],  # Only daily
+            "volume_precision": 2
+        })
+
     return JSONResponse({
         "name": symbol, "ticker": symbol, "description": f"{symbol} Perpetual",
         "type": "crypto", "exchange": "Bybit", "session": "24x7", "timezone": "UTC",

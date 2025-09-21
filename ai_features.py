@@ -14,14 +14,15 @@ import google.generativeai as genai
 from config import (
     DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_API_MODEL_NAME,
     LOCAL_OLLAMA_BASE_URL, LOCAL_OLLAMA_MODEL_NAME,
+    LM_STUDIO_BASE_URL, LM_STUDIO_MODEL_NAME,
     MAX_DATA_POINTS_FOR_LLM, AVAILABLE_INDICATORS, SUPPORTED_SYMBOLS
 )
 from auth import creds
-from redis_utils import get_redis_connection, fetch_klines_from_bybit
+from redis_utils import get_redis_connection, fetch_klines_from_bybit, get_cached_klines, cache_klines, get_cached_open_interest, cache_open_interest
 from indicators import (
     _prepare_dataframe, calculate_macd, calculate_rsi, calculate_stoch_rsi,
     calculate_open_interest, calculate_jma_indicator, format_indicator_data_for_llm_as_dict,
-    fetch_open_interest_from_bybit
+    fetch_open_interest_from_bybit, get_timeframe_seconds
 )
 from logging_config import logger
 
@@ -31,6 +32,7 @@ genai.configure(api_key=creds.GEMINI_API_KEY)
 # Initialize AI clients
 deepseek_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL, timeout=120.0)
 local_ollama_client = OpenAI(base_url=LOCAL_OLLAMA_BASE_URL, api_key="ollama", timeout=120.0)
+lm_studio_client = OpenAI(base_url=LM_STUDIO_BASE_URL, api_key="lm-studio", timeout=120.0)
 
 class AIRequest(BaseModel):
     symbol: str
@@ -137,6 +139,41 @@ Your response MUST be in the following JSON format. Do not include any explanato
 "explanation": "A concise explanation for your decision, referencing specific kline patterns or indicator signals from the provided textual data. Mention specific values or conditions if possible (e.g., 'MACD bullish cross at YYYY-MM-DD HH:MM:SS, RSI at 35 and rising')."
 }
 """
+
+def get_system_prompt():
+    """Returns the system prompt for AI analysis."""
+    return f"{AI_SYSTEM_PROMPT_INSTRUCTIONS}\n\n{AI_OUTPUTFORMAT_INSTRUCTIONS}"
+
+def get_user_prompt_for_market_data(request_data, market_data_json_payload, start_dt_str, end_dt_str):
+    """Constructs user prompt for market data analysis."""
+    user_prompt_content = "--- Market Data ---\n"
+    user_prompt_content += f"Symbol: {request_data.symbol}\n"
+    user_prompt_content += f"Timeframe: {request_data.resolution}\n"
+    user_prompt_content += f"Data Range (UTC): {start_dt_str} to {end_dt_str}\n\n"
+    user_prompt_content += "--- MARKET DATA JSON ---\n" + market_data_json_payload + "\n--- END MARKET DATA JSON ---\n\n"
+    user_prompt_content += "--- End Market Data ---\n\n"
+    # user_prompt_content += f"User Question: {request_data.question}"
+    return user_prompt_content
+
+def get_user_prompt_for_audio(transcribed_text, request_data=None, market_data_json_payload=None, start_dt_str=None, end_dt_str=None):
+    """Constructs user prompt for audio transcription analysis.
+    Can optionally include market data context if provided."""
+    user_prompt = f"--- AUDIO TRANSCRIPT ---\n{transcribed_text}\n--- END AUDIO TRANSCRIPT ---\n"
+
+    # Add market data context if provided
+    if request_data and market_data_json_payload and start_dt_str and end_dt_str:
+        user_prompt += "\n--- MARKET CONTEXT ---\n"
+        user_prompt += f"Symbol: {request_data.symbol}\n"
+        user_prompt += f"Timeframe: {request_data.resolution}\n"
+        user_prompt += f"Data Range (UTC): {start_dt_str} to {end_dt_str}\n\n"
+        user_prompt += "--- MARKET DATA JSON ---\n" + market_data_json_payload + "\n--- END MARKET DATA JSON ---\n"
+        user_prompt += "--- End Market Context ---\n\n"
+
+        user_prompt += "Please analyze this transcribed audio content in the context of the provided market data and provide insights, patterns, or recommendations."
+    else:
+        user_prompt += "\nPlease analyze this transcribed audio content and provide insights, patterns, or recommendations based on the content."
+
+    return user_prompt
 
 async def get_ai_suggestion(request_data: AIRequest):
     logger.info(f"Received /AI request: Symbol={request_data.symbol}, Res={request_data.resolution}, "
@@ -341,16 +378,9 @@ async def get_ai_suggestion(request_data: AIRequest):
     }
     market_data_json_str = json.dumps(market_data_json_payload, indent=2)
 
-    # --- Construct System and User Prompts for DeepSeek ---
-    system_prompt_content = f"{AI_SYSTEM_PROMPT_INSTRUCTIONS}\n\n{AI_OUTPUTFORMAT_INSTRUCTIONS}"
-
-    user_prompt_content = "--- Market Data ---\n"
-    user_prompt_content += f"Symbol: {request_data.symbol}\n"
-    user_prompt_content += f"Timeframe: {request_data.resolution}\n"
-    user_prompt_content += f"Data Range (UTC): {start_dt_str} to {end_dt_str}\n\n"
-    user_prompt_content += "--- MARKET DATA JSON ---\n" + market_data_json_str + "\n--- END MARKET DATA JSON ---\n\n"
-    user_prompt_content += "--- End Market Data ---\n\n"
-    # user_prompt_content += f"User Question: {request_data.question}"
+    # --- Construct System and User Prompts ---
+    system_prompt_content = get_system_prompt()
+    user_prompt_content = get_user_prompt_for_market_data(request_data, market_data_json_str, start_dt_str, end_dt_str)
 
     # --- DUMP PROMPT TO FILE ---
     try:
@@ -494,6 +524,124 @@ async def ollama_response_generator(
         if item is None:
             break
         yield item
+
+async def process_audio_with_llm(request_data: AIRequest):
+    """
+    Process transcribed audio text with local LLM via LM Studio using the same trading analysis prompt.
+    Includes market context for richer analysis.
+    Returns the LLM response.
+    """
+    try:
+        logger.info(f"Received audio analysis request: Symbol={request_data.symbol}, Res={request_data.resolution}, "
+                    f"Range=[{request_data.xAxisMin}, {request_data.xAxisMax}], "
+                    f"Indicators={request_data.activeIndicatorIds}")
+
+        # Extract transcribed_text from request_data (assuming it's in question field for now)
+        transcribed_text = request_data.question if hasattr(request_data, 'question') and request_data.question else ""
+        if not transcribed_text:
+            logger.warning("No transcribed text provided for audio analysis")
+            return "Error: No transcribed text provided"
+
+        logger.info(f"Processing transcribed text with LM Studio. Text length: {len(transcribed_text)}")
+
+        # Prepare market data context similar to get_ai_suggestion
+        max_lookback_periods = 0
+        for ind_id in request_data.activeIndicatorIds:
+            config = next((item for item in AVAILABLE_INDICATORS if item["id"] == ind_id), None)
+            if config:
+                current_indicator_lookback = 0
+                if config["id"] == "macd":
+                    current_indicator_lookback = config["params"]["long_period"] + config["params"]["signal_period"]
+                elif config["id"] == "rsi":
+                    current_indicator_lookback = config["params"]["period"]
+                elif config["id"].startswith("stochrsi"):
+                    current_indicator_lookback = config["params"]["rsi_period"] + config["params"]["stoch_period"] + config["params"]["d_period"]
+                if current_indicator_lookback > max_lookback_periods:
+                    max_lookback_periods = current_indicator_lookback
+
+        buffer_candles = 30
+        lookback_candles_needed = max(max_lookback_periods + buffer_candles, 50)
+        timeframe_secs = get_timeframe_seconds(request_data.resolution)
+
+        kline_fetch_start_ts = request_data.xAxisMin - (lookback_candles_needed * timeframe_secs)
+        kline_fetch_end_ts = request_data.xAxisMax
+
+        current_time_sec_utc = int(datetime.now(timezone.utc).timestamp())
+        final_fetch_from_ts = max(0, kline_fetch_start_ts)
+        final_fetch_to_ts = max(0, min(kline_fetch_end_ts, current_time_sec_utc))
+
+        # Fetch simplified market data for context (less detailed than full AI analysis)
+        klines_for_context = await get_cached_klines(request_data.symbol, request_data.resolution, final_fetch_from_ts, final_fetch_to_ts)
+        if not klines_for_context:
+            klines_for_context = []
+
+        # Create simplified market context JSON
+        visible_klines = [k for k in klines_for_context if request_data.xAxisMin <= k['time'] <= request_data.xAxisMax]
+        visible_klines.sort(key=lambda x: x['time'])
+
+        # Truncate for context (smaller than full AI analysis)
+        klines_for_json = visible_klines[-50:] if len(visible_klines) > 50 else visible_klines
+
+        kline_data_for_json = []
+        for k in klines_for_json:
+            dt_object = datetime.fromtimestamp(k['time'], timezone.utc)
+            kline_data_for_json.append({
+                "date": dt_object.strftime('%Y-%m-%d %H:%M:%S'),
+                "close": k['close']
+            })
+
+        indicator_data_for_json = []
+        # Add basic indicator data if available
+        for ind_id in request_data.activeIndicatorIds[:2]:  # Limit to first 2 indicators for brevity
+            indicator_data_for_json.append({
+                "indicator_name": ind_id.upper(),
+                "status": "available",
+                "params": next((item["params"] for item in AVAILABLE_INDICATORS if item["id"] == ind_id), {}),
+                "values": [{"timestamp": k["date"], "value": k["close"]} for k in kline_data_for_json]
+            })
+
+        market_data_json_payload = {
+            "kline_data": kline_data_for_json[-20:],  # Last 20 points for context
+            "indicator_data": indicator_data_for_json
+        }
+        market_data_json_str = json.dumps(market_data_json_payload, indent=2)
+
+        start_dt_str = datetime.fromtimestamp(request_data.xAxisMin, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+        end_dt_str = datetime.fromtimestamp(request_data.xAxisMax, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+        # Use the same system prompt as trading analysis with audio-specific instructions
+        system_prompt = f"{get_system_prompt()}\n\n"
+
+        # Use the dedicated audio prompt function with market context
+        user_prompt = get_user_prompt_for_audio(transcribed_text, request_data, market_data_json_str, start_dt_str, end_dt_str)
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        # Call LM Studio API
+        response = await asyncio.to_thread(
+            lm_studio_client.chat.completions.create,
+            model=LM_STUDIO_MODEL_NAME,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=500
+        )
+
+        analysis = response.choices[0].message.content.strip()
+        logger.info(f"LM Studio analysis completed. Response length: {len(analysis)}")
+        return analysis
+
+    except APIConnectionError as e:
+        logger.error(f"Failed to connect to LM Studio: {e}")
+        return f"Error: Could not connect to LM Studio service. {str(e)}"
+    except APIError as e:
+        logger.error(f"LM Studio API error: {e}")
+        return f"Error: LM Studio API error. {str(e)}"
+    except Exception as e:
+        logger.error(f"Unexpected error processing audio with LLM: {e}", exc_info=True)
+        return f"Error: Unexpected error occurred. {str(e)}"
 
 async def get_local_ollama_models():
     try:

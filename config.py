@@ -32,7 +32,7 @@ TRADING_SYMBOL = "BTCUSDT"  # Symbol to trade for background tasks and AI defaul
 TRADING_TIMEFRAME = "5m"  # Timeframe for background tasks and AI defaults
 
 # Supported symbols and resolutions
-SUPPORTED_SYMBOLS = ["BTCUSDT", "XMRUSDT", "ETHUSDT", "SOLUSDT", "SUIUSDT", "PAXGUSDT", "BNBUSDT", "ADAUSDT"]
+SUPPORTED_SYMBOLS = ["BTCUSDT", "XMRUSDT", "ETHUSDT", "SOLUSDT", "SUIUSDT", "PAXGUSDT", "BNBUSDT", "ADAUSDT", "BTCDOM"]
 SUPPORTED_RESOLUTIONS = ["1m", "5m", "1h", "4h", "1d", "1w"]
 
 SUPPORTED_RANGES = [
@@ -80,6 +80,9 @@ DEEPSEEK_API_MODEL_NAME = "deepseek-reasoner"
 
 LOCAL_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 LOCAL_OLLAMA_MODEL_NAME = "llama3"
+
+LM_STUDIO_BASE_URL = "http://localhost:1234/v1"
+LM_STUDIO_MODEL_NAME = "local-model"  # LM Studio uses "local-model" as default
 
 MAX_DATA_POINTS_FOR_LLM = 100
 

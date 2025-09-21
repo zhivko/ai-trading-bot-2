@@ -613,8 +613,8 @@ function initializePlotlyEventHandlers(gd) {
             const isBuySignal = shapeInLayout.name && shapeInLayout.name.startsWith('buy_signal_');
             const isSystemBuySignal = shapeInLayout.systemType === 'buy_signal';
 
-            // Skip buy signals and system shapes entirely
-            if (isBuySignal || isSystemBuySignal || shapeInLayout.isSystemShape) {
+            // Skip system shapes that should be managed elsewhere, but allow buy signals through
+            if (shapeInLayout.isSystemShape && !(isSystemBuySignal || isBuySignal)) {
                 console.log(`[plotly_relayout] Skipping system shape: ${shapeInLayout.name} (buy_signal: ${isBuySignal}, systemType: ${shapeInLayout.systemType}, isSystemShape: ${shapeInLayout.isSystemShape})`);
                 continue; // Skip this shape entirely
             }

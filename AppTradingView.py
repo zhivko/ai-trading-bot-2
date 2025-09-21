@@ -48,6 +48,9 @@ from bybit_price_feed import start_bybit_price_feed
 # Import email alert service
 from email_alert_service import alert_service
 
+# Import AI features for LLM processing
+from ai_features import process_audio_with_llm
+
 # Import endpoint modules
 from endpoints.chart_endpoints import (
     history_endpoint, initial_chart_config, symbols_endpoint,
@@ -114,6 +117,7 @@ async def lifespan(app_instance: FastAPI):
         app_instance.state.email_alert_task = asyncio.create_task(alert_service.monitor_alerts())
         # logger.info("Email alert monitoring service started.")
 
+        '''
         # Start YouTube monitor background task
         try:
             logger.info("🔧 STARTING BACKGROUND TASK: Creating YouTube monitor task...")
@@ -123,7 +127,8 @@ async def lifespan(app_instance: FastAPI):
         except Exception as e:
             logger.error(f"❌ FAILED TO START YOUTUBE MONITOR: {e}")
             app_instance.state.youtube_monitor_task = None
-
+        '''
+        
         # Preload Whisper model for audio transcription
         try:
             logger.info("🔧 PRELOADING WHISPER MODEL: Loading Whisper base model for audio transcription...")
@@ -434,9 +439,25 @@ async def transcribe_audio_endpoint(request: Request, audio_file: UploadFile):
 
             logger.info(f"Audio transcription completed. Text length: {len(transcribed_text)}")
 
+            # Process transcribed text with local LLM via LM Studio
+            from ai_features import AIRequest
+            ai_request = AIRequest(
+                symbol="BTCUSDT",  # Default symbol for audio analysis
+                resolution="1h",   # Default timeframe
+                xAxisMin=int(datetime.now().timestamp()) - 3600,  # Last hour
+                xAxisMax=int(datetime.now().timestamp()),
+                activeIndicatorIds=[],  # No indicators for audio analysis
+                question=transcribed_text,  # Put transcribed text in question field
+                use_local_ollama=False,
+                use_gemini=False
+            )
+            llm_analysis = await process_audio_with_llm(ai_request)
+            logger.info(f"LLM analysis completed. Analysis length: {len(llm_analysis)}")
+
             return {
                 "status": "success",
                 "transcribed_text": transcribed_text,
+                "llm_analysis": llm_analysis,
                 "language": result.get("language", "unknown"),
                 "confidence": result.get("confidence", 0.0)
             }
