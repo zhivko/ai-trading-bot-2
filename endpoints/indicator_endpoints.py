@@ -42,8 +42,14 @@ async def _calculate_and_return_indicators(symbol: str, resolution: str, from_ts
     logger.info(f"/indicatorHistory request: symbol={symbol}, resolution={resolution}, from_ts={from_ts}, to_ts={to_ts}, requested_ids={requested_indicator_ids}, simulation={simulation}")
 
     # Log from_ts and to_ts in human-readable format
-    from_dt_str = datetime.fromtimestamp(from_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-    to_dt_str = datetime.fromtimestamp(to_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+    try:
+        from_dt_str = datetime.fromtimestamp(from_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+    except (OSError, ValueError, OverflowError):
+        from_dt_str = f"INVALID_TS:{from_ts}"
+    try:
+        to_dt_str = datetime.fromtimestamp(to_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+    except (OSError, ValueError, OverflowError):
+        to_dt_str = f"INVALID_TS:{to_ts}"
     logger.info(f"Time range: from_ts={from_ts} ({from_dt_str}), to_ts={to_ts} ({to_dt_str})")
 
     if symbol not in SUPPORTED_SYMBOLS:
@@ -53,8 +59,14 @@ async def _calculate_and_return_indicators(symbol: str, resolution: str, from_ts
 
     if not requested_indicator_ids:
         # Log from_ts and to_ts in human-readable format
-        from_dt_str = datetime.fromtimestamp(from_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-        to_dt_str = datetime.fromtimestamp(to_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        try:
+            from_dt_str = datetime.fromtimestamp(from_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        except (OSError, ValueError, OverflowError):
+            from_dt_str = f"INVALID_TS:{from_ts}"
+        try:
+            to_dt_str = datetime.fromtimestamp(to_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        except (OSError, ValueError, OverflowError):
+            to_dt_str = f"INVALID_TS:{to_ts}"
         logger.info(f"Time range: from_ts={from_ts} ({from_dt_str}), to_ts={to_ts} ({to_dt_str})")
 
     # Validate all requested indicator IDs

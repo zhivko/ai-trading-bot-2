@@ -242,8 +242,25 @@ class EmailAlertService:
             xaxis_rangeslider_visible=False,
             font=dict(family="Arial, sans-serif", size=12, color="black")
         )
-        fig.update_xaxes(autorange=True)
-        fig.update_yaxes(autorange=True)
+
+        # Calculate data ranges with some padding to avoid cramped look
+        min_time = df['time'].min()
+        max_time = df['time'].max()
+        time_range = max_time - min_time
+
+        # Add 5% padding on each side
+        padding = time_range * 0.05
+        x_range = [min_time - padding, max_time + padding]
+        logger.info(f"Data time range: {min_time} to {max_time}")
+        logger.info(f"Setting x-axis range with padding to: {x_range}")
+
+        # Set explicit ranges for tight fit (shared_xaxes affects all rows)
+        fig.update_xaxes(range=x_range)
+
+        # Enable autorange for y-axes (free scaling)
+        for i in range(1, num_subplots + 1):
+            fig.update_yaxes(autorange=True, row=i, col=1)
+
         fig.update_yaxes(title_text="Price (USD)", row=1, col=1)
 
         try:
@@ -324,7 +341,7 @@ class EmailAlertService:
                     return result_values
         return [None] * len(timestamps)
 
-    async def check_price_alerts(self):
+    async def check_price_alerts(self, test: bool = False):
         logger.info("Starting check_price_alerts cycle.")
         try:
             redis = await get_redis_connection()
@@ -432,6 +449,47 @@ class EmailAlertService:
 
         logger.info(f"Eligible drawings: {eligible_drawings}")
         logger.info(f"Alerts by user: {list(alerts_by_user.keys())}")
+
+        # Test mode: fake a cross for the last drawing on BTCUSDT
+        if test:
+            btc_drawings = [d for d in drawings if d.get('symbol') == 'BTCUSDT' and d.get('user_email') == 'klemenzivkovic@gmail.com' and d.get('properties', {}).get('sendEmailOnCross', True)]
+            # Sort by start_time and end_time descending (most recent first)
+            btc_drawings.sort(key=lambda d: max(d.get('start_time', 0), d.get('end_time', 0)), reverse=True)
+            if btc_drawings:
+                drawing = btc_drawings[0]  # First drawing (most recent after sorting)
+                logger.info(f"TEST MODE: Using drawing {drawing.get('id')} for {drawing['user_email']}")
+                symbol = 'BTCUSDT'
+                resolution = drawing['resolution']
+                kline_zset_key = f"zset:kline:{symbol}:{resolution}"
+                latest_kline_list = await redis.zrevrange(kline_zset_key, 0, 1)
+                if latest_kline_list:
+                    latest_kline = json.loads(latest_kline_list[0])
+                    prev_kline = json.loads(latest_kline_list[1]) if len(latest_kline_list) > 1 else None
+                    fake_cross_info = await self.detect_cross(redis, drawing, latest_kline, prev_kline)
+                    # If no real cross, force one by overriding
+                    if not fake_cross_info:
+                        # Force cross at close with line value or close
+                        fake_cross_info = {"type": "price", "value": latest_kline['close']}
+                        logger.info(f"TEST MODE: No real cross, forcing fake cross at {fake_cross_info}")
+                    else:
+                        logger.info(f"TEST MODE: Used real cross detection: {fake_cross_info}")
+                    user_email = drawing['user_email']
+                    alert_details = {
+                        'symbol': symbol,
+                        'resolution': resolution,
+                        'line_id': drawing['id'],
+                        'cross_time': latest_kline['time'],
+                        'cross_value': fake_cross_info['value'],
+                        'trigger_type': fake_cross_info['type'],
+                        'indicator_name': fake_cross_info.get('indicator_name'),
+                        'drawing': drawing
+                    }
+                    if user_email not in alerts_by_user:
+                        alerts_by_user[user_email] = {}
+                    if symbol not in alerts_by_user[user_email]:
+                        alerts_by_user[user_email][symbol] = []
+                    alerts_by_user[user_email][symbol].append(alert_details)
+                    logger.info(f"TEST MODE: Forced alert for {user_email} on {symbol}")
 
         for user_email, symbol_alerts in alerts_by_user.items():
             for symbol, alerts in symbol_alerts.items():

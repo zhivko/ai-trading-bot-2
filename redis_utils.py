@@ -155,8 +155,14 @@ async def get_cached_klines(symbol: str, resolution: str, start_ts: int, end_ts:
     try:
         redis = await get_redis_connection()
         sorted_set_key = get_sorted_set_key(symbol, resolution)
-        start_dt = datetime.fromtimestamp(start_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-        end_dt = datetime.fromtimestamp(end_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        try:
+            start_dt = datetime.fromtimestamp(start_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        except (OSError, ValueError, OverflowError):
+            start_dt = f"INVALID_TS:{start_ts}"
+        try:
+            end_dt = datetime.fromtimestamp(end_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        except (OSError, ValueError, OverflowError):
+            end_dt = f"INVALID_TS:{end_ts}"
         logger.info(f"Querying sorted set '{sorted_set_key}' for range [{start_ts}, {end_ts}] ({start_dt} to {end_dt})")
 
         # TIMESTAMP DEBUG: Analyze query timestamps
