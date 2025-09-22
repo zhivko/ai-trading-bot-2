@@ -619,6 +619,12 @@ function initializePlotlyEventHandlers(gd) {
                 continue; // Skip this shape entirely
             }
 
+            // Skip shapes that use 'paper' coordinates (grid lines, subplot separators, etc.)
+            if (shapeInLayout.yref === 'paper' || shapeInLayout.xref === 'paper') {
+                console.log(`[plotly_relayout] Skipping paper-based shape: ${shapeInLayout.name} (xref: ${shapeInLayout.xref}, yref: ${shapeInLayout.yref})`);
+                continue; // Skip paper coordinate shapes
+            }
+
             if (shapeInLayout.type === 'line' &&
                 !shapeInLayout.id &&
                 !shapeInLayout.isSystemShape && // Already correctly ignores system shapes
