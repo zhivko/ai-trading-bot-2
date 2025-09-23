@@ -1045,6 +1045,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                     logger.info(f"Calculating buy signals for {active_symbol} historical data")
                     # Recreate df for buy signals calculation since we need the DataFrame
                     # Try to get Open Interest data from cache first
+                    '''
                     oi_data = await get_cached_open_interest(active_symbol, client_state["resolution"], client_state["from_ts"], client_state["to_ts"])
 
                     # If no OI data in cache, try to fetch from Bybit as fallback (except for BTCDOM)
@@ -1063,8 +1064,9 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                                 logger.info(f"ℹ️ OI INFO: No Open Interest data available from Bybit for {active_symbol}")
                         except Exception as e:
                             logger.warning(f"⚠️ OI FETCH WARNING: Failed to fetch Open Interest data for {active_symbol}: {e}")
-
-                    df_for_signals = _prepare_dataframe(klines, oi_data)
+                    '''
+                    
+                    df_for_signals = _prepare_dataframe(klines, None)
                     if df_for_signals is not None and not df_for_signals.empty:
                         # Add calculated indicator values back to the DataFrame for buy signals calculation
                         # Map indicator result keys back to DataFrame column names

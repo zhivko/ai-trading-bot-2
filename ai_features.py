@@ -575,12 +575,13 @@ async def process_audio_with_llm(request_data: AIRequest):
         if not klines_for_context:
             klines_for_context = []
 
-        # Create simplified market context JSON
-        visible_klines = [k for k in klines_for_context if request_data.xAxisMin <= k['time'] <= request_data.xAxisMax]
-        visible_klines.sort(key=lambda x: x['time'])
+        # Filter klines to the exact final fetch window (like in get_ai_suggestion)
+        klines_for_context = [k for k in klines_for_context if final_fetch_from_ts <= k['time'] <= final_fetch_to_ts]
+        klines_for_context.sort(key=lambda x: x['time'])
 
+        # Create simplified market context JSON - use all available klines for context
         # Truncate for context (smaller than full AI analysis)
-        klines_for_json = visible_klines[-50:] if len(visible_klines) > 50 else visible_klines
+        klines_for_json = klines_for_context[-50:] if len(klines_for_context) > 50 else klines_for_context
 
         kline_data_for_json = []
         for k in klines_for_json:
