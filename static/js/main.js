@@ -487,6 +487,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.log('main.js: Indicator checkbox change - activeIndicators:', activeIndicators);
 
             if (symbol && resolution) {
+                // CRITICAL FIX: Always update chart layout when indicators change
+                // This ensures subplots are created/destroyed immediately when indicators are selected/deselected
+                if (window.gd) {
+                    console.log('main.js: Updating chart layout for indicator change:', activeIndicators);
+                    const layout = createLayoutForIndicators(activeIndicators);
+                    console.log('main.js: Created layout with activeIndicators:', activeIndicators);
+                    Plotly.relayout(window.gd, layout);
+                    console.log('main.js: Chart layout updated for indicator change');
+                }
+
                 // Update indicators and send new config if WebSocket is connected
                 updateCombinedIndicators(activeIndicators);
 

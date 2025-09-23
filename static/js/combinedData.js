@@ -7,6 +7,9 @@ let combinedResolution = '1h';
 let combinedFromTs = null;
 let combinedToTs = null;
 
+// Store CTO Line traces globally for quick restoration when re-enabled
+let storedCTOTraces = null;
+
 // Initialize timestamps with default values (30 days ago to now)
 function initializeDefaultTimestamps() {
     if (combinedFromTs === null || combinedToTs === null) {
@@ -361,6 +364,9 @@ function processMessageQueue() {
                 break;
             case 'history_update':
                 handleHistoryUpdate(message);
+                break;
+            case 'youtube_videos':
+                handleYouTubeVideos(message);
                 break;
             default:
                 console.warn('⚠️ Unknown message type:', message.type);
@@ -1302,6 +1308,56 @@ function mergeDataPointsWithIndicators(existingData, newData) {
     return sortedData;
 }
 
+// Helper function to merge existing indicator traces with new data
+function mergeIndicatorData(existingTrace, newTrace) {
+    console.log(`🔄 MERGE INDICATOR DEBUG: Merging trace ${existingTrace.name || 'unnamed'}`);
+    console.log(`  Existing: ${existingTrace.x ? existingTrace.x.length : 0} points`);
+    console.log(`  New: ${newTrace.x ? newTrace.x.length : 0} points`);
+
+    if (!existingTrace || !existingTrace.x || !newTrace || !newTrace.x) {
+        console.log(`🔄 MERGE INDICATOR DEBUG: Missing data, returning new trace`);
+        return { x: newTrace.x || [], y: newTrace.y || [] };
+    }
+
+    // Create maps for quick lookup by timestamp
+    const existingMap = new Map();
+    existingTrace.x.forEach((timestamp, index) => {
+        if (timestamp && existingTrace.y[index] !== null && existingTrace.y[index] !== undefined) {
+            existingMap.set(timestamp.getTime(), existingTrace.y[index]);
+        }
+    });
+
+    const newMap = new Map();
+    newTrace.x.forEach((timestamp, index) => {
+        if (timestamp && newTrace.y[index] !== null && newTrace.y[index] !== undefined) {
+            newMap.set(timestamp.getTime(), newTrace.y[index]);
+        }
+    });
+
+    // Get all unique timestamps
+    const allTimestamps = new Set([...existingMap.keys(), ...newMap.keys()]);
+    const sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
+
+    console.log(`🔄 MERGE INDICATOR DEBUG: ${allTimestamps.size} unique timestamps (${sortedTimestamps.length} sorted)`);
+
+    // Merge data, preferring new values over existing
+    const mergedX = [];
+    const mergedY = [];
+
+    sortedTimestamps.forEach(timestamp => {
+        // New data takes precedence for the same timestamp
+        const yValue = newMap.has(timestamp) ? newMap.get(timestamp) : existingMap.get(timestamp);
+
+        if (yValue !== null && yValue !== undefined && !isNaN(yValue)) {
+            mergedX.push(new Date(timestamp));
+            mergedY.push(yValue);
+        }
+    });
+
+    console.log(`🔄 MERGE INDICATOR DEBUG: Merged result: ${mergedX.length} points`);
+    return { x: mergedX, y: mergedY };
+}
+
 function handleLiveData(message) {
     console.log(`🔴 Combined WebSocket: Received live data for ${message.symbol}`);
     console.log('🔴 Live data details:', message.data);
@@ -1394,6 +1450,32 @@ function handleDrawingsData(message) {
 
     // Process and add drawings to the chart
     addDrawingsToChart(message.data, message.symbol);
+}
+
+function handleYouTubeVideos(message) {
+    console.log(`🎥 Combined WebSocket: Received YouTube videos for ${message.symbol}, ${message.videos ? message.videos.length : 0} videos`);
+
+    if (!message.videos || !Array.isArray(message.videos)) {
+        console.warn('🎥 Combined WebSocket: Invalid YouTube videos data format');
+        return;
+    }
+
+    if (message.videos.length === 0) {
+        console.log('🎥 Combined WebSocket: No YouTube videos to process');
+        return;
+    }
+
+    // Log video details for debugging
+    console.log('🎥 YouTube videos received:');
+    message.videos.forEach((video, index) => {
+        const publishDate = video.published_at ? new Date(video.published_at).toLocaleString() : 'Unknown';
+        console.log(`  ${index + 1}. "${video.title}" by ${video.channel_title} (${publishDate})`);
+    });
+
+    // Process and display YouTube videos
+    addYouTubeVideosToChart(message.videos, message.symbol);
+
+    console.log(`🎥 Combined WebSocket: Successfully processed ${message.videos.length} YouTube videos for ${message.symbol}`);
 }
 
 function handleHistoryUpdate(message) {
@@ -1687,6 +1769,74 @@ function addDrawingsToChart(drawings, symbol) {
     }
 }
 
+function addYouTubeVideosToChart(videos, symbol) {
+    console.log(`🎥 Combined WebSocket: Adding ${videos.length} YouTube videos to chart for ${symbol}`);
+
+    const chartElement = document.getElementById('chart');
+    if (!chartElement || !window.gd) {
+        console.warn('🎥 Combined WebSocket: Chart not ready for YouTube videos');
+        return;
+    }
+
+    // Ensure layout.annotations exists
+    if (!window.gd.layout.annotations) {
+        window.gd.layout.annotations = [];
+    }
+
+    // Process each YouTube video
+    videos.forEach((video, index) => {
+        try {
+            console.log(`🎥 Combined WebSocket: Processing YouTube video ${index + 1}/${videos.length}:`, {
+                title: video.title,
+                channel: video.channel_title,
+                published: video.published_at
+            });
+
+            // Convert video data to Plotly annotation format
+            const annotation = convertYouTubeVideoToAnnotation(video, index);
+            console.log(`🎥 Combined WebSocket: Converted to annotation:`, annotation);
+
+            if (annotation) {
+                // Check if annotation already exists (by video ID)
+                const existingIndex = window.gd.layout.annotations.findIndex(a => a.name === `youtube_${video.id}`);
+
+                if (existingIndex !== -1) {
+                    // Update existing annotation
+                    window.gd.layout.annotations[existingIndex] = annotation;
+                    console.log(`🎥 Combined WebSocket: Updated existing YouTube video annotation ${video.id}`);
+                } else {
+                    // Add new annotation
+                    window.gd.layout.annotations.push(annotation);
+                    console.log(`🎥 Combined WebSocket: Added new YouTube video annotation ${video.id}`);
+                }
+            } else {
+                console.warn(`🎥 Combined WebSocket: Could not convert YouTube video to annotation:`, video);
+            }
+        } catch (error) {
+            console.error(`🎥 Combined WebSocket: Error processing YouTube video ${index}:`, error, video);
+        }
+    });
+
+    console.log('🎥 YOUTUBE VIDEOS: Final annotations count:', window.gd.layout.annotations.length);
+
+    // Update the chart with new annotations - ensure annotations are preserved during chart updates
+    try {
+        // First, ensure the layout has an annotations array
+        if (!window.gd.layout.annotations) {
+            window.gd.layout.annotations = [];
+        }
+
+        // Update the chart with annotations using relayout to preserve existing data
+        Plotly.relayout(chartElement, {
+            annotations: window.gd.layout.annotations
+        });
+        console.log(`🎥 Combined WebSocket: Successfully updated chart with ${videos.length} YouTube videos`);
+        console.log('🎥 YOUTUBE VIDEOS: Final annotations in layout:', window.gd.layout.annotations.length);
+    } catch (error) {
+        console.error('🎥 Combined WebSocket: Error updating chart with YouTube videos:', error);
+    }
+}
+
 function getYrefForSubplot(subplotName) {
     // Map subplot names to correct yref values
     // Format: "SYMBOL" for main chart, "SYMBOL-INDICATOR" for subplots
@@ -1815,6 +1965,91 @@ function convertDrawingToShape(drawing) {
     }
 }
 
+function convertYouTubeVideoToAnnotation(video, index) {
+    try {
+        console.log(`🎥 Combined WebSocket: Converting YouTube video to annotation:`, {
+            id: video.id,
+            title: video.title,
+            channel: video.channel_title,
+            published: video.published_at
+        });
+
+        // Parse the published_at timestamp (assuming it's ISO string or similar)
+        let publishedTime;
+        if (video.published_at) {
+            publishedTime = new Date(video.published_at);
+            if (isNaN(publishedTime.getTime())) {
+                console.warn(`🎥 Combined WebSocket: Invalid published_at timestamp: ${video.published_at}`);
+                publishedTime = new Date(); // Fallback to current time
+            }
+        } else {
+            console.warn('🎥 Combined WebSocket: No published_at timestamp provided');
+            publishedTime = new Date(); // Fallback
+        }
+
+        // Get current chart data to determine Y position
+        // We want to place YouTube videos at the top of the price chart
+        let chartHeight = null;
+        if (window.gd && window.gd.layout && window.gd.layout.yaxis) {
+            // For main price chart (yaxis), show near the top
+            const yMax = window.gd.layout.yaxis.range ? window.gd.layout.yaxis.range[1] : null;
+
+            if (yMax) {
+                // Position at 95% of the Y range (near the top)
+                chartHeight = yMax * 0.95;
+            }
+        }
+
+        if (chartHeight === null) {
+            // Fallback: use a reasonable default if chart height can't be determined
+            chartHeight = 100; // Will be adjusted when chart data is available
+        }
+
+        // Create the annotation
+        const annotation = {
+            name: `youtube_${video.id}`,
+            x: publishedTime,
+            y: chartHeight,
+            xref: 'x',
+            yref: 'y',  // Main price chart Y-axis
+            text: `<b>${video.title}</b><br>${video.channel_title}`,
+            showarrow: true,
+            arrowhead: 2,
+            arrowcolor: '#ff0000',  // Red arrow for YouTube branding
+            arrowsize: 1.5,
+            arrowside: 'end+start',
+            arrowwidth: 2,
+            ax: 30 + (index * 10),  // Spread horizontally (30px + offset based on index)
+            ay: -40 - (index * 15),  // Spread vertically upward (-40px - offset)
+            font: {
+                family: 'Arial, sans-serif',
+                size: 12,
+                color: '#000000'
+            },
+            bgcolor: '#ffffff',
+            bordercolor: '#ff0000',  // Red border for YouTube
+            borderwidth: 2,
+            borderpad: 6,
+            opacity: 0.9,
+            align: 'left',
+            width: 200,  // Fixed width for better readability
+            height: 60   // Fixed height
+        };
+
+        console.log(`🎥 Combined WebSocket: Created YouTube annotation at:`, {
+            x: publishedTime.toISOString(),
+            y: chartHeight,
+            title: video.title,
+            channel: video.channel_title
+        });
+
+        return annotation;
+    } catch (error) {
+        console.error('🎥 Combined WebSocket: Error converting YouTube video to annotation:', error, video);
+        return null;
+    }
+}
+
 
 function updateChartWithHistoricalData(dataPoints, symbol) {
     console.log('📈 Combined WebSocket: Processing historical data for chart update');
@@ -1920,6 +2155,16 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     console.log('🔍 DEBUG: Processing indicator data from dataPoints...');
     console.log('🔍 DEBUG: Number of dataPoints:', dataPoints.length);
     console.log('🔍 DEBUG: combinedIndicators:', combinedIndicators);
+    console.log('🔍 DEBUG: Sample dataPoint indicators:', dataPoints.slice(0, 3).map(p => p.indicators ? Object.keys(p.indicators) : 'no indicators'));
+
+    // Log the total indicator types found across all data points
+    const allIndicatorKeys = new Set();
+    dataPoints.forEach(point => {
+        if (point.indicators) {
+            Object.keys(point.indicators).forEach(key => allIndicatorKeys.add(key));
+        }
+    });
+    console.log('🔍 DEBUG: All indicator keys found in data:', Array.from(allIndicatorKeys));
 
     // Find the earliest point that has ALL indicators available
     let firstCompletePointIndex = -1;
@@ -1999,9 +2244,24 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     console.log('🔍 DEBUG: Final indicatorsData after processing:', indicatorsData);
     console.log('🔍 DEBUG: indicatorsData keys:', Object.keys(indicatorsData));
 
+    // Detailed debug for CTO Line specifically
+    if (indicatorsData.cto_line) {
+        console.log('🔍 CTO LINE DEBUG: CTO Line data found in indicatorsData');
+        console.log('🔍 CTO LINE DEBUG: CTO Line timestamps length:', indicatorsData.cto_line.timestamps ? indicatorsData.cto_line.timestamps.length : 'none');
+        console.log('🔍 CTO LINE DEBUG: CTO Line values keys:', indicatorsData.cto_line.values ? Object.keys(indicatorsData.cto_line.values) : 'none');
+        if (indicatorsData.cto_line.values) {
+            Object.keys(indicatorsData.cto_line.values).forEach(key => {
+                const valArray = indicatorsData.cto_line.values[key];
+                console.log(`🔍 CTO LINE DEBUG: ${key} length: ${valArray ? valArray.length : 'none'}, first 3: ${valArray ? valArray.slice(0,3) : 'none'}`);
+            });
+        }
+    } else {
+        console.log('❌ CTO LINE DEBUG: CTO Line data NOT found in indicatorsData');
+    }
+
     // Create traces for each indicator with separate subplots
-    // FORCE MACD to be first by hardcoding the exact order we want
-    const forcedIndicatorOrder = ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10', 'open_interest', 'jma'];
+    // FORCE indicator order: MACD first, RSI second, CTO third, then others
+    const forcedIndicatorOrder = ['macd', 'rsi', 'cto_line', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10', 'open_interest', 'jma'];
     const indicatorTypes = forcedIndicatorOrder.filter(indicatorId => combinedIndicators.includes(indicatorId));
 
     // console.log('FORCED INDICATOR ORDER - Processing in this exact sequence:', indicatorTypes);
@@ -2143,67 +2403,186 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                     connectgaps: false  // Don't connect gaps - show natural indicator behavior
                 });
             }
-        } else if (indicatorId.startsWith('stochrsi') && indicatorData.values.stoch_k && indicatorData.values.stoch_d) {
-            console.log(`🔍 DEBUG: StochRSI condition check - stoch_k: ${!!indicatorData.values.stoch_k}, stoch_d: ${!!indicatorData.values.stoch_d}`);
-            console.log(`🔍 DEBUG: StochRSI values lengths - k: ${indicatorData.values.stoch_k ? indicatorData.values.stoch_k.length : 'N/A'}, d: ${indicatorData.values.stoch_d ? indicatorData.values.stoch_d.length : 'N/A'}`);
-            console.log(`🔍 DEBUG: StochRSI timestamps length: ${indicatorData.timestamps ? indicatorData.timestamps.length : 'N/A'}`);
+            } else if (indicatorId.startsWith('stochrsi') && indicatorData.values.stoch_k && indicatorData.values.stoch_d) {
+                console.log(`🔍 DEBUG: StochRSI condition check - stoch_k: ${!!indicatorData.values.stoch_k}, stoch_d: ${!!indicatorData.values.stoch_d}`);
+                console.log(`🔍 DEBUG: StochRSI values lengths - k: ${indicatorData.values.stoch_k ? indicatorData.values.stoch_k.length : 'N/A'}, d: ${indicatorData.values.stoch_d ? indicatorData.values.stoch_d.length : 'N/A'}`);
+                console.log(`🔍 DEBUG: StochRSI timestamps length: ${indicatorData.timestamps ? indicatorData.timestamps.length : 'N/A'}`);
 
-            // Stochastic RSI - use data directly from Python backend
-            console.log(`Combined WebSocket: StochRSI - Using ${indicatorData.values.stoch_k.length} data points from Python backend`);
+                // Stochastic RSI - use data directly from Python backend
+                console.log(`Combined WebSocket: StochRSI - Using ${indicatorData.values.stoch_k.length} data points from Python backend`);
 
-            // DEBUG: Log last 5 StochRSI data points being sent to Plotly
-            const stochKLast5 = indicatorData.values.stoch_k.slice(-5);
-            const stochDLast5 = indicatorData.values.stoch_d.slice(-5);
-            const stochTimestampsLast5 = indicatorData.timestamps.slice(-5);
-            console.log(`📊 StochRSI TRACE DATA (last 5 points):`);
-            stochKLast5.forEach((val, idx) => {
-                console.log(`  Stoch K[${indicatorData.values.stoch_k.length - 5 + idx}]: ${val} at ${stochTimestampsLast5[idx] ? new Date(stochTimestampsLast5[idx]).toISOString() : 'N/A'}`);
-            });
-            stochDLast5.forEach((val, idx) => {
-                console.log(`  Stoch D[${indicatorData.values.stoch_d.length - 5 + idx}]: ${val} at ${stochTimestampsLast5[idx] ? new Date(stochTimestampsLast5[idx]).toISOString() : 'N/A'}`);
-            });
+                // DEBUG: Log last 5 StochRSI data points being sent to Plotly
+                const stochKLast5 = indicatorData.values.stoch_k.slice(-5);
+                const stochDLast5 = indicatorData.values.stoch_d.slice(-5);
+                const stochTimestampsLast5 = indicatorData.timestamps.slice(-5);
+                console.log(`📊 StochRSI TRACE DATA (last 5 points):`);
+                stochKLast5.forEach((val, idx) => {
+                    console.log(`  Stoch K[${indicatorData.values.stoch_k.length - 5 + idx}]: ${val} at ${stochTimestampsLast5[idx] ? new Date(stochTimestampsLast5[idx]).toISOString() : 'N/A'}`);
+                });
+                stochDLast5.forEach((val, idx) => {
+                    console.log(`  Stoch D[${indicatorData.values.stoch_d.length - 5 + idx}]: ${val} at ${stochTimestampsLast5[idx] ? new Date(stochTimestampsLast5[idx]).toISOString() : 'N/A'}`);
+                });
 
-            // Extract variant parameters from indicatorId (e.g., 'stochrsi_14_3' -> '14,3')
-            const variantMatch = indicatorId.match(/stochrsi_(\d+)_(\d+)/);
-            const variantLabel = variantMatch ? `(${variantMatch[1]},${variantMatch[2]})` : '';
+                // Extract variant parameters from indicatorId (e.g., 'stochrsi_14_3' -> '14,3')
+                const variantMatch = indicatorId.match(/stochrsi_(\d+)_(\d+)/);
+                const variantLabel = variantMatch ? `(${variantMatch[1]},${variantMatch[2]})` : '';
 
-            // Use the backend's timestamps for this indicator to maintain proper alignment
-            const kValues = indicatorData.values.stoch_k;
-            const dValues = indicatorData.values.stoch_d;
+                // Use the backend's timestamps for this indicator to maintain proper alignment
+                const kValues = indicatorData.values.stoch_k;
+                const dValues = indicatorData.values.stoch_d;
 
-            // Check for null/undefined values that might cause display issues
-            const kNullCount = kValues.filter(v => v === null || v === undefined).length;
-            const dNullCount = dValues.filter(v => v === null || v === undefined).length;
+                // Check for null/undefined values that might cause display issues
+                const kNullCount = kValues.filter(v => v === null || v === undefined).length;
+                const dNullCount = dValues.filter(v => v === null || v === undefined).length;
 
-            console.log(`🔍 DEBUG: StochRSI null values - K: ${kNullCount}/${kValues.length}, D: ${dNullCount}/${dValues.length}`);
+                console.log(`🔍 DEBUG: StochRSI null values - K: ${kNullCount}/${kValues.length}, D: ${dNullCount}/${dValues.length}`);
 
-            indicatorTraces.push({
-                x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
-                y: kValues,
-                type: 'scatter',
-                mode: 'lines',
-                name: `Stoch K ${variantLabel}`,
-                line: { color: 'blue' },
-                yaxis: yAxisName,
-                hoverinfo: isMobileDevice() ? 'skip' : 'all',
-                connectgaps: false  // Don't connect gaps - show natural indicator behavior
-            });
+                indicatorTraces.push({
+                    x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
+                    y: kValues,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: `Stoch K ${variantLabel}`,
+                    line: { color: 'blue' },
+                    yaxis: yAxisName,
+                    hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                    connectgaps: false  // Don't connect gaps - show natural indicator behavior
+                });
 
-            indicatorTraces.push({
-                x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
-                y: dValues,
-                type: 'scatter',
-                mode: 'lines',
-                name: `Stoch D ${variantLabel}`,
-                line: { color: 'orange' },
-                yaxis: yAxisName,
-                hoverinfo: isMobileDevice() ? 'skip' : 'all',
-                connectgaps: false  // Don't connect gaps - show natural indicator behavior
-            });
-        } else {
-            // console.warn(`Combined WebSocket: Unknown or incomplete indicator data for ${indicatorId}`);
-        }
+                indicatorTraces.push({
+                    x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
+                    y: dValues,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: `Stoch D ${variantLabel}`,
+                    line: { color: 'orange' },
+                    yaxis: yAxisName,
+                    hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                    connectgaps: false  // Don't connect gaps - show natural indicator behavior
+                });
+            } else if (indicatorId === 'cto_line') {
+                console.log(`🔍 DEBUG: CTO Line condition check - upper: ${!!indicatorData.values.cto_upper}, lower: ${!!indicatorData.values.cto_lower}, trend: ${!!indicatorData.values.cto_trend}`);
+
+                // Check if we have the required data
+                if (!indicatorData.values.cto_upper || !indicatorData.values.cto_lower) {
+                    console.log('❌ CTO Line: Missing required upper or lower values, skipping');
+                    return;
+                }
+
+                console.log(`🔍 DEBUG: CTO Line values lengths - upper: ${indicatorData.values.cto_upper.length}, lower: ${indicatorData.values.cto_lower.length}`);
+                console.log(`🔍 DEBUG: CTO Line first values - upper: ${indicatorData.values.cto_upper[0]}, lower: ${indicatorData.values.cto_lower[0]}`);
+
+                // CTO Line (Larsson Line) - two SMMA lines with optional trend coloring
+                console.log(`Combined WebSocket: CTO Line - Using ${indicatorData.values.cto_upper.length} data points from Python backend`);
+
+                // DEBUG: Log last 5 CTO Line data points being sent to Plotly
+                const upperLast5 = indicatorData.values.cto_upper.slice(-5);
+                const lowerLast5 = indicatorData.values.cto_lower.slice(-5);
+                const trendLast5 = indicatorData.values.cto_trend && indicatorData.values.cto_trend.length > 0 ? indicatorData.values.cto_trend.slice(-5) : [];
+                const ctoTimestampsLast5 = indicatorData.timestamps.slice(-5);
+                console.log(`📊 CTO Line TRACE DATA (last 5 points):`);
+                upperLast5.forEach((val, idx) => {
+                    const trend = trendLast5.length > idx ? trendLast5[idx] : 'N/A';
+                    console.log(`  CTO Upper[${indicatorData.values.cto_upper.length - 5 + idx}]: ${val}, Trend: ${trend} at ${ctoTimestampsLast5[idx] ? new Date(ctoTimestampsLast5[idx]).toISOString() : 'N/A'}`);
+                });
+                lowerLast5.forEach((val, idx) => {
+                    console.log(`  CTO Lower[${indicatorData.values.cto_lower.length - 5 + idx}]: ${val} at ${ctoTimestampsLast5[idx] ? new Date(ctoTimestampsLast5[idx]).toISOString() : 'N/A'}`);
+                });
+
+                // Use the backend's timestamps for this indicator to maintain proper alignment
+                const upperValues = indicatorData.values.cto_upper;
+                const lowerValues = indicatorData.values.cto_lower;
+
+                // Check for null/undefined values that might cause display issues
+                const upperNullCount = upperValues.filter(v => v === null || v === undefined).length;
+                const lowerNullCount = lowerValues.filter(v => v === null || v === undefined).length;
+
+                console.log(`🔍 DEBUG: CTO Line null values - Upper: ${upperNullCount}/${upperValues.length}, Lower: ${lowerNullCount}/${lowerValues.length}`);
+
+                // Only create traces if we have at least some valid data points
+                const upperValidCount = upperValues.filter(v => v !== null && v !== undefined && !isNaN(v)).length;
+                const lowerValidCount = lowerValues.filter(v => v !== null && v !== undefined && !isNaN(v)).length;
+
+                console.log(`🔍 DEBUG: CTO Line valid data points - Upper: ${upperValidCount}/${upperValues.length}, Lower: ${lowerValidCount}/${lowerValues.length}`);
+
+                if (upperValidCount > 0 && lowerValidCount > 0) {
+                    // Create CTO Upper line (fast SMMA) - same style as RSI
+                    const upperTrace = {
+                        x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
+                        y: upperValues,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'CTO Upper',
+                        line: { color: 'rgba(0, 255, 0, 0.8)', width: 2 }, // Green upper line (same as RSI style)
+                        yaxis: yAxisName,
+                        hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                        connectgaps: false  // Don't connect gaps - show natural indicator behavior (same as RSI)
+                    };
+
+                    // Create CTO Lower line (slow SMMA) - same style as RSI
+                    const lowerTrace = {
+                        x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
+                        y: lowerValues,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'CTO Lower',
+                        line: { color: 'rgba(255, 0, 0, 0.8)', width: 2 }, // Red lower line (same as RSI style)
+                        yaxis: yAxisName,
+                        hoverinfo: isMobileDevice() ? 'skip' : 'all',
+                        connectgaps: false  // Don't connect gaps - show natural indicator behavior (same as RSI)
+                    };
+
+                    // For CTO line, we need to handle incremental updates differently
+                    // unlike RSI which comes in complete batches, CTO might come in partial batches
+                    // so we need to MERGE rather than REPLACE existing CTO traces
+
+                    // Check if we already have CTO traces in the chart that need to be merged
+                    const existingTraces = window.gd?.data || [];
+                    const existingCTOUpperIndex = existingTraces.findIndex(t => t.name === 'CTO Upper');
+                    const existingCTOLowerIndex = existingTraces.findIndex(t => t.name === 'CTO Lower');
+
+                    if (existingCTOUpperIndex !== -1 && existingCTOLowerIndex !== -1) {
+                        // CTO traces already exist - we need to merge the data
+                        console.log('🔄 CTO Line: Merging with existing CTO traces');
+
+                        const existingUpper = existingTraces[existingCTOUpperIndex];
+                        const existingLower = existingTraces[existingCTOLowerIndex];
+
+                        // Merge x (timestamps) and y (values) data
+                        const mergedUpper = mergeIndicatorData(existingUpper, upperTrace);
+                        const mergedLower = mergeIndicatorData(existingLower, lowerTrace);
+
+                        // Update the traces
+                        upperTrace.x = mergedUpper.x;
+                        upperTrace.y = mergedUpper.y;
+                        lowerTrace.x = mergedLower.x;
+                        lowerTrace.y = mergedLower.y;
+
+                        console.log(`🔄 CTO Line: Merged existing data - Upper: ${existingUpper.x?.length || 0} → ${mergedUpper.x.length}, Lower: ${existingLower.x?.length || 0} → ${mergedLower.x.length}`);
+                    }
+
+                    indicatorTraces.push(upperTrace, lowerTrace);
+
+                    // Store CTO traces globally for quick restoration when re-enabled
+                    storedCTOTraces = [upperTrace, lowerTrace];
+
+                    console.log('✅ CTO Line: Successfully added upper and lower line traces and stored for future restoration');
+                } else {
+                    console.log('❌ CTO Line: No valid data points found, skipping trace creation');
+                }
+
+                // Optional: Add trend-based background coloring (bullish/bearish regions)
+                // This would require creating fill areas, but for simplicity just show the two lines
+            } else {
+                // console.warn(`Combined WebSocket: Unknown or incomplete indicator data for ${indicatorId}`);
+            }
     });
+
+    // REPLACE PLACEHOLDER TRACES: Before WebSocket data arrives, remove any placeholder traces
+    // These are marked with isplaceholder: true and will be replaced with real data
+    const existingTraces = window.gd?.data || [];
+    const updatedTraces = existingTraces.filter(trace => !trace.isplaceholder);
+    console.log(`🔧 Placeholder cleanup: Removed ${(existingTraces.length - updatedTraces.length)} placeholder traces from chart`);
 
     // Update chart with all traces
     const allTraces = [priceTrace, ...indicatorTraces];
@@ -2807,6 +3186,8 @@ function getCurrentActiveIndicators() {
                 const stochVariant = window.combinedIndicators?.find(id => id.startsWith('stochrsi'));
                 if (stochVariant && !indicators.includes(stochVariant)) indicators.push(stochVariant);
             }
+        } else if (trace.name === 'CTO Upper' || trace.name === 'CTO Lower') {
+            if (!indicators.includes('cto_line')) indicators.push('cto_line');
         } else if (trace.name === 'JMA') {
             if (!indicators.includes('jma')) indicators.push('jma');
         } else if (trace.name === 'Open Interest') {
@@ -2986,13 +3367,14 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
         return;
     }
 
-    // console.log('Combined WebSocket: Updating chart indicators display');
-    // console.log('Combined WebSocket: Current traces:', currentData.map(t => ({ name: t.name, type: t.type, yaxis: t.yaxis })));
+    console.log('🎯 INDICATOR DISPLAY UPDATE: Chart layout update for indicator changes');
+    console.log('🎯 INDICATOR DISPLAY UPDATE: oldIndicators:', oldIndicators);
+    console.log('🎯 INDICATOR DISPLAY UPDATE: newIndicators:', newIndicators);
 
     // Find the price trace (candlestick)
     const priceTraceIndex = currentData.findIndex(trace => trace.type === 'candlestick');
     if (priceTraceIndex === -1) {
-        // console.warn('Combined WebSocket: Could not find price trace for indicator update');
+        console.warn('Combined WebSocket: Could not find price trace for indicator update');
         return;
     }
 
@@ -3003,14 +3385,20 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
     const indicatorsToAdd = newIndicators.filter(ind => !oldIndicators.includes(ind));
     const indicatorsToRemove = oldIndicators.filter(ind => !newIndicators.includes(ind));
 
-    // console.log('Combined WebSocket: Indicators to add:', indicatorsToAdd);
-    // console.log('Combined WebSocket: Indicators to remove:', indicatorsToRemove);
+    console.log('🎯 INDICATOR DISPLAY UPDATE: indicatorsToAdd:', indicatorsToAdd);
+    console.log('🎯 INDICATOR DISPLAY UPDATE: indicatorsToRemove:', indicatorsToRemove);
 
     // Start with price trace
     let updatedTraces = [priceTrace];
 
     // Group traces by indicator type and assign y-axes
     const tracesByIndicator = {};
+
+    // DEBUG: Log which indicators are being added vs kept
+    console.log('🎯 INDICATOR DISPLAY UPDATE: CTO_LINE DEBUG - CTO line in oldIndicators:', oldIndicators.includes('cto_line'));
+    console.log('🎯 INDICATOR DISPLAY UPDATE: CTO_LINE DEBUG - CTO line in newIndicators:', newIndicators.includes('cto_line'));
+    console.log('🎯 INDICATOR DISPLAY UPDATE: CTO_LINE DEBUG - CTO line in indicatorsToAdd:', indicatorsToAdd.includes('cto_line'));
+    console.log('🎯 INDICATOR DISPLAY UPDATE: CTO_LINE DEBUG - CTO line in indicatorsToRemove:', indicatorsToRemove.includes('cto_line'));
 
     // First pass: group traces by indicator
     currentIndicatorTraces.forEach(trace => {
@@ -3028,6 +3416,8 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
                 // Fallback to first stochrsi variant if no variant found
                 traceIndicatorId = newIndicators.find(id => id.startsWith('stochrsi'));
             }
+        } else if (trace.name === 'CTO Upper' || trace.name === 'CTO Lower') {
+            traceIndicatorId = 'cto_line';
         } else if (trace.name === 'JMA') {
             traceIndicatorId = 'jma';
         } else if (trace.name === 'Open Interest') {
@@ -3039,48 +3429,90 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
                 tracesByIndicator[traceIndicatorId] = [];
             }
             tracesByIndicator[traceIndicatorId].push(trace);
-            // console.log(`Combined WebSocket: Keeping trace ${trace.name} for indicator ${traceIndicatorId}`);
+            console.log(`🎯 INDICATOR DISPLAY UPDATE: Keeping trace ${trace.name} for indicator ${traceIndicatorId}`);
         } else {
-            // console.log(`Combined WebSocket: Removing trace ${trace.name} (indicator ${traceIndicatorId} not selected or not found)`);
+            console.log(`🎯 INDICATOR DISPLAY UPDATE: Removing trace ${trace.name} (indicator ${traceIndicatorId} not selected or not found)`);
         }
     });
 
-    // FORCE MACD to be first by using hardcoded order
-    const forcedIndicatorOrder = ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10', 'open_interest', 'jma'];
+    // CORRECT ORDER for CTO Line to appear properly positioned (second after MACD)
+    const forcedIndicatorOrder = ['macd', 'cto_line', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10', 'open_interest', 'jma'];
     const activeIndicatorIds = forcedIndicatorOrder.filter(indicatorId => newIndicators.includes(indicatorId));
 
-    // console.log('FORCED Y-AXIS ORDER - Active indicators in forced order:', activeIndicatorIds);
-    // console.log('FORCED Y-AXIS ORDER - MACD is first:', activeIndicatorIds[0] === 'macd');
-
-    // console.log('Combined WebSocket: updateChartIndicatorsDisplay - newIndicators:', newIndicators);
-    // console.log('Combined WebSocket: updateChartIndicatorsDisplay - activeIndicatorIds:', activeIndicatorIds);
+    console.log('🎯 INDICATOR DISPLAY UPDATE: FORCED ORDER activeIndicatorIds:', activeIndicatorIds);
 
     // Second pass: assign y-axes based on active indicators order
-    // Use normal indexing to match the HTML template order
-    activeIndicatorIds.forEach((indicatorId, indicatorIndex) => {
-        // Use normal indexing for correct visual order (first indicator at top)
-        const yAxisName = `y${indicatorIndex + 2}`; // y2, y3, y4, etc. in correct order
+    activeIndicatorIds.forEach((indicatorId, index) => {
+        const yAxisName = `y${index + 2}`; // y2, y3, y4, etc. in correct order
         const indicatorTraces = tracesByIndicator[indicatorId] || [];
+
+        console.log(`🎯 INDICATOR DISPLAY UPDATE: Assigning ${indicatorId} to ${yAxisName} (index ${index})`);
 
         if (indicatorTraces.length > 0) {
             // Assign existing traces to their y-axis
             indicatorTraces.forEach(trace => {
                 trace.yaxis = yAxisName;
                 updatedTraces.push(trace);
-                // console.log(`Combined WebSocket: Assigned ${trace.name} to ${yAxisName} (correct visual order)`);
+                console.log(`🎯 INDICATOR DISPLAY UPDATE: Assigned ${trace.name} to ${yAxisName}`);
             });
         } else {
-            // No traces yet for this indicator (newly selected)
-            // console.log(`Combined WebSocket: No traces yet for ${indicatorId}, will appear when new data arrives`);
+            // SPECIAL HANDLING: For CTO line when being re-enabled, restore stored traces if available
+            if (indicatorId === 'cto_line' && indicatorsToAdd.includes('cto_line')) {
+                if (storedCTOTraces && storedCTOTraces.length === 2) {
+                    console.log(`🎯 INDICATOR DISPLAY UPDATE: CTO LINE RE-ENABLED - Restoring stored traces`);
+
+                    // Restore the stored CTO traces and assign correct y-axis
+                    const restoredUpper = { ...storedCTOTraces[0], yaxis: yAxisName };
+                    const restoredLower = { ...storedCTOTraces[1], yaxis: yAxisName };
+
+                    updatedTraces.push(restoredUpper, restoredLower);
+                    console.log(`🎯 INDICATOR DISPLAY UPDATE: Restored CTO line traces (${storedCTOTraces[0].x ? storedCTOTraces[0].x.length : 0} data points)`);
+                } else {
+                    console.log(`🎯 INDICATOR DISPLAY UPDATE: CTO LINE RE-ENABLED - Creating placeholder traces (no stored data available)`);
+
+                    // Create minimal placeholder traces for CTO line with empty data
+                    // These will be replaced when actual WebSocket data arrives
+                    const placeholderCTOUpper = {
+                        x: [], // Empty array initially
+                        y: [], // Empty array initially
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'CTO Upper',
+                        line: { color: 'rgba(0, 255, 0, 0.8)', width: 2 },
+                        yaxis: yAxisName,
+                        hoverinfo: 'skip',
+                        connectgaps: false,
+                        isplaceholder: true // Mark as placeholder
+                    };
+
+                    const placeholderCTOLower = {
+                        x: [], // Empty array initially
+                        y: [], // Empty array initially
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'CTO Lower',
+                        line: { color: 'rgba(255, 0, 0, 0.8)', width: 2 },
+                        yaxis: yAxisName,
+                        hoverinfo: 'skip',
+                        connectgaps: false,
+                        isplaceholder: true // Mark as placeholder
+                    };
+
+                    updatedTraces.push(placeholderCTOUpper);
+                    updatedTraces.push(placeholderCTOLower);
+                    console.log(`🎯 INDICATOR DISPLAY UPDATE: Added placeholder CTO line traces`);
+                }
+            } else {
+                console.log(`🎯 INDICATOR DISPLAY UPDATE: No traces yet for ${indicatorId} - will wait for WebSocket data`);
+            }
         }
     });
 
-    // Create layout for updated traces
-    const layout = createLayoutForIndicators(activeIndicatorIds, Object.keys(tracesByIndicator));
+    console.log('🎯 INDICATOR DISPLAY UPDATE: Updated traces count:', updatedTraces.length);
+    console.log('🎯 INDICATOR DISPLAY UPDATE: Traces by name:', updatedTraces.map(t => t.name));
 
-    // console.log('Combined WebSocket: Updated traces count:', updatedTraces.length);
-    // console.log('Combined WebSocket: Active indicator IDs:', activeIndicatorIds);
-    // console.log('Combined WebSocket: Updated layout:', layout);
+    // Create layout for updated traces with correct domain ordering
+    const layout = createLayoutForIndicators(activeIndicatorIds, Object.keys(tracesByIndicator));
 
     // Preserve existing shapes when updating indicators
     if (window.gd && window.gd.layout && window.gd.layout.shapes) {
@@ -3088,15 +3520,27 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
         console.log('🎨 DRAWINGS: Preserving', window.gd.layout.shapes.length, 'existing shapes during indicator update');
     }
 
-    // Update the chart
+    // Update the chart layout immediately
+    console.log('🎯 INDICATOR DISPLAY UPDATE: About to call Plotly.react with updated layout');
     Plotly.react(chartElement, updatedTraces, layout);
+    console.log('🎯 INDICATOR DISPLAY UPDATE: Chart layout updated successfully');
 
-    // console.log('Combined WebSocket: Chart updated with new indicator selection');
+    // NOTE: updateCombinedIndicators already called this function, avoid recursive call
 
-    // Note: New indicators will appear when new WebSocket data arrives
-    if (indicatorsToAdd.length > 0) {
-        // console.log('Combined WebSocket: New indicators will appear when new data arrives:', indicatorsToAdd);
+    // CRITICAL: Immediately notify backend and wait for indicator data response
+    if (combinedWebSocket && combinedWebSocket.readyState === WebSocket.OPEN) {
+        console.log('🎯 INDICATOR DISPLAY UPDATE: Sending immediate config to backend for indicator changes');
+        sendCombinedConfig();
+        console.log('🎯 INDICATOR DISPLAY UPDATE: Config sent - backend will respond with updated indicator data');
+    } else {
+        console.warn('🎯 INDICATOR DISPLAY UPDATE: WebSocket not available - reloading chart');
+        // Fallback: Reload chart with available data
+        if (combinedSymbol) {
+            setupCombinedWebSocket(combinedSymbol, newIndicators, combinedResolution, combinedFromTs, combinedToTs);
+        }
     }
+
+    console.log('🎯 INDICATOR DISPLAY UPDATE: Indicator display update complete');
 }
 
 function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) {
@@ -3208,11 +3652,13 @@ function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
                             'stochrsi_40_4': 'StochRSI (40,4)',
                             'stochrsi_60_10': 'StochRSI (60,10)',
                             'jma': 'JMA',
-                            'open_interest': 'Open Interest'
+                            'open_interest': 'Open Interest',
+                            'cto_line': 'CTO'
                         };
                         return displayNames[indicatorId] || indicatorId.toUpperCase();
                     })(),
-                    standoff: 10
+                    standoff: 8,
+                    font: { size: 8 }
                 },
                 autorange: true,
                 fixedrange: false, // Allow zoom on indicator y-axes
@@ -3230,7 +3676,8 @@ function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
                     new Date(window.currentXAxisRange[1] < 2e9 ? window.currentXAxisRange[1] * 1000 : window.currentXAxisRange[1])
                 ] : undefined,
                 showticklabels: false, // Hide x-axis labels for indicator subplots
-                anchor: yAxisName // Anchor to the corresponding y-axis
+                anchor: yAxisName, // Anchor to the corresponding y-axis
+                overlaying: 'x' // CRITICAL FIX: Overlay on the main x-axis
             };
 
             console.log(`DEBUG: ${indicatorId} y-axis created with domain [${indicatorDomainStart.toFixed(3)}, ${indicatorDomainEnd.toFixed(3)}]`);

@@ -18,7 +18,8 @@ def _prepare_dataframe(klines: List[Dict[str, Any]], open_interest_data: List[Di
     if not klines:
         return None
 
-    logger.debug(f"_prepare_dataframe: Starting with {len(klines)} klines and {len(open_interest_data)} OI entries")
+    oi_count = len(open_interest_data) if open_interest_data else 0
+    logger.debug(f"_prepare_dataframe: Starting with {len(klines)} klines and {oi_count} OI entries")
 
     # 🚨 CRITICAL: Check data freshness at input
     if klines:
@@ -160,6 +161,12 @@ def _extract_results(df: pd.DataFrame, columns: List[str], original_time_index: 
             simple_col_name = "jma_down"
         elif "jma" in col.lower() and "jma_up" not in col.lower() and "jma_down" not in col.lower():
             simple_col_name = "jma"  # Add JMA
+        elif "cto_upper" in col.lower():
+            simple_col_name = "cto_upper"
+        elif "cto_lower" in col.lower():
+            simple_col_name = "cto_lower"
+        elif "cto_trend" in col.lower():
+            simple_col_name = "cto_trend"
 
         # Convert NaN to None for JSON compatibility, but PRESERVE all values including NaN
         if col in aligned_df.columns:
@@ -782,7 +789,8 @@ def format_indicator_data_for_llm_as_dict(indicator_id: str, indicator_config_de
         "rsi_sma14": "RSI SMA14",
         "open_interest": "OpenInterest",
         "jma": "JMA",  # Add JMA
-        "stoch_k": "StochK", "stoch_d": "StochD"
+        "stoch_k": "StochK", "stoch_d": "StochD",
+        "cto_upper": "CTO Upper", "cto_lower": "CTO Lower", "cto_trend": "CTO Trend"
     }
 
     timestamps = data['t']
@@ -876,6 +884,109 @@ def fetch_open_interest_from_bybit(symbol: str, interval: str, start_ts: int, en
     all_oi_data.sort(key=lambda x: x["time"]) # Ensure chronological order
     #logger.info(f"Completed Bybit Open Interest fetch for {symbol} {interval}: {batch_count} batches, {total_entries_received} total entries received, {len(all_oi_data)} entries processed")
     return all_oi_data
+
+def smma(series: pd.Series, length: int) -> pd.Series:
+    """
+    Calculate Smoothed Moving Average (SMMA) as implemented in Pine Script.
+    SMMA provides exponential-like smoothing with a recursive formula.
+    """
+    smma_series = series.copy()
+    smma_series.iloc[:length-1] = np.nan  # Not enough data for initial calculations
+
+    for i in range(length-1, len(series)):
+        if i == length - 1:
+            # Initialize with Simple Moving Average
+            smma_series.iloc[i] = series.iloc[i-length+1:i+1].mean()
+        else:
+            # Recursive calculation: SMMA = (SMMA[1] * (length - 1) + src) / length
+            smma_series.iloc[i] = (smma_series.iloc[i-1] * (length - 1) + series.iloc[i]) / length
+
+    return smma_series
+
+def calculate_cto_line(df_input: pd.DataFrame, v1_period: int = 7, m1_period: int = 9,
+                       m2_period: int = 11, v2_period: int = 13) -> Dict[str, Any]:
+    """
+    Calculate CTO Line (Larsson Line) indicator based on SMMA periods on HL2.
+    Returns upper line (v1), lower line (v2), and trend signal.
+    """
+    df = df_input.copy()
+    original_time_index = df.index.to_series()
+
+    # Count NaN values in input data
+    nan_counts_input = df.isnull().sum()
+    logger.debug(f"CTO Line calculation: Input DataFrame shape: {df.shape}, NaN counts: {nan_counts_input.to_dict()}")
+    logger.debug(f"CTO Line calculation: Input timestamp range: {df.index.min()} to {df.index.max()}")
+
+    # CRITICAL: Ensure DataFrame maintains the exact same index throughout processing
+    df_processed = df.copy()
+
+    # Ensure volume is not None (set to 0 if needed) - but keep NaN in OHLC for proper handling
+    if 'volume' in df_processed.columns:
+        df_processed['volume'] = df_processed['volume'].fillna(0)
+
+    logger.debug(f"CTO Line calculation: Processing {len(df_processed)} points")
+    logger.debug(f"CTO Line calculation: Processing timestamp range: {df_processed.index.min()} to {df_processed.index.max()}")
+
+    # Check if sufficient data
+    max_period = max(v1_period, m1_period, m2_period, v2_period)
+    if len(df_processed) < max_period:
+        logger.warning(f"🔍 CTO LINE INSUFFICIENT DATA: Need at least {max_period} points, got {len(df_processed)}")
+        df_processed['cto_upper'] = np.nan
+        df_processed['cto_lower'] = np.nan
+        df_processed['cto_trend'] = np.nan
+        return _extract_results(df_processed, ['cto_upper', 'cto_lower', 'cto_trend'], original_time_index)
+
+    # Calculate HL2
+    hl2 = (df_processed['high'] + df_processed['low']) / 2
+
+    # Calculate SMMAs
+    v1 = smma(hl2, v1_period)  # Line 1 (Upper)
+    v2 = smma(hl2, v2_period)  # Line 2 (Lower)
+    m1 = smma(hl2, m1_period)  # Intermediate (not returned but used for logic)
+    m2 = smma(hl2, m2_period)  # Intermediate (not returned but used for logic)
+
+    # Add lines to dataframe
+    df_processed['cto_upper'] = v1
+    df_processed['cto_lower'] = v2
+
+    # Trend logic as per Pine Script (conditions for coloring)
+    # p2 = v1<m1 != v1<v2 or m2<v2 != v1<v2
+    # p3 = not p2 and v1<v2
+    # p1 = not p2 and not p3 (bullish: orange, neutral: silver, bearish: navy)
+
+    # Calculate boolean conditions
+    v1_lt_m1 = v1 < m1
+    v1_lt_v2 = v1 < v2
+    m2_lt_v2 = m2 < v2
+
+    p2_bool = (v1_lt_m1 != v1_lt_v2) | (m2_lt_v2 != v1_lt_v2)
+    p3_bool = (~p2_bool) & v1_lt_v2
+    p1_bool = (~p2_bool) & (~p3_bool)
+
+    # Trend: 0=bullish (p1), 1=neutral (p2), 2=bearish (p3)
+    trend_series = pd.Series(index=df_processed.index, dtype=float)
+    trend_series[p1_bool] = 0  # Bullish
+    trend_series[p2_bool] = 1  # Neutral
+    trend_series[p3_bool] = 2  # Bearish
+    trend_series[~p1_bool & ~p2_bool & ~p3_bool] = np.nan  # Fallback
+
+    df_processed['cto_trend'] = trend_series
+
+    # Count NaN values after calculation
+    nan_counts_after = df_processed.isnull().sum()
+    logger.debug(f"CTO Line calculation: After calculation NaN counts: {nan_counts_after.to_dict()}")
+    logger.debug(f"CTO Line calculation: Final timestamp range: {df_processed.index.min()} to {df_processed.index.max()}")
+
+    result = _extract_results(df_processed, ['cto_upper', 'cto_lower', 'cto_trend'], original_time_index)
+
+    # INFO LOGGING
+    logger.info(f"🔍 CTO LINE CALCULATION RESULT: v1={v1_period}, m1={m1_period}, m2={m2_period}, v2={v2_period}, total_points={len(result.get('t', []))}")
+    logger.info(f"🔍 CTO UPPER VALUES SAMPLE (last 5): {[f'{v:.2f}' if v is not None else 'None' for v in result.get('cto_upper', [])[-5:]]}")
+    logger.info(f"🔍 CTO LOWER VALUES SAMPLE (last 5): {[f'{v:.2f}' if v is not None else 'None' for v in result.get('cto_lower', [])[-5:]]}")
+    logger.info(f"🔍 CTO TREND VALUES SAMPLE (last 5): {[f'{v:.0f}' if v is not None else 'None' for v in result.get('cto_trend', [])[-5:]]}")
+    logger.info(f"🔍 CTO TIMESTAMP SAMPLE (last 5): {[datetime.fromtimestamp(ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S') for ts in result.get('t', [])[-5:]]}")
+
+    return result
 
 def validate_indicator_data_alignment(test_result: Dict[str, Any], original_ohlc_length: int, indicator_name: str) -> bool:
     """

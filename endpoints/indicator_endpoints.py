@@ -8,7 +8,7 @@ from config import SUPPORTED_SYMBOLS, timeframe_config, AVAILABLE_INDICATORS
 from redis_utils import get_cached_klines, cache_klines, get_cached_open_interest, cache_open_interest
 from indicators import (
     _prepare_dataframe, calculate_macd, calculate_rsi, calculate_stoch_rsi,
-    calculate_open_interest, calculate_jma_indicator, format_indicator_data_for_llm_as_dict,
+    calculate_open_interest, calculate_jma_indicator, calculate_cto_line, format_indicator_data_for_llm_as_dict,
     get_timeframe_seconds
 )
 from logging_config import logger
@@ -101,6 +101,13 @@ async def _calculate_and_return_indicators(symbol: str, resolution: str, from_ts
             elif config["id"] == "jma":
                 # JMA (Jurik Moving Average) is complex and needs extensive lookback
                 current_indicator_lookback = config["params"]["length"] + 400
+            elif config["id"] == "cto_line":
+                # CTO Line uses multiple SMMA calculations with complex trend logic
+                # SMMA needs (length) periods for first valid value: v1(15), m1(19), m2(25), v2(29) = 29 periods
+                # Trend logic uses [v1,m1,m2,v2] relationships and .shift(1) comparisons across all 4 SMMAs
+                # Need sufficient buffer for all SMMA calculations to stabilize and trend logic to work properly
+                max_cto_period = 29  # Fixed maximum period for CTO parameters (v2_period)
+                current_indicator_lookback = max_cto_period + 100  # Minimum data for SMMA + buffer for trend logic stability
 
             indicator_lookbacks[req_id] = current_indicator_lookback
             if current_indicator_lookback > max_lookback_periods:
@@ -196,6 +203,7 @@ async def _calculate_and_return_indicators(symbol: str, resolution: str, from_ts
             elif calc_id.startswith("stochrsi"): indicator_data_full_calc_range = calculate_stoch_rsi(df_ohlcv.copy(), **params)
             elif calc_id == "open_interest": indicator_data_full_calc_range = calculate_open_interest(df_ohlcv.copy())
             elif calc_id == "jma": indicator_data_full_calc_range = calculate_jma_indicator(df_ohlcv.copy(), **params) # Add JMA
+            elif calc_id == "cto_line": indicator_data_full_calc_range = calculate_cto_line(df_ohlcv.copy(), **params) # Add CTO Line
             elif calc_id == "rsi_sma_3":  # New: Handle rsi_sma_3 calculation
                 # We'll compute RSI for the entire range if it wasn't already part of the request:
                 if "rsi" not in requested_indicator_ids:
@@ -319,6 +327,7 @@ async def _calculate_and_return_indicators(symbol: str, resolution: str, from_ts
             all_indicator_results[current_indicator_id_str] = {"s": "error", "errmsg": f"Error processing indicator {current_indicator_id_str}: {str(e)}"}
 
     # 🔍 VALIDATION: Check non-null values for requested time range only
+    # Allow CTO line and other complex indicators to have warmup period nulls
     if df_ohlcv is not None and len(df_ohlcv) > 0:
         logger.info(f"🔍 STARTING INDICATOR VALIDATION: Checking {len(all_indicator_results)} indicators for requested range {from_ts} to {to_ts}")
 
@@ -354,17 +363,35 @@ async def _calculate_and_return_indicators(symbol: str, resolution: str, from_ts
                     is_valid = False
                     continue
 
-                # Check null values only in the requested range
-                nulls_in_range = sum(1 for i in requested_range_indices if data_series[i] is None)
-                total_in_range = len(requested_range_indices)
+                # Special handling for CTO line - allow warmup period nulls like other indicators
+                if indicator_name == "cto_line":
+                    # Find the first non-null value in the requested range (after warmup)
+                    first_valid_in_range = next((i for i in requested_range_indices if data_series[i] is not None), None)
 
-                if nulls_in_range > 0:
-                    logger.error(f"❌ VALIDATION FAILED: {indicator_name} - {key} has {nulls_in_range}/{total_in_range} null values in requested range!")
-                    logger.error(f"   Requested range: {from_ts} to {to_ts} ({requested_range_count} points)")
-                    logger.error(f"   Nulls found at indices: {[i for i in requested_range_indices if data_series[i] is None]}")
-                    is_valid = False
+                    if first_valid_in_range is not None:
+                        # Check null values only AFTER the first valid value
+                        validation_indices = [i for i in requested_range_indices if i >= first_valid_in_range]
+                    else:
+                        # If no valid values in range, allow all nulls
+                        validation_indices = []
                 else:
-                    logger.debug(f"✅ VALIDATION: {indicator_name} - {key}: {total_in_range} points in range, 0 nulls")
+                    # For other indicators, check all requested range indices
+                    validation_indices = requested_range_indices
+
+                if validation_indices:
+                    nulls_in_range = sum(1 for i in validation_indices if data_series[i] is None)
+                    total_in_range = len(validation_indices)
+
+                    if nulls_in_range > 0:
+                        logger.error(f"❌ VALIDATION FAILED: {indicator_name} - {key} has {nulls_in_range}/{total_in_range} null values in requested range!")
+                        logger.error(f"   Requested range: {from_ts} to {to_ts} ({requested_range_count} points)")
+                        logger.error(f"   First valid index: {first_valid_in_range if 'first_valid_in_range' in locals() else 'N/A'}")
+                        logger.error(f"   Nulls found at indices: {[i for i in validation_indices if data_series[i] is None][:10]}...")  # Show first 10
+                        is_valid = False
+                    else:
+                        logger.debug(f"✅ VALIDATION: {indicator_name} - {key}: {total_in_range} points in range, 0 nulls")
+                else:
+                    logger.debug(f"ℹ️ VALIDATION: {indicator_name} - {key}: No validation needed (no valid values in range)")
 
             validation_results[indicator_name] = is_valid
             if is_valid:

@@ -13,9 +13,10 @@ from pybit.unified_trading import WebSocket as BybitWS
 from config import SUPPORTED_SYMBOLS, DEFAULT_SYMBOL_SETTINGS, AVAILABLE_INDICATORS
 from redis_utils import get_redis_connection, publish_live_data_tick, get_cached_klines, get_cached_open_interest, get_stream_key, get_sync_redis_connection
 from logging_config import logger
-from indicators import _prepare_dataframe, calculate_macd, calculate_rsi, calculate_stoch_rsi, calculate_open_interest, calculate_jma_indicator, get_timeframe_seconds, find_buy_signals
+from indicators import _prepare_dataframe, calculate_macd, calculate_rsi, calculate_stoch_rsi, calculate_open_interest, calculate_jma_indicator, calculate_cto_line, get_timeframe_seconds, find_buy_signals
 from datetime import datetime, timezone
 from drawing_manager import get_drawings
+
 
 async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str):
     # SECURITY FIX: Validate symbol BEFORE accepting WebSocket connection
@@ -290,6 +291,227 @@ async def stream_klines(symbol: str, resolution: str, request):
         finally:
             logger.info(f"SSE event generator for {symbol}/{resolution} finished.")
     return EventSourceResponse(event_generator())
+
+
+async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str):
+    # SECURITY FIX: Validate symbol BEFORE accepting WebSocket connection
+    # This prevents accepting connections for invalid/malicious symbols
+    if symbol not in SUPPORTED_SYMBOLS:
+        logger.warning(f"SECURITY: Unsupported symbol '{symbol}' requested for live data WebSocket - rejecting before accept")
+        # Don't accept the connection for invalid symbols
+        await websocket.close(code=1008, reason="Unsupported symbol")
+        return
+
+    # Accept the WebSocket connection only for valid symbols
+    await websocket.accept()
+    logger.info(f"WebSocket connection accepted for live data: {symbol}")
+
+    # --- Client-specific state for throttling ---
+    client_stream_state = {
+        "last_sent_timestamp": 0.0,
+        "stream_delta_seconds": 1,  # Default, will be updated from settings
+        "last_settings_check_timestamp": 0.0,  # For periodically re-checking settings
+        "settings_check_interval_seconds": 3,  # How often to check settings (e.g., every 3 seconds)
+        "last_sent_live_price": None  # Track last sent live price to avoid duplicate sends
+    }
+
+    try:
+        redis_conn = await get_redis_connection()
+        settings_key = f"settings:{symbol}"
+        logger.info(f"Live stream for {symbol}: Attempting to GET settings from Redis key: '{settings_key}'")
+        settings_json = await redis_conn.get(settings_key)
+        if settings_json:
+            logger.info(f"Live stream for {symbol}: Found settings_json in Redis: {settings_json}")
+            symbol_settings = json.loads(settings_json)
+            retrieved_delta_time = symbol_settings.get('streamDeltaTime', 0)  # Get value before int conversion for logging
+            logger.info(f"Live stream for {symbol}: Retrieved 'streamDeltaTime' from symbol_settings: {retrieved_delta_time} (type: {type(retrieved_delta_time)})")
+            client_stream_state["stream_delta_seconds"] = int(retrieved_delta_time)
+            logger.info(f"Live stream for {symbol}: Using stream_delta_seconds = {client_stream_state['stream_delta_seconds']}")
+        else:
+            logger.warning(f"Live stream for {symbol}: No settings_json found in Redis for key '{settings_key}'. Defaulting stream_delta_seconds to 0.")
+        client_stream_state["last_settings_check_timestamp"] = time.time()  # Initialize after first load attempt
+    except Exception as e:
+        logger.error(f"Error fetching or processing streamDeltaTime settings for {symbol}: {e}. Defaulting stream_delta_seconds to 0.", exc_info=True)
+
+    # --- End client-specific state ---
+    client_stream_state["last_settings_check_timestamp"] = time.time()  # Initialize even on error
+
+    # Get the current asyncio event loop
+    loop = asyncio.get_running_loop()
+
+    bybit_ws_client = BybitWS(
+        testnet=False,
+        channel_type="linear"
+    )
+
+    async def send_to_client(data_to_send: Dict[str, Any]):
+        try:
+            if websocket.client_state == WebSocketState.CONNECTED:
+                await websocket.send_json(data_to_send)
+        except WebSocketDisconnect:
+            logger.info(f"Client (live stream {symbol}) disconnected while trying to send data.")
+        except Exception as e:
+            error_str = str(e)
+            if "Cannot call \"send\" once a close message has been sent" in error_str:
+                logger.debug(f"WebSocket send failed - close message already sent for {symbol}")
+            elif "Cannot call \"send\" after WebSocket has been closed" in error_str:
+                logger.debug(f"WebSocket send failed - connection already closed for {symbol}")
+            elif "closed connection before send could complete" in error_str:
+                logger.debug(f"WebSocket send failed - connection closed before completion for {symbol}")
+            elif "Data should not be empty" in error_str:
+                logger.debug(f"WebSocket send failed - empty buffer for {symbol}")
+            else:
+                logger.error(f"Unexpected RuntimeError sending data to client (live stream {symbol}): {e}")
+
+    def bybit_message_handler(message: Dict[str, Any]):
+        # This callback will run in a thread managed by pybit's WebSocket client.
+        # To send data over FastAPI's WebSocket (which is async),
+        # we need to schedule it on the event loop.
+        logger.debug(f"Bybit Handler for {symbol}: Using stream_delta_seconds = {client_stream_state['stream_delta_seconds']}")  # Log current delta
+        if "topic" in message and "data" in message:
+            topic_str = message["topic"]  # topic is already a string
+            # No need to split topic_str if we are only checking the full topic string
+            # Check if the topic is for tickers and matches the requested symbol
+            if topic_str == f"tickers.{symbol}":  # Direct comparison
+                ticker_data = message["data"]
+                # The ticker data structure might vary slightly based on Bybit's API version for V5 tickers.
+                # Common fields include lastPrice, bid1Price, ask1Price.
+                # We'll primarily use lastPrice.
+                if "lastPrice" in ticker_data:
+                    try:
+                        # Timestamp 'ts' is at the same level as 'topic', 'type', 'data'
+                        message_timestamp_ms = message.get("ts")
+                        if message_timestamp_ms is None:
+                            logger.warning(f"Timestamp 'ts' not found in Bybit ticker message for {symbol}. Using current server time. Message: {message}")
+                            message_timestamp_ms = time.time() * 1000  # Fallback to current time in ms
+
+                        current_server_timestamp_sec = time.time()
+                        should_send = False
+                        if client_stream_state["stream_delta_seconds"] == 0:
+                            should_send = True
+                        elif (current_server_timestamp_sec - client_stream_state["last_sent_timestamp"]) >= client_stream_state["stream_delta_seconds"]:
+                            should_send = True
+
+                        if should_send:
+                            # Get live price from Redis using synchronous connection
+                            live_price = None
+                            try:
+                                sync_redis = get_sync_redis_connection()
+                                live_price_key = f"live:{symbol}"
+                                price_str = sync_redis.get(live_price_key)
+                                logger.debug(f"Redis get result for key '{live_price_key}': {price_str}")
+                                if price_str:
+                                    live_price = float(price_str)
+                                    logger.info(f"✅ Retrieved live price from Redis for {symbol}: {live_price}")
+                                else:
+                                    logger.warning(f"⚠️ No live price found in Redis for {symbol} (key: {live_price_key})")
+                            except Exception as e:
+                                logger.error(f"❌ Failed to get live price from Redis for {symbol}: {e}", exc_info=True)
+
+                            # Only send update if live price has changed or is the first price
+                            should_send_price_update = (
+                                live_price is not None and
+                                live_price != client_stream_state["last_sent_live_price"]
+                            )
+
+                            if should_send_price_update:
+                                live_data = {
+                                    "symbol": ticker_data.get("symbol", symbol),
+                                    "time": int(message_timestamp_ms) // 1000,
+                                    "price": float(ticker_data["lastPrice"]),
+                                    "vol": float(ticker_data.get("volume24h", 0)),
+                                    "live_price": live_price  # Add live price from Redis
+                                }
+                                asyncio.run_coroutine_threadsafe(
+                                    send_to_client(live_data),
+                                    loop
+                                )
+                                client_stream_state["last_sent_timestamp"] = current_server_timestamp_sec
+                                client_stream_state["last_sent_live_price"] = live_price
+                                logger.debug(f"📤 Sent live price update for {symbol}: {live_price} (changed from {client_stream_state['last_sent_live_price']})")
+                            else:
+                                logger.debug(f"⏭️ Skipped sending duplicate live price for {symbol}: {live_price} (same as last sent)")
+                    except Exception as e:
+                        logger.error(f"Error processing or scheduling send for Bybit ticker data for {symbol}: {e} - Data: {ticker_data}")
+
+    # Pass the handler to the subscribe method
+    topics = 'tickers.{symbol}'
+    symbols = [f'{symbol}']
+    logger.info(f"Subscribing Bybit WebSocket to:  ")
+    bybit_ws_client.subscribe(topic=topics, callback=bybit_message_handler, symbol=symbols)
+
+    # Store reference to client for proper cleanup
+    websocket_client_ref = bybit_ws_client
+
+    try:
+        # The pybit client is handling messages in its own thread and calling bybit_message_handler.
+        # This loop is just to keep the FastAPI WebSocket connection open
+        # and to allow for graceful exit when the client disconnects.
+        while websocket.client_state == WebSocketState.CONNECTED:
+            current_loop_time = time.time()
+            # Periodically re-check settings from Redis
+            if (current_loop_time - client_stream_state["last_settings_check_timestamp"]) >= client_stream_state["settings_check_interval_seconds"]:
+                try:
+                    redis_conn_check = await get_redis_connection()
+                    settings_key_check = f"settings:{symbol}"
+                    settings_json_check = await redis_conn_check.get(settings_key_check)
+                    if settings_json_check:
+                        symbol_settings_check = json.loads(settings_json_check)
+                        # Default to current state's delta if key is missing, to avoid reverting to 0 if Redis temporarily has no setting
+                        new_delta = int(symbol_settings_check.get('streamDeltaTime', client_stream_state["stream_delta_seconds"]))
+                        if new_delta != client_stream_state["stream_delta_seconds"]:
+                            logger.info(f"Live stream for {symbol}: Polled settings changed. Updating stream_delta_seconds from {client_stream_state['stream_delta_seconds']} to {new_delta}")
+                            client_stream_state["stream_delta_seconds"] = new_delta
+                    client_stream_state["last_settings_check_timestamp"] = current_loop_time
+                except Exception as e_settings_check:
+                    logger.error(f"Error re-checking settings for {symbol} in WebSocket loop: {e_settings_check}", exc_info=True)
+                    # Still update timestamp to avoid rapid retries on persistent error
+                    client_stream_state["last_settings_check_timestamp"] = current_loop_time
+            await asyncio.sleep(0.1)  # Keep alive and allow other tasks to run
+
+    except WebSocketDisconnect:
+        logger.info(f"Client disconnected from live stream for {symbol} (WebSocketDisconnect received).")
+    except asyncio.CancelledError:
+        logger.info(f"Live stream task for {symbol} was cancelled.")
+        # Important to re-raise CancelledError so Uvicorn/FastAPI can handle task cancellation properly.
+        # The 'finally' block will still execute for cleanup.
+        raise
+    except Exception as e:
+        logger.error(f"Error in live data WebSocket for {symbol}: {e}", exc_info=True)
+    finally:
+        logger.info(f"Initiating cleanup for WebSocket and Bybit connection for live data: {symbol}")
+
+        # Attempt to gracefully close the Bybit WebSocket connection
+        # The pybit WebSocket client runs in its own thread. exit() signals it to stop.
+        if 'bybit_ws_client' in locals() and hasattr(bybit_ws_client, 'exit') and callable(bybit_ws_client.exit):
+            try:
+                logger.info(f"Attempting to call bybit_ws_client.exit() for {symbol}")
+                bybit_ws_client.exit()  # This is a synchronous call
+                logger.info(f"Called bybit_ws_client.exit() for {symbol}")
+            except Exception as e_bybit_exit:
+                logger.error(f"Error calling bybit_ws_client.exit() for {symbol}: {e_bybit_exit}")
+        else:
+            logger.warning(f"bybit_ws_client for {symbol} not defined or does not have a callable 'exit' method at cleanup.")
+
+        # Attempt to close the FastAPI WebSocket connection
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            logger.info(f"FastAPI WebSocket for {symbol} client_state is {websocket.client_state}, attempting close.")
+            try:
+                await websocket.close()
+                logger.info(f"FastAPI WebSocket for {symbol} successfully closed in finally block.")
+            except RuntimeError as e_rt:
+                if "Cannot call \"send\" once a close message has been sent" in str(e_rt) or \
+                   "Cannot call \"send\" after WebSocket has been closed" in str(e_rt):
+                    logger.warning(f"FastAPI WebSocket for {symbol} was already closing/closed when finally tried to close: {e_rt}")
+                else:
+                    logger.error(f"RuntimeError during FastAPI WebSocket close for {symbol}: {e_rt}", exc_info=True)  # Log other RuntimeErrors
+            except Exception as e_close:  # Catch any other unexpected errors during close
+                logger.error(f"Unexpected error closing FastAPI WebSocket for {symbol}: {e_close}", exc_info=True)
+        else:
+            logger.info(f"FastAPI WebSocket for {symbol} client_state was already DISCONNECTED in finally block.")
+
+        logger.info(f"Cleanup finished for WebSocket and Bybit connection for live data: {symbol}")
+
 
 
 async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: str):
@@ -988,37 +1210,98 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
             # 📊 GENERATE CSV FILE WITH COMPLETE DATA STRUCTURE
             # await generate_csv_from_combined_data(active_symbol, client_state["indicators"], combined_data, client_state["from_ts"], client_state["to_ts"])
 
-            # Send historical data in batches
-            batch_size = 100
-            total_batches = (len(combined_data) + batch_size - 1) // batch_size
-            # logger.info(f"Sending {len(combined_data)} historical data points in {total_batches} batches for {active_symbol}")
+            # Get YouTube videos in the requested time range
+            try:
+                # Fetch YouTube videos from Redis for the requested time period
+                redis_conn = await get_redis_connection()
 
-            # Log sample of data being sent to verify timestamps
-            if combined_data:
-                first_point = combined_data[0]
-                last_point = combined_data[-1]
-                # logger.info(f"📤 SAMPLE DATA POINTS TO CLIENT:")
-                # logger.info(f"  First point: time={first_point['time']} ({datetime.fromtimestamp(first_point['time'], timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')})")
-                # logger.info(f"  Last point: time={last_point['time']} ({datetime.fromtimestamp(last_point['time'], timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')})")
-                # logger.info(f"  Time range in data: {first_point['time']} to {last_point['time']} (seconds)")
+                # Get all YouTube video IDs and their publish timestamps
+                youtube_videos = []
+                video_ids = await redis_conn.zrangebyscore(
+                    "youtube_videos",
+                    min=client_state["from_ts"],
+                    max=client_state["to_ts"]
+                )
 
-            for i in range(0, len(combined_data), batch_size):
-                batch = combined_data[i:i + batch_size]
-                batch_num = i // batch_size + 1
-                # logger.info(f"Sending batch {batch_num}/{total_batches} with {len(batch)} data points")
+                for video_id in video_ids[:50]:  # Limit to 50 videos to avoid overwhelming
+                    video_key = f"youtube_video:{video_id.decode('utf-8') if isinstance(video_id, bytes) else video_id}"
+                    video_data_json = await redis_conn.get(video_key)
+                    if video_data_json:
+                        try:
+                            video_data = json.loads(video_data_json)
+                            # Convert published_at to timestamp for filtering
+                            published_dt = datetime.fromisoformat(video_data['published_at'].replace('Z', '+00:00'))
+                            published_ts = published_dt.timestamp()
 
-                try:
-                    await send_to_client({
-                        "type": "historical",
-                        "symbol": active_symbol,
-                        "data": batch
-                    })
-                    # logger.info(f"Successfully sent batch {batch_num}/{total_batches}")
-                except Exception as e:
-                    logger.error(f"Failed to send batch {batch_num}/{total_batches}: {e}")
-                    break
+                            # Only include videos within the requested range
+                            if client_state["from_ts"] <= published_ts <= client_state["to_ts"]:
+                                youtube_videos.append(video_data)
+                                logger.debug(f"Including YouTube video: {video_data.get('title', 'Unknown')[:50]}...")
+                        except (json.JSONDecodeError, KeyError, ValueError) as e:
+                            logger.warning(f"Error parsing YouTube video data for {video_id}: {e}")
+                            continue
 
-                await asyncio.sleep(0.01)  # Small delay to prevent overwhelming client
+                logger.info(f"🎥 Found {len(youtube_videos)} YouTube videos in requested time range ({client_state['from_ts']} to {client_state['to_ts']})")
+
+                # Send historical data in batches
+                batch_size = 100
+                total_batches = (len(combined_data) + batch_size - 1) // batch_size
+                # logger.info(f"Sending {len(combined_data)} historical data points in {total_batches} batches for {active_symbol}")
+
+                # Log sample of data being sent to verify timestamps
+                if combined_data:
+                    first_point = combined_data[0]
+                    last_point = combined_data[-1]
+                    # logger.info(f"📤 SAMPLE DATA POINTS TO CLIENT:")
+                    # logger.info(f"  First point: time={first_point['time']} ({datetime.fromtimestamp(first_point['time'], timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')})")
+                    # logger.info(f"  Last point: time={last_point['time']} ({datetime.fromtimestamp(last_point['time'], timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')})")
+                    # logger.info(f"  Time range in data: {first_point['time']} to {last_point['time']} (seconds)")
+
+                for i in range(0, len(combined_data), batch_size):
+                    batch = combined_data[i:i + batch_size]
+                    batch_num = i // batch_size + 1
+                    # logger.info(f"Sending batch {batch_num}/{total_batches} with {len(batch)} data points")
+
+                    try:
+                        await send_to_client({
+                            "type": "historical",
+                            "symbol": active_symbol,
+                            "data": batch
+                        })
+                        # logger.info(f"Successfully sent batch {batch_num}/{total_batches}")
+                    except Exception as e:
+                        logger.error(f"Failed to send batch {batch_num}/{total_batches}: {e}")
+                        break
+
+                    await asyncio.sleep(0.01)  # Small delay to prevent overwhelming client
+
+                # Send YouTube videos if any were found
+                if youtube_videos:
+                    logger.info(f"🎥 Sending {len(youtube_videos)} YouTube videos to client for {active_symbol}")
+
+                    # Send YouTube videos in batches to avoid overwhelming client
+                    video_batch_size = 5  # Smaller batches for videos
+                    for i in range(0, len(youtube_videos), video_batch_size):
+                        video_batch = youtube_videos[i:i + video_batch_size]
+
+                        try:
+                            await send_to_client({
+                                "type": "youtube_videos",
+                                "symbol": active_symbol,
+                                "videos": video_batch,
+                                "batch_index": i // video_batch_size,
+                                "total_batches": (len(youtube_videos) + video_batch_size - 1) // video_batch_size
+                            })
+                            logger.debug(f"📤 Sent batch {i // video_batch_size + 1} of YouTube videos ({len(video_batch)} videos)")
+                        except Exception as e:
+                            logger.error(f"Failed to send YouTube video batch {i // video_batch_size + 1}: {e}")
+                            break
+
+                        await asyncio.sleep(0.05)  # Slightly longer delay for video data
+
+            except Exception as e:
+                logger.error(f"Error fetching YouTube videos for {active_symbol}: {e}")
+                # Continue without YouTube videos if there's an error
 
             # Send buy signals if any were found
             if buy_signals:
@@ -1222,34 +1505,10 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
             logger.debug("Early return - no klines or no indicators")
             return {}
 
-        # Prepare DataFrame with error handling
-        try:
-            # Try to get Open Interest data from cache first
-            oi_data = await get_cached_open_interest(active_symbol, client_state["resolution"], client_state["from_ts"], client_state["to_ts"])
-
-            # If no OI data in cache, try to fetch from Bybit as fallback
-            if not oi_data or len(oi_data) == 0:
-                logger.info(f"🔄 OI FALLBACK: No Open Interest data in cache for {active_symbol}, attempting to fetch from Bybit")
-                try:
-                    from indicators import fetch_open_interest_from_bybit
-                    from redis_utils import cache_open_interest
-
-                    oi_fetched = fetch_open_interest_from_bybit(active_symbol, client_state["resolution"], client_state["from_ts"], client_state["to_ts"])
-                    if oi_fetched and len(oi_fetched) > 0:
-                        await cache_open_interest(active_symbol, client_state["resolution"], oi_fetched)
-                        logger.info(f"💾 OI CACHED: Stored {len(oi_fetched)} Open Interest entries for {active_symbol}")
-                        oi_data = oi_fetched
-                    else:
-                        logger.info(f"ℹ️ OI INFO: No Open Interest data available from Bybit for {active_symbol}")
-                except Exception as e:
-                    logger.warning(f"⚠️ OI FETCH WARNING: Failed to fetch Open Interest data for {active_symbol}: {e}")
-
-            df = _prepare_dataframe(klines, oi_data)
-            if df is None or df.empty:
-                logger.warning(f"Failed to prepare DataFrame for indicators calculation for {active_symbol}")
-                return {}
-        except Exception as e:
-            logger.error(f"Error preparing DataFrame for indicators for {active_symbol}: {e}", exc_info=True)
+        # Prepare DataFrame from klines data (OI data not needed for most indicators)
+        df = _prepare_dataframe(klines, None)
+        if df is None or df.empty:
+            logger.warning(f"Failed to prepare DataFrame from {len(klines)} klines")
             return {}
 
         indicators_data = {}
@@ -1276,7 +1535,9 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                     logger.info(f"🔍 INDICATOR DEBUG: RSI result type: {type(result)}, is None: {result is None}")
                 elif calc_id.startswith("stochrsi"):
                     logger.info(f"🔍 INDICATOR DEBUG: Calling calculate_stoch_rsi for {indicator_id}")
-                    result = calculate_stoch_rsi(df.copy(), **params)
+                    # Filter out lookback_period from params as it's only used for data retrieval
+                    stoch_params = {k: v for k, v in params.items() if k != "lookback_period"}
+                    result = calculate_stoch_rsi(df.copy(), **stoch_params)
                     logger.info(f"🔍 INDICATOR DEBUG: STOCHRSI result type: {type(result)}, is None: {result is None}")
                 elif calc_id == "open_interest":
                     logger.info(f"🔍 INDICATOR DEBUG: Calling calculate_open_interest for {indicator_id}")
@@ -1286,6 +1547,10 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                     logger.info(f"🔍 INDICATOR DEBUG: Calling calculate_jma_indicator for {indicator_id}")
                     result = calculate_jma_indicator(df.copy(), **params)
                     logger.info(f"🔍 INDICATOR DEBUG: JMA result type: {type(result)}, is None: {result is None}")
+                elif calc_id == "cto_line":
+                    logger.info(f"🔍 INDICATOR DEBUG: Calling calculate_cto_line for {indicator_id}")
+                    result = calculate_cto_line(df.copy(), **params)
+                    logger.info(f"🔍 INDICATOR DEBUG: CTO Line result type: {type(result)}, is None: {result is None}")
                 else:
                     logger.warning(f"Unsupported indicator calculation {calc_id} for {active_symbol}")
                     continue
