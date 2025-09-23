@@ -19,7 +19,7 @@ import sys
 try:
     from dotenv import load_dotenv
     load_dotenv()
-    print("✅ YouTube Monitor: Environment variables loaded from .env file")
+    print("YouTube Monitor: Environment variables loaded from .env file")
 except ImportError:
     print("⚠️ YouTube Monitor: python-dotenv not installed. Environment variables must be set manually.")
 
@@ -39,6 +39,7 @@ class YouTubeMonitor:
         self.channel_id = None  # Will be resolved dynamically
         self.api_key = os.getenv("YOUTUBE_API_KEY")
         self.redis_client = None
+        self.youtube = None  # YouTube API service object
         self.last_check_time = None
         self.check_interval = 300  # 5 minutes
 
@@ -80,7 +81,9 @@ class YouTubeMonitor:
             from googleapiclient.discovery import build
             from googleapiclient.errors import HttpError
 
-            youtube = build('youtube', 'v3', developerKey=self.api_key)
+            if self.youtube is None:
+                self.youtube = build('youtube', 'v3', developerKey=self.api_key)
+            youtube = self.youtube
 
             # If it's already a channel ID (starts with UC), use it directly
             if self.channel_handle.startswith('UC') and len(self.channel_handle) == 24:
@@ -181,7 +184,9 @@ class YouTubeMonitor:
             from googleapiclient.errors import HttpError
 
             # Build the YouTube service
-            youtube = build('youtube', 'v3', developerKey=self.api_key)
+            if self.youtube is None:
+                self.youtube = build('youtube', 'v3', developerKey=self.api_key)
+            youtube = self.youtube
 
             logger.info(f"YouTube Monitor: Searching for videos in channel {self.channel_id} (handle: {self.channel_handle})")
 

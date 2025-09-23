@@ -36,10 +36,10 @@ class YouTubeConfig:
         if env_channels:
             # Support comma-separated list
             self.channels_to_monitor = [ch.strip() for ch in env_channels.split(",")]
-            print(f"📋 Loaded channels from environment: {self.channels_to_monitor}")
+            print(f"Loaded channels from environment: {self.channels_to_monitor}")
 
-        print(f"🎛️  YouTube Config: Transcripts={'✅' if self.enable_transcript_processing else '❌'}, AI={'✅' if self.enable_ai_excerpts else '❌'}")
-        print(f"🔗 LM Studio URL: {self.lm_studio_url}")
+        print(f"YouTube Config: Transcripts={'enabled' if self.enable_transcript_processing else 'disabled'}, AI={'enabled' if self.enable_ai_excerpts else 'disabled'}")
+        print(f"LM Studio URL: {self.lm_studio_url}")
 
     def get_channels(self) -> List[str]:
         """Get list of channels to monitor"""

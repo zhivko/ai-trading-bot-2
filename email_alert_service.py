@@ -420,7 +420,7 @@ class EmailAlertService:
                 line_start = min(start_time, end_time)
                 line_end = max(start_time, end_time)
                 if not (line_start <= bar_time <= line_end):
-                    logger.debug(f"Drawing time range {start_time}-{end_time} (normalized: {line_start}-{line_end}) not matching bar time {bar_time}")
+                    # logger.debug(f"Drawing time range {start_time}-{end_time} (normalized: {line_start}-{line_end}) not matching bar time {bar_time}")
                     continue
 
                 logger.info(f"Calling detect_cross for drawing {drawing.get('id')}")

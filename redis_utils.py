@@ -66,7 +66,7 @@ async def get_redis_connection() -> AsyncRedis:
             redis_client = await init_redis()
         except Exception:
             logger.critical("CRITICAL: Redis connection could not be established in get_redis_connection.")
-            logger.critical("Run this to start it on wsl2: cmd /c wsl --exec d && Exit /B 5")
+            logger.critical("Run this to start it on wsl2: cmd /c wsl --exec sudo service redis-server start && Exit /B 5")
             raise
     if redis_client is None:
         raise Exception("Redis client is None after attempting initialization.")
