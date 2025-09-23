@@ -1472,8 +1472,8 @@ function handleYouTubeVideos(message) {
         console.log(`  ${index + 1}. "${video.title}" by ${video.channel_title} (${publishDate})`);
     });
 
-    // Process and display YouTube videos
-    addYouTubeVideosToChart(message.videos, message.symbol);
+    // Process and display YouTube videos as diamond markers instead of annotations
+    addYouTubeVideosAsMarkers(message.videos, message.symbol);
 
     console.log(`🎥 Combined WebSocket: Successfully processed ${message.videos.length} YouTube videos for ${message.symbol}`);
 }
@@ -1769,8 +1769,8 @@ function addDrawingsToChart(drawings, symbol) {
     }
 }
 
-function addYouTubeVideosToChart(videos, symbol) {
-    console.log(`🎥 Combined WebSocket: Adding ${videos.length} YouTube videos to chart for ${symbol}`);
+function addYouTubeVideosAsMarkers(videos, symbol) {
+    console.log(`🎥 Combined WebSocket: Adding ${videos.length} YouTube videos as markers to chart for ${symbol}`);
 
     const chartElement = document.getElementById('chart');
     if (!chartElement || !window.gd) {
@@ -1778,63 +1778,159 @@ function addYouTubeVideosToChart(videos, symbol) {
         return;
     }
 
-    // Ensure layout.annotations exists
-    if (!window.gd.layout.annotations) {
-        window.gd.layout.annotations = [];
-    }
+    // Prepare data arrays for the scatter trace
+    const x = [];
+    const y = [];
+    const text = [];
+    const hovertext = [];
+    const video_ids = [];
+    const customdata = [];
 
     // Process each YouTube video
     videos.forEach((video, index) => {
         try {
             console.log(`🎥 Combined WebSocket: Processing YouTube video ${index + 1}/${videos.length}:`, {
+                id: video.id,
                 title: video.title,
                 channel: video.channel_title,
                 published: video.published_at
             });
 
-            // Convert video data to Plotly annotation format
-            const annotation = convertYouTubeVideoToAnnotation(video, index);
-            console.log(`🎥 Combined WebSocket: Converted to annotation:`, annotation);
-
-            if (annotation) {
-                // Check if annotation already exists (by video ID)
-                const existingIndex = window.gd.layout.annotations.findIndex(a => a.name === `youtube_${video.id}`);
-
-                if (existingIndex !== -1) {
-                    // Update existing annotation
-                    window.gd.layout.annotations[existingIndex] = annotation;
-                    console.log(`🎥 Combined WebSocket: Updated existing YouTube video annotation ${video.id}`);
-                } else {
-                    // Add new annotation
-                    window.gd.layout.annotations.push(annotation);
-                    console.log(`🎥 Combined WebSocket: Added new YouTube video annotation ${video.id}`);
+            // Parse the published timestamp
+            let publishedTime;
+            if (video.published_at) {
+                publishedTime = new Date(video.published_at);
+                if (isNaN(publishedTime.getTime())) {
+                    console.warn(`🎥 Combined WebSocket: Invalid published_at timestamp: ${video.published_at}`);
+                    publishedTime = new Date(); // Fallback
                 }
             } else {
-                console.warn(`🎥 Combined WebSocket: Could not convert YouTube video to annotation:`, video);
+                console.warn('🎥 Combined WebSocket: No published_at timestamp provided');
+                publishedTime = new Date(); // Fallback
             }
+
+            // Get current chart data to determine Y position (like original youtubeMarkers.js)
+            // We want to place YouTube videos near the price data
+            let chartHeight = null;
+            if (window.gd.layout && window.gd.layout.yaxis && window.gd.layout.yaxis.range) {
+                const yMax = window.gd.layout.yaxis.range[1];
+                if (yMax !== undefined && yMax !== null && !isNaN(yMax)) {
+                    // Position at 85% of the Y range (near the top but not too high)
+                    chartHeight = yMax * 0.85;
+                }
+            }
+
+            if (chartHeight === null || isNaN(chartHeight)) {
+                // Fallback: use a reasonable default
+                chartHeight = 100;
+                console.log('🎥 Combined WebSocket: Using fallback chart height for YouTube marker positioning');
+            }
+
+            // Add data point for this video
+            x.push(publishedTime);
+            y.push(chartHeight);
+
+            // Create text label for hover/display
+            const labelText = `${video.title.substring(0, 50)}${video.title.length > 50 ? '...' : ''}\nby ${video.channel_title}`;
+            text.push(labelText);
+
+            // Create detailed hover text
+            const publishDateStr = publishedTime.toLocaleString();
+            const hoverText = `<b>${video.title}</b><br><br>Channel: ${video.channel_title}<br>Published: ${publishDateStr}<br><br><i>Click to watch on YouTube</i>`;
+            hovertext.push(hoverText);
+
+            // Store video metadata
+            video_ids.push(video.id);
+            customdata.push({
+                video_id: video.id,
+                title: video.title,
+                channel: video.channel_title,
+                published_at: video.published_at,
+                url: `https://www.youtube.com/watch?v=${video.id}`
+            });
+
+            console.log(`🎥 Combined WebSocket: Added YouTube marker at ${publishedTime.toISOString()} (height: ${chartHeight})`);
+
         } catch (error) {
             console.error(`🎥 Combined WebSocket: Error processing YouTube video ${index}:`, error, video);
         }
     });
 
-    console.log('🎥 YOUTUBE VIDEOS: Final annotations count:', window.gd.layout.annotations.length);
+    // Create the YouTube videos scatter trace with diamond markers
+    const youtubeTrace = {
+        x: x,
+        y: y,
+        text: text,
+        mode: 'markers',
+        type: 'scatter',
+        name: 'YouTube Videos',
+        marker: {
+            symbol: 'diamond',
+            size: 12,
+            color: 'red',
+            line: {
+                color: 'white',
+                width: 2
+            }
+        },
+        hoverinfo: 'text',
+        customdata: customdata,
+        hovertext: hovertext,
+        video_ids: video_ids,
+        showlegend: true,
+        hoverlabel: {
+            bgcolor: 'white',
+            bordercolor: 'red',
+            font: { color: 'black', size: 12 },
+            align: 'left'
+        },
+        xaxis: 'x',
+        yaxis: 'y'  // Place on main price chart
+    };
 
-    // Update the chart with new annotations - ensure annotations are preserved during chart updates
+    console.log('🎥 YOUTUBE VIDEOS: Created YouTube marker trace with', x.length, 'videos');
+
+    // Add click handler for YouTube videos (similar to youtubeMarkers.js)
+    youtubeTrace.onclick = function(data) {
+        if (data && data.points && data.points.length > 0) {
+            const point = data.points[0];
+            if (point.customdata) {
+                const url = point.customdata.url;
+                if (url) {
+                    window.open(url, '_blank');
+                    console.log('🎥 Opened YouTube video:', url);
+                }
+            }
+        }
+    };
+
+    // Add the trace to the chart
     try {
-        // First, ensure the layout has an annotations array
-        if (!window.gd.layout.annotations) {
-            window.gd.layout.annotations = [];
+        // Find existing YouTube trace and replace it, or add new one
+        const existingTraceIndex = window.gd.data.findIndex(trace => trace.name === 'YouTube Videos');
+
+        if (existingTraceIndex !== -1) {
+            // Replace existing trace
+            window.gd.data[existingTraceIndex] = youtubeTrace;
+            console.log('🎥 Combined WebSocket: Updated existing YouTube Videos trace');
+        } else {
+            // Add new trace
+            window.gd.data.push(youtubeTrace);
+            console.log('🎥 Combined WebSocket: Added new YouTube Videos trace');
         }
 
-        // Update the chart with annotations using relayout to preserve existing data
-        Plotly.relayout(chartElement, {
-            annotations: window.gd.layout.annotations
-        });
-        console.log(`🎥 Combined WebSocket: Successfully updated chart with ${videos.length} YouTube videos`);
-        console.log('🎥 YOUTUBE VIDEOS: Final annotations in layout:', window.gd.layout.annotations.length);
+        // Update the chart
+        Plotly.react(chartElement, window.gd.data, window.gd.layout);
+        console.log(`🎥 Combined WebSocket: Successfully added YouTube marker trace with ${videos.length} videos`);
+
     } catch (error) {
-        console.error('🎥 Combined WebSocket: Error updating chart with YouTube videos:', error);
+        console.error('🎥 Combined WebSocket: Error adding YouTube marker trace:', error);
     }
+}
+
+function addYouTubeVideosToChart(videos, symbol) {
+    // Legacy function - now just calls the new marker-based function
+    addYouTubeVideosAsMarkers(videos, symbol);
 }
 
 function getYrefForSubplot(subplotName) {

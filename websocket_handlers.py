@@ -1223,7 +1223,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                     max=client_state["to_ts"]
                 )
 
-                for video_id in video_ids[:50]:  # Limit to 50 videos to avoid overwhelming
+                for video_id in video_ids:  # Return all videos in the requested time range
                     video_key = f"youtube_video:{video_id.decode('utf-8') if isinstance(video_id, bytes) else video_id}"
                     video_data_json = await redis_conn.get(video_key)
                     if video_data_json:
