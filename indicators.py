@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 import time
 import pandas_ta as ta  # Required for technical analysis indicators
+import scipy.stats as stats
 from config import AVAILABLE_INDICATORS, session
 from logging_config import logger
 from datetime import datetime, timezone
@@ -673,13 +674,20 @@ def calculate_rsi_sma(df_input: pd.DataFrame, sma_period: int, rsi_values: List[
 
 def find_buy_signals(df: pd.DataFrame) -> list:
     """
-    Finds buy signals based on RSI trend and deviation analysis.
+    Finds buy/sell signals based on RSI deviation followed by RSI SMA turnaround.
+
     New logic:
-    1. RSI_SMA14 must be in upward trend (showing improving momentum)
-    2. RSI must then deviate below this improving RSI_SMA14 by >15 points (oversold dip in bullish trend)
+    1. Detect statistically significant RSI deviations from RSI SMA
+    2. Track these as "pending signal candidates"
+    3. Monitor RSI SMA slope changes:
+       - If RSI SMA slope turns positive after deviation → BUY signal
+       - If RSI SMA slope turns negative after deviation → SELL signal
+    4. Include timeout mechanism (pending signals expire after 10 bars)
     """
-    logger.debug("Starting find_buy_signals with RSI trend + deviation analysis")
+    logger.debug("Starting find_buy_signals with RSI deviation + RSI SMA turnaround analysis")
     signals = []
+    return signals
+    pending_signals = []  # Track pending signal candidates: (index, deviation_z_score, deviation_points, rsi_value, sma_value)
 
     # Reset index for easy access
     df = df.reset_index()
@@ -705,8 +713,9 @@ def find_buy_signals(df: pd.DataFrame) -> list:
 
     logger.debug(f"Using RSI columns: rsi='{rsi_col}', sma='{sma_col}'")
 
-    # Minimum lookback periods for trend analysis
-    min_lookback = 5  # Need at least 5 bars to check trend
+    # Parameters for signal generation
+    PENDING_SIGNAL_TIMEOUT = 10  # Bars after which pending signals expire
+    SLOPE_CHANGE_CONFIRMATION = 2  # Bars to confirm slope change direction
 
     for i in range(len(df)):
         current_time = df['time'].iloc[i]
@@ -719,48 +728,159 @@ def find_buy_signals(df: pd.DataFrame) -> list:
         if pd.isna(rsi_value) or pd.isna(rsi_sma14_value):
             continue
 
-        # CONDITION 1: Check if RSI_SMA14 is in upward trend
-        # Look back 5-10 bars to see if SMA14 has been rising
-        rsi_sma_trend_up = False
+        # Calculate RSI SMA slope (rate of change) - use at least 3 points for slope
+        rsi_sma_slope = None
+        if i >= 2:
+            # Calculate slope using last 3 points
+            try:
+                x = np.array([-2, -1, 0])  # Last 3 bars relative to current
+                y_vals = []
+                for offset in [-2, -1, 0]:
+                    if i + offset >= 0:
+                        val = df[sma_col].iloc[i + offset]
+                        if not pd.isna(val):
+                            y_vals.append(val)
+                        else:
+                            break
+                    else:
+                        break
 
-        if i >= min_lookback:
-            # Check the trend over the last min_lookback bars
-            recent_sma_values = []
-            for lookback_idx in range(max(0, i - min_lookback), i + 1):
-                sma_val = df[sma_col].iloc[lookback_idx]
-                if not pd.isna(sma_val):
-                    recent_sma_values.append(sma_val)
+                if len(y_vals) >= 3:
+                    y = np.array(y_vals[-3:])  # Take last 3 valid values
+                    # Slope = mean of (y[i+1] - y[i]) for trend confirmation
+                    slope_values = np.diff(y)
+                    rsi_sma_slope = np.mean(slope_values)
+                elif len(y_vals) >= 2:
+                    # Fallback to simple slope with 2 points
+                    rsi_sma_slope = y_vals[-1] - y_vals[-2]
+            except Exception as e:
+                logger.debug(f"Could not calculate slope at bar {i}: {e}")
 
-            # Trend is up if we have enough data points and current SMA > average of recent values
-            if len(recent_sma_values) >= 3:
-                avg_recent_sma = sum(recent_sma_values[:-1]) / len(recent_sma_values[:-1])  # Exclude current value
-                rsi_sma_trend_up = rsi_sma14_value > avg_recent_sma
-                logger.debug(f"SMA trend analysis at {current_time}: current={rsi_sma14_value:.2f}, avg_recent={avg_recent_sma:.2f}, trend_up={rsi_sma_trend_up}")
-
-        # CONDITION 2: RSI deviates below RSI_SMA14 by >15 points (but only if SMA trend is already up)
+        # DETECT STATISTICALLY SIGNIFICANT RSI DEVIATIONS
         deviation_points = rsi_sma14_value - rsi_value  # SMA - RSI (positive when RSI is below SMA)
-        rsi_deviation_signal = deviation_points > 15.0
 
-        # FINAL SIGNAL: Both conditions must be met
-        signal_condition_met = rsi_sma_trend_up and rsi_deviation_signal
+        # Calculate statistical significance over lookback window
+        lookback_window = min(50, i) if i > 20 else 20
 
-        logger.debug(f"Bar {i} at {current_time}: RSI={rsi_value:.2f}, RSI_SMA={rsi_sma14_value:.2f}, "
-                    f"Deviation={deviation_points:.2f}, SMA_trend_up={rsi_sma_trend_up}, Signal={signal_condition_met}")
+        significant_deviation = False
+        deviation_z_score = None
 
-        if signal_condition_met:
-            timestamp = int(current_time.timestamp())
-            signals.append({
-                'timestamp': timestamp,
-                'price': df['close'].iloc[i],
-                'rsi': rsi_value,
-                'rsi_sma14': rsi_sma14_value,
-                'deviation': deviation_points,
-                'sma_trend_up': int(rsi_sma_trend_up),  # Convert boolean to int for JSON serialization
-                'type': 'buy'
+        if i >= lookback_window:
+            rsi_deviations = []
+            for lookback_idx in range(max(0, i - lookback_window), i + 1):
+                rsi_val = df[rsi_col].iloc[lookback_idx]
+                sma_val = df[sma_col].iloc[lookback_idx]
+                if not (pd.isna(rsi_val) or pd.isna(sma_val)):
+                    dev = sma_val - rsi_val
+                    rsi_deviations.append(dev)
+
+            if len(rsi_deviations) >= 20:
+                try:
+                    avg_deviation = np.mean(rsi_deviations[:-1])
+                    std_deviation = np.std(rsi_deviations[:-1], ddof=1)
+
+                    if std_deviation > 0:
+                        deviation_z_score = (deviation_points - avg_deviation) / std_deviation
+                        # Use 85% confidence level for deviation detection
+                        significant_deviation = abs(deviation_z_score) > 1.44
+
+                        if significant_deviation:
+                            logger.info(f"STATISTICAL DEVIATION DETECTED at {current_time}: RSI deviation z-score={deviation_z_score:.2f}, "
+                                      f"deviation={deviation_points:.2f}, historical_avg={avg_deviation:.2f}, historical_std={std_deviation:.2f}")
+                except Exception as e:
+                    logger.debug(f"Statistical calculation failed at bar {i}: {e}")
+
+        # ADD SIGNIFICANT DEVIATIONS TO PENDING LIST
+        if significant_deviation:
+            pending_signals.append({
+                'index': i,
+                'z_score': deviation_z_score,
+                'deviation_points': deviation_points,
+                'rsi_value': rsi_value,
+                'sma_value': rsi_sma14_value,
+                'slope_at_detection': rsi_sma_slope
             })
-            logger.info(f"BUY SIGNAL DETECTED at {current_time}: RSI_SMA14 trending UP (avg_recent={avg_recent_sma:.2f}), RSI={rsi_value:.2f} is {deviation_points:.1f} points below SMA14={rsi_sma14_value:.2f}")
+            logger.debug(f"Added pending signal candidate at bar {i}: z-score={deviation_z_score:.2f}")
 
-    logger.info(f"find_buy_signals completed: analyzed {len(df)} bars, found {len(signals)} buy signals")
+        # CHECK FOR SIGNAL CONFIRMATION THROUGH RSI TURNAROUND
+        signals_to_remove = []
+
+        for pending_signal in pending_signals:
+            signal_index = pending_signal['index']
+            bars_since_detection = i - signal_index
+
+            # Check for timeout
+            if bars_since_detection > PENDING_SIGNAL_TIMEOUT:
+                logger.debug(f"Pending signal at bar {signal_index} expired (timeout)")
+                signals_to_remove.append(pending_signal)
+                continue
+
+            # Need enough bars after detection to confirm slope change
+            if bars_since_detection < SLOPE_CHANGE_CONFIRMATION:
+                continue
+
+            # Check if RSI SMA has turned around (slope direction change)
+            slope_at_detection = pending_signal['slope_at_detection']
+
+            if rsi_sma_slope is not None and slope_at_detection is not None:
+                # Check for sign change in slope (direction change)
+                slope_changed_positive = (slope_at_detection <= 0) and (rsi_sma_slope > 0)  # Negative to positive
+                slope_changed_negative = (slope_at_detection >= 0) and (rsi_sma_slope < 0)  # Positive to negative
+
+                if slope_changed_positive:
+                    # RSI SMA turned from down/flat to up after significant deviation = BUY SIGNAL
+                    timestamp = int(current_time.timestamp())
+                    detection_timestamp = int(df['time'].iloc[signal_index].timestamp())
+                    signals.append({
+                        'timestamp': timestamp,
+                        'price': df['close'].iloc[i],
+                        'rsi': rsi_value,
+                        'rsi_sma14': rsi_sma14_value,
+                        'deviation_z_score': pending_signal['z_score'],
+                        'deviation_points': pending_signal['deviation_points'],
+                        'bars_since_deviation': bars_since_detection,
+                        'slope_at_detection': slope_at_detection,
+                        'slope_at_confirmation': rsi_sma_slope,
+                        'detection_time': detection_timestamp,
+                        'type': 'buy'
+                    })
+                    logger.info(f"BUY SIGNAL CONFIRMED at {current_time}: RSI SMA turnaround after {bars_since_detection} bars. "
+                              f"Deviation z-score={pending_signal['z_score']:.2f}, slope: {slope_at_detection:.4f} → {rsi_sma_slope:.4f}")
+                    signals_to_remove.append(pending_signal)
+
+                elif slope_changed_negative:
+                    # RSI SMA turned from up/flat to down after significant deviation = SELL SIGNAL
+                    timestamp = int(current_time.timestamp())
+                    detection_timestamp = int(df['time'].iloc[signal_index].timestamp())
+                    signals.append({
+                        'timestamp': timestamp,
+                        'price': df['close'].iloc[i],
+                        'rsi': rsi_value,
+                        'rsi_sma14': rsi_sma14_value,
+                        'deviation_z_score': pending_signal['z_score'],
+                        'deviation_points': pending_signal['deviation_points'],
+                        'bars_since_deviation': bars_since_detection,
+                        'slope_at_detection': slope_at_detection,
+                        'slope_at_confirmation': rsi_sma_slope,
+                        'detection_time': detection_timestamp,
+                        'type': 'sell'
+                    })
+                    logger.info(f"SELL SIGNAL CONFIRMED at {current_time}: RSI SMA turnaround after {bars_since_detection} bars. "
+                              f"Deviation z-score={pending_signal['z_score']:.2f}, slope: {slope_at_detection:.4f} → {rsi_sma_slope:.4f}")
+                    signals_to_remove.append(pending_signal)
+
+        # Remove confirmed or expired pending signals
+        for signal_to_remove in signals_to_remove:
+            if signal_to_remove in pending_signals:
+                pending_signals.remove(signal_to_remove)
+
+        slope_str = f"{rsi_sma_slope:.4f}" if rsi_sma_slope is not None else "N/A"
+        logger.debug(f"Bar {i} at {current_time}: RSI={rsi_value:.2f}, RSI_SMA={rsi_sma14_value:.2f}, "
+                    f"Deviation={deviation_points:.2f}, SMA_slope={slope_str}, "
+                    f"Pending_signals={len(pending_signals)}")
+
+    logger.info(f"find_buy_signals completed: analyzed {len(df)} bars, found {len(signals)} signals "
+               f"({len([s for s in signals if s['type'] == 'buy'])} buy, {len([s for s in signals if s['type'] == 'sell'])} sell)")
     return signals
 
 def format_indicator_data_for_llm_as_dict(indicator_id: str, indicator_config_details: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:

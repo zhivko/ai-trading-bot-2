@@ -10,6 +10,9 @@ let combinedToTs = null;
 // Store CTO Line traces globally for quick restoration when re-enabled
 let storedCTOTraces = null;
 
+// Store buy signals by timestamp for enhanced hover info on candlesticks
+let buySignalsByTimestamp = {};
+
 // Initialize timestamps with default values (30 days ago to now)
 function initializeDefaultTimestamps() {
     if (combinedFromTs === null || combinedToTs === null) {
@@ -355,6 +358,9 @@ function processMessageQueue() {
                 break;
             case 'live_price':
                 handleLivePriceUpdate(message);
+                break;
+            case 'positions_update':
+                handlePositionsUpdate(message);
                 break;
             case 'drawings':
                 handleDrawingsData(message);
@@ -1429,6 +1435,18 @@ function handleBuySignals(message) {
         return;
     }
 
+    // Store buy signals by timestamp for enhanced candlestick hover info
+    message.data.forEach(signal => {
+        const timestampKey = signal.timestamp.toString();
+        buySignalsByTimestamp[timestampKey] = {
+            rsi: signal.rsi,
+            rsi_sma14: signal.rsi_sma14,
+            deviation: signal.deviation,
+            sma_trend_up: signal.sma_trend_up
+        };
+        console.log(`💰 Stored buy signal for timestamp ${timestampKey}: RSI=${signal.rsi?.toFixed(2)}, Deviation=${signal.deviation?.toFixed(2)}`);
+    });
+
     // Process and add buy signals to the chart
     addBuySignalsToChart(message.data, message.symbol);
 }
@@ -1452,30 +1470,162 @@ function handleDrawingsData(message) {
     addDrawingsToChart(message.data, message.symbol);
 }
 
-function handleYouTubeVideos(message) {
-    console.log(`🎥 Combined WebSocket: Received YouTube videos for ${message.symbol}, ${message.videos ? message.videos.length : 0} videos`);
+function addPositionsToChart(positions, symbol) {
+    console.log(`💼 Combined WebSocket: Adding positions as visual elements on the chart for ${symbol}`);
 
-    if (!message.videos || !Array.isArray(message.videos)) {
-        console.warn('🎥 Combined WebSocket: Invalid YouTube videos data format');
+    const chartElement = document.getElementById('chart');
+    if (!chartElement || !window.gd) {
+        console.warn('Combined WebSocket: Chart not ready for positions');
         return;
     }
 
-    if (message.videos.length === 0) {
-        console.log('🎥 Combined WebSocket: No YouTube videos to process');
-        return;
+    // Ensure layout.shapes exists
+    if (!window.gd.layout.shapes) {
+        window.gd.layout.shapes = [];
     }
 
-    // Log video details for debugging
-    console.log('🎥 YouTube videos received:');
-    message.videos.forEach((video, index) => {
-        const publishDate = video.published_at ? new Date(video.published_at).toLocaleString() : 'Unknown';
-        console.log(`  ${index + 1}. "${video.title}" by ${video.channel_title} (${publishDate})`);
+    // Remove existing position-related shapes (avoid overlapping)
+    window.gd.layout.shapes = window.gd.layout.shapes.filter(shape =>
+        !shape.name || (!shape.name.includes('position_') && shape.name !== 'buy_signal_')
+    );
+
+    positions.forEach((position, index) => {
+        try {
+            const entryPrice = parseFloat(position.entryPrice);
+            const liquidationPrice = position.liquidation_price ? parseFloat(position.liquidation_price) : null;
+            const side = position.side;
+            const size = parseFloat(position.size || 0);
+            const unrealizedPnL = position.unrealized_pnl ? parseFloat(position.unrealized_pnl) : 0;
+
+            if (!entryPrice || size <= 0) {
+                console.warn(`Skipping position ${index}: invalid entry price or size`);
+                return;
+            }
+
+            // Create a visual indicator for the position entry price
+            const positionShape = {
+                name: `position_${symbol}_${side}_${index}_${entryPrice}`,
+                type: 'line',
+                xref: 'paper',
+                yref: 'y',
+                x0: 0,
+                y0: entryPrice,
+                x1: 1,
+                y1: entryPrice,
+                line: {
+                    color: side === 'LONG' ? 'green' : 'red',
+                    width: size > 0.1 ? 3 : 2, // Thicker line for larger positions
+                    dash: 'dash'
+                },
+                hoverinfo: 'skip' // Use annotations for hover instead
+            };
+
+            window.gd.layout.shapes.push(positionShape);
+
+            // Add liquidation price line if available
+            if (liquidationPrice && liquidationPrice !== entryPrice) {
+                const liquidationShape = {
+                    name: `liquidation_${symbol}_${side}_${index}_${liquidationPrice}`,
+                    type: 'line',
+                    xref: 'paper',
+                    yref: 'y',
+                    x0: 0,
+                    y0: liquidationPrice,
+                    x1: 1,
+                    y1: liquidationPrice,
+                    line: {
+                        color: 'orange',
+                        width: 2,
+                        dash: 'dot'
+                    },
+                    hoverinfo: 'skip'
+                };
+
+                window.gd.layout.shapes.push(liquidationShape);
+            }
+
+            // Add annotation with position details
+            if (!window.gd.layout.annotations) {
+                window.gd.layout.annotations = [];
+            }
+
+            const positionLabel = `${side} ${size.toFixed(4)}@${entryPrice.toFixed(2)} P&L:$${unrealizedPnL.toFixed(2)}`;
+            const annotation = {
+                name: `position_label_${symbol}_${index}`,
+                x: 0.98, // Near right edge
+                y: entryPrice,
+                xref: 'paper',
+                yref: 'y',
+                text: positionLabel,
+                showarrow: false,
+                xanchor: 'right',
+                yanchor: 'middle',
+                font: {
+                    size: 10,
+                    color: side === 'LONG' ? 'green' : 'red',
+                    family: 'Arial, sans-serif'
+                },
+                bgcolor: 'rgba(255, 255, 255, 0.9)',
+                bordercolor: side === 'LONG' ? 'green' : 'red',
+                borderwidth: 1,
+                borderpad: 2
+            };
+
+            // Remove existing annotation for this position
+            window.gd.layout.annotations = window.gd.layout.annotations.filter(
+                ann => !ann.name || !ann.name.includes(`position_label_${symbol}_${index}`) || ann.name !== annotation.name
+            );
+
+            window.gd.layout.annotations.push(annotation);
+
+            console.log(`💼 Added position ${side} ${symbol} @ ${entryPrice} (P&L: $${unrealizedPnL.toFixed(2)}), Liq: ${liquidationPrice || 'N/A'}`);
+        } catch (error) {
+            console.error(`💼 Error processing position ${index}:`, error);
+        }
     });
 
-    // Process and display YouTube videos as diamond markers instead of annotations
-    addYouTubeVideosAsMarkers(message.videos, message.symbol);
+    // Update the chart with positions
+    try {
+        Plotly.relayout(chartElement, {
+            shapes: window.gd.layout.shapes,
+            annotations: window.gd.layout.annotations
+        });
+        console.log(`💼 Successfully added positions to chart for ${symbol}`);
+    } catch (error) {
+        console.error('💼 Error updating chart with positions:', error);
+    }
+}
 
-    console.log(`🎥 Combined WebSocket: Successfully processed ${message.videos.length} YouTube videos for ${message.symbol}`);
+function handlePositionsUpdate(message) {
+    console.log(`💼 Combined WebSocket: Received positions update for ${message.symbol}`);
+
+    if (!message.positions || !Array.isArray(message.positions)) {
+        console.warn('💼 Combined WebSocket: Invalid positions data format');
+        return;
+    }
+
+    if (message.positions.length === 0) {
+        console.log('💼 Combined WebSocket: No positions to display');
+        return;
+    }
+
+    // Log position details
+    console.log('💼 Positions received:');
+    message.positions.forEach((position, index) => {
+        const entryPrice = parseFloat(position.entryPrice);
+        const liquidationPrice = position.liquidation_price ? parseFloat(position.liquidation_price) : null;
+        const side = position.side || 'UNKNOWN';
+        const symbol = position.symbol || message.symbol;
+        const size = parseFloat(position.size || 0);
+        const unrealizedPnL = position.unrealized_pnl ? parseFloat(position.unrealized_pnl) : 0;
+
+        console.log(`  ${index + 1}. ${side} ${symbol}: ${size.toFixed(6)} @ $${entryPrice.toFixed(2)}, P&L: $${unrealizedPnL.toFixed(2)}, Liq: ${liquidationPrice ? '$' + liquidationPrice.toFixed(2) : 'N/A'}`);
+    });
+
+    // Process and display positions as visual elements on the chart
+    addPositionsToChart(message.positions, message.symbol);
+
+    console.log(`💼 Combined WebSocket: Successfully processed ${message.positions.length} positions for ${message.symbol}`);
 }
 
 function handleHistoryUpdate(message) {
@@ -1668,6 +1818,21 @@ function convertBuySignalToShape(signal, index) {
     try {
         console.log('💰 BUY SIGNALS: Converting buy signal to shape:', signal);
 
+        // Format timestamp for display
+        const signalTime = new Date(signal.timestamp * 1000);
+        const timeDisplay = signalTime.toLocaleString();
+
+        // Create detailed hover text with all signal information
+        const hoverText = [
+            `📈 BUY SIGNAL`,
+            `Time: ${timeDisplay}`,
+            `Price: ${signal.price?.toFixed(2) || 'N/A'}`,
+            `RSI: ${signal.rsi?.toFixed(2) || 'N/A'}`,
+            `RSI SMA14: ${signal.rsi_sma14?.toFixed(2) || 'N/A'}`,
+            `Deviation: ${signal.deviation?.toFixed(2) || 'N/A'}`,
+            `SMA Trend Up: ${signal.sma_trend_up === 1 || signal.sma_trend_up === true ? 'Yes' : 'No'}`
+        ].join('<br>');
+
         // Basic shape properties for buy signal marker - made much larger and more visible
         const shape = {
             name: `buy_signal_${signal.timestamp}_${index}`,
@@ -1683,10 +1848,27 @@ function convertBuySignalToShape(signal, index) {
                 width: 8,       // Much thicker line
                 dash: 'solid'
             },
+            hovertext: hoverText,
+            hoverinfo: 'text',  // Show only the custom hover text
+            hoverlabel: {
+                bgcolor: 'rgba(0, 0, 0, 0.8)',
+                bordercolor: 'lime',
+                font: { color: 'white', size: 12 }
+            },
             layer: 'above',
             editable: false,
             isSystemShape: true,  // Mark as system shape to prevent saving
-            systemType: 'buy_signal'  // Additional identification
+            systemType: 'buy_signal',  // Additional identification
+            // Store signal data for click handler
+            signalData: {
+                timestamp: signal.timestamp,
+                price: signal.price,
+                rsi: signal.rsi,
+                rsi_sma14: signal.rsi_sma14,
+                deviation: signal.deviation,
+                sma_trend_up: signal.sma_trend_up,
+                timeDisplay: timeDisplay
+            }
         };
 
         // Make a longer horizontal line with time span for better visibility
@@ -1695,7 +1877,13 @@ function convertBuySignalToShape(signal, index) {
         shape.y0 = signal.price;
         shape.y1 = signal.price;
 
-        console.log('💰 BUY SIGNALS: Final buy signal shape created:', shape);
+        // Add click handler for buy signal shape
+        shape.onclick = function() {
+            console.log('💰 BUY SIGNAL CLICKED:', shape.signalData);
+            displayBuySignalDetails(shape.signalData);
+        };
+
+        console.log('💰 BUY SIGNALS: Final buy signal shape created with hover text and click handler:', shape);
         return shape;
     } catch (error) {
         console.error('💰 BUY SIGNALS: Error converting buy signal to shape:', error, signal);
@@ -2227,7 +2415,25 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         // console.warn('🚨 WARNING: Found NaN values in OHLC data!');
     }
 
-    // Create main price trace
+    // Create custom data for enhanced hover info (buy signals)
+    const customdata = timestamps.map((timestamp, index) => {
+        const timestampKey = timestamp.getTime() / 1000; // Convert back to seconds for lookup
+        const signalData = buySignalsByTimestamp[timestampKey.toString()];
+
+        return signalData ? {
+            hasBuySignal: true,
+            rsi: signalData.rsi,
+            rsi_sma14: signalData.rsi_sma14,
+            deviation: signalData.deviation,
+            sma_trend_up: signalData.sma_trend_up,
+            dataIndex: index
+        } : {
+            hasBuySignal: false,
+            dataIndex: index
+        };
+    });
+
+    // Create main price trace with enhanced hover info
     const priceTrace = {
         x: timestamps,
         open: open,
@@ -2241,7 +2447,19 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         name: symbol,
         increasing: { line: { color: 'green' } },
         decreasing: { line: { color: 'red' } },
-        hoverinfo: isMobileDevice() ? 'skip' : 'all'
+        hoverinfo: isMobileDevice() ? 'skip' : 'all',
+        customdata: customdata,
+        hovertemplate: isMobileDevice() ? undefined : '%{customdata.hasBuySignal ? "<b>📈 BUY SIGNAL DETECTED</b><br>" : ""}' +
+                      'Time: %{x}<br>' +
+                      'Open: %{open:.6f}<br>' +
+                      'High: %{high:.6f}<br>' +
+                      'Low: %{low:.6f}<br>' +
+                      'Close: %{close:.6f}<br>' +
+                      '%{customdata.hasBuySignal ? "RSI: " + (customdata.rsi ? customdata.rsi.toFixed(2) : "N/A") + "<br>" : ""}' +
+                      '%{customdata.hasBuySignal ? "RSI SMA14: " + (customdata.rsi_sma14 ? customdata.rsi_sma14.toFixed(2) : "N/A") + "<br>" : ""}' +
+                      '%{customdata.hasBuySignal ? "Deviation: " + (customdata.deviation ? customdata.deviation.toFixed(2) : "N/A") + "<br>" : ""}' +
+                      '%{customdata.hasBuySignal ? "SMA Trend Up: " + (customdata.sma_trend_up == 1 || customdata.sma_trend_up === true ? "Yes" : "No") + "<br>" : ""}' +
+                      '<extra></extra>'
     };
 
     // Create indicator traces
@@ -3821,6 +4039,82 @@ window.addEventListener('resize', function() {
         Plotly.relayout(chartElement, { autosize: true });
     }
 });
+
+// Display buy signal details when clicked
+function displayBuySignalDetails(signalData) {
+    console.log('💰 BUY SIGNAL DETAILS:', signalData);
+
+    // Create or update a modal/dialog to show buy signal details
+    let modal = document.getElementById('buy-signal-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'buy-signal-modal';
+        modal.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border: 2px solid #00ff00;
+            border-radius: 10px;
+            padding: 20px;
+            z-index: 10000;
+            max-width: 500px;
+            font-family: Arial, sans-serif;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        `;
+
+        const closeBtn = document.createElement('span');
+        closeBtn.textContent = '×';
+        closeBtn.style.cssText = `
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            cursor: pointer;
+            font-size: 24px;
+            color: #666;
+        `;
+        closeBtn.onclick = () => {
+            modal.style.display = 'none';
+        };
+
+        modal.appendChild(closeBtn);
+        document.body.appendChild(modal);
+
+        // Add click outside to close
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
+    }
+
+    modal.innerHTML = `
+        <span style="position: absolute; top: 10px; right: 15px; cursor: pointer; font-size: 24px; color: #666;" onclick="this.closest('#buy-signal-modal').style.display='none'">×</span>
+        <h3 style="color: #00aa00; margin-top: 0; text-align: center; border-bottom: 2px solid #00ff00; padding-bottom: 10px;">
+            📈 BUY SIGNAL DETECTED
+        </h3>
+        <div style="margin: 15px 0;">
+            <strong>Time:</strong> ${signalData.timeDisplay || 'N/A'}<br>
+            <strong>Price:</strong> ${signalData.price ? signalData.price.toFixed(2) : 'N/A'}<br>
+            <strong>RSI:</strong> ${signalData.rsi ? signalData.rsi.toFixed(2) : 'N/A'}<br>
+            <strong>RSI SMA14:</strong> ${signalData.rsi_sma14 ? signalData.rsi_sma14.toFixed(2) : 'N/A'}<br>
+            <strong>Deviation:</strong> ${signalData.deviation ? signalData.deviation.toFixed(2) : 'N/A'}<br>
+            <strong>SMA Trend Up:</strong> ${signalData.sma_trend_up == 1 || signalData.sma_trend_up === true ? '<span style="color: green;">Yes</span>' : '<span style="color: red;">No</span>'}<br>
+        </div>
+        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
+            <strong>Signal Logic:</strong><br>
+            RSI deviates below RSI_SMA14 by >15 points while SMA14 is trending upward
+        </div>
+    `;
+
+    modal.style.display = 'block';
+
+    console.log('💰 Buy signal modal displayed');
+}
+
+// Make function globally available
+window.displayBuySignalDetails = displayBuySignalDetails;
 
 // Export functions to global scope for use by other modules
 window.setupCombinedWebSocket = setupCombinedWebSocket;

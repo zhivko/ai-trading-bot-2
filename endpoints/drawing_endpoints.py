@@ -84,9 +84,11 @@ async def save_shape_properties_api_endpoint(symbol: str, drawing_id: str, prope
         if not all(key in existing_drawing for key in ['symbol', 'type']):
             return JSONResponse({"status": "error", "message": "Invalid drawing format"}, status_code=400)
 
-        # Extract Y values from properties if provided
+        # Extract Y values and special fields from properties if provided
         start_price = properties.pop('start_price', existing_drawing.get('start_price'))
         end_price = properties.pop('end_price', existing_drawing.get('end_price'))
+        buy_sent = properties.pop('buy_sent', existing_drawing.get('buy_sent', False))
+        sell_sent = properties.pop('sell_sent', existing_drawing.get('sell_sent', False))
 
         drawing_data_instance = DrawingData(
             symbol=existing_drawing['symbol'],
@@ -116,6 +118,22 @@ async def save_shape_properties_api_endpoint(symbol: str, drawing_id: str, prope
     updated = await update_drawing(symbol, drawing_id, drawing_data_instance, request)
     if not updated:
         return JSONResponse({"status": "error", "message": "Failed to update shape properties"}, status_code=500)
+
+    # Update special fields that need to be at the root level of the drawing
+    # Fetch again to update buy_sent and sell_sent
+    updated_drawings = await get_drawings(symbol, request)
+    updated_drawing = next((d for d in updated_drawings if isinstance(d, dict) and d.get("id") == drawing_id), None)
+    if updated_drawing:
+        # Set the special fields directly on the drawing
+        updated_drawing['buy_sent'] = buy_sent
+        updated_drawing['sell_sent'] = sell_sent
+
+        # Save back to Redis
+        from redis_utils import get_redis_connection, get_drawings_redis_key
+        redis = await get_redis_connection()
+        key = get_drawings_redis_key(symbol, request)
+        await redis.set(key, json.dumps(updated_drawings))
+        logger.info(f"Special fields buy_sent={buy_sent}, sell_sent={sell_sent} updated successfully for drawing {drawing_id}")
 
     logger.info(f"Shape {drawing_id} properties and Y values updated successfully.")
     return JSONResponse({"status": "success", "message": "Shape properties updated successfully"})
@@ -152,31 +170,27 @@ async def get_shape_properties_api_endpoint(symbol: str, drawing_id: str, reques
     properties_with_y = {
         **properties,
         "start_price": drawing.get("start_price"),
-        "end_price": drawing.get("end_price")
+        "end_price": drawing.get("end_price"),
+        "buy_sent": drawing.get("buy_sent", False),
+        "sell_sent": drawing.get("sell_sent", False)
     }
 
     # Debug logging to understand the drawing state
     logger.info(f"Drawing data for {drawing_id}: alert_sent={drawing.get('alert_sent')}, alert_sent_time={drawing.get('alert_sent_time')}, properties.emailSent={properties.get('emailSent')}, properties.emailDate={properties.get('emailDate')}")
 
-    # Determine emailSent status with proper priority and fallback
-    email_sent = None
-    email_date = None
+    # Manual emailSent from properties takes precedence (user-editable)
+    email_sent = properties.get('emailSent')
+    email_date = properties.get('emailDate')
 
-    # Priority 1: Properties level (most up-to-date)
-    if 'emailSent' in properties:
-        email_sent = properties['emailSent']
-        email_date = properties.get('emailDate')
-
-    # Priority 2: Root level (legacy/backup)
-    elif drawing.get("alert_sent") is True:
-        email_sent = True
-        if drawing.get("alert_sent_time"):
-            email_date = drawing["alert_sent_time"] * 1000  # convert to milliseconds for JS
-
-    # Priority 3: Default to False if neither exists
+    # If not manually set, fall back to legacy alert_sent behavior
     if email_sent is None:
-        email_sent = False
-        email_date = None
+        if drawing.get("alert_sent") is True:
+            email_sent = True
+            if drawing.get("alert_sent_time"):
+                email_date = drawing["alert_sent_time"] * 1000  # convert to milliseconds for JS
+        else:
+            email_sent = False
+            email_date = None
 
     # Update the response
     properties_with_y["emailSent"] = email_sent

@@ -29,7 +29,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Initialize debounced functions
     window.debouncedUpdateShapeVisuals = debounce(updateShapeVisuals, VISUAL_UPDATE_DEBOUNCE_DELAY); // VISUAL_UPDATE_DEBOUNCE_DELAY from config.js
-    window.debouncedUpdateCrosshair = debounce(updateOrAddCrosshairVLine, 100); // updateOrAddCrosshairVLine from chartInteractions.js
+    // Crosshair functionality disabled due to panning interference
+    window.debouncedUpdateCrosshair = () => {}; // No-op function
 
     // Bar limit configuration
     const MAX_BARS = 500;
@@ -1189,11 +1190,16 @@ async function populateShapePropertiesDialog(activeShape) {
             if (sendEmailOnCross && properties.sendEmailOnCross !== undefined) {
                 sendEmailOnCross.checked = properties.sendEmailOnCross;
             }
-    if (emailSent && properties.emailSent !== undefined) {
-        emailSent.checked = properties.emailSent;
-        // Disable the checkbox if already sent to prevent manual changes
-        emailSent.disabled = properties.emailSent;
-    }
+            if (emailSent && properties.emailSent !== undefined) {
+                emailSent.checked = properties.emailSent;
+                // No longer disable the checkbox - allow manual changes
+            }
+            if (document.getElementById('buy-sent') && properties.buy_sent !== undefined) {
+                document.getElementById('buy-sent').checked = properties.buy_sent;
+            }
+            if (document.getElementById('sell-sent') && properties.sell_sent !== undefined) {
+                document.getElementById('sell-sent').checked = properties.sell_sent;
+            }
             if (emailDateDisplay && properties.emailDate) {
                 emailDateDisplay.textContent = new Date(properties.emailDate).toLocaleString();
             }
@@ -1257,7 +1263,9 @@ async function saveShapeProperties() {
         sendEmailOnCross
     };
 
-    // Note: emailSent is read-only and controlled by backend
+    const buySent = document.getElementById('buy-sent') ? document.getElementById('buy-sent').checked : false;
+    const sellSent = document.getElementById('sell-sent') ? document.getElementById('sell-sent').checked : false;
+    const emailSent = document.getElementById('email-sent') ? document.getElementById('email-sent').checked : false;
 
     // Handle amount - convert to number if provided
     if (amountInput.trim() !== '') {
@@ -1268,6 +1276,11 @@ async function saveShapeProperties() {
         }
         properties.amount = amount;
     }
+
+    // Add the special fields
+    properties.buy_sent = buySent;
+    properties.sell_sent = sellSent;
+    properties.emailSent = emailSent;
 
     try {
         // First, save shape properties

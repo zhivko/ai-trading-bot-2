@@ -455,6 +455,10 @@ function removeCrosshairVLine(gd, doRelayout = true) {
     return removed;
 }
 
+// Make functions globally available for main.js
+window.updateOrAddCrosshairVLine = updateOrAddCrosshairVLine;
+window.initializeChartInteractions = initializeChartInteractions;
+
 function handleShapeClick(event) {
     console.log('[DEBUG] handleShapeClick called with event:', event);
     console.log('[DEBUG] handleShapeClick - event type:', event.type, 'target:', event.target);
@@ -463,6 +467,69 @@ function handleShapeClick(event) {
     if (window.isDraggingShape || !window.gd) {
         console.log('[DEBUG] handleShapeClick early return - isDraggingShape:', window.isDraggingShape, 'window.gd exists:', !!window.gd);
         return;
+    }
+
+    // Check if this might be a buy signal click FIRST before checking other shapes
+    if (window.gd && window.gd.layout && window.gd.layout.shapes) {
+        const currentShapes = window.gd.layout.shapes;
+        const rect = window.chartDiv.getBoundingClientRect();
+        const mouseX_div = event.clientX - rect.left;
+        const mouseY_div = event.clientY - rect.top;
+        const plotMargin = window.gd._fullLayout.margin;
+        const mouseX_paper = mouseX_div;
+        const mouseY_paper = mouseY_div;
+
+        console.log('[DEBUG] handleShapeClick - checking for buy signals first');
+
+        // Look for buy signal shapes specifically
+        for (let i = 0; i < currentShapes.length; i++) {
+            const shape = currentShapes[i];
+
+            // Check if this is a buy signal shape
+            if (shape.name && shape.name.startsWith('buy_signal_') && shape.systemType === 'buy_signal' && shape.signalData) {
+                console.log('[DEBUG] handleShapeClick - found buy signal shape:', shape.name);
+
+                // Check if the click is close to this shape
+                const xrefKey = getAxisLayoutKey(shape.xref, 'xaxis');
+                const yrefKey = getAxisLayoutKey(shape.yref, 'yaxis');
+                const shapeXaxis = window.gd._fullLayout[xrefKey];
+                const shapeYaxis = window.gd._fullLayout[yrefKey];
+
+                if (!shapeXaxis || !shapeYaxis || typeof shapeXaxis.d2p !== 'function' || typeof shapeYaxis.d2p !== 'function') {
+                    continue;
+                }
+
+                let shapeX0Val = (shapeXaxis.type === 'date') ? ((shape.x0 instanceof Date) ? shape.x0.getTime() : new Date(shape.x0).getTime()) : Number(shape.x0);
+                let shapeX1Val = (shapeXaxis.type === 'date') ? ((shape.x1 instanceof Date) ? shape.x1.getTime() : new Date(shape.x1).getTime()) : Number(shape.x1);
+
+                const p0y = shapeYaxis.d2p(shape.y0);
+                const p1y = shapeYaxis.d2p(shape.y1);
+                const p0x = shapeXaxis.d2p(shapeX0Val);
+                const p1x = shapeXaxis.d2p(shapeX1Val);
+
+                const p0 = { x: shapeXaxis._offset + p0x, y: shapeYaxis._offset + p0y };
+                const p1 = { x: shapeXaxis._offset + p1x, y: shapeYaxis._offset + p1y };
+
+                if (!isNaN(p0.x) && !isNaN(p0.y) && !isNaN(p1.x) && !isNaN(p1.y)) {
+                    const distSq = distToSegmentSquared({ x: mouseX_paper, y: mouseY_paper }, p0, p1);
+                    const CLICK_THRESHOLD = 30; // Larger threshold for buy signals since they're horizontal lines
+
+                    if (distSq < CLICK_THRESHOLD * CLICK_THRESHOLD) {
+                        console.log('[DEBUG] handleShapeClick - buy signal clicked, showing modal');
+                        // Call the buy signal modal
+                        if (typeof window.displayBuySignalDetails === 'function') {
+                            window.displayBuySignalDetails(shape.signalData);
+                        } else {
+                            console.error('[DEBUG] handleShapeClick - displayBuySignalDetails function not found');
+                        }
+
+                        // Prevent event bubbling
+                        event.stopPropagation();
+                        return; // Exit early, don't check other shapes
+                    }
+                }
+            }
+        }
     }
 
     // Get mouse coordinates early - needed for YouTube marker detection

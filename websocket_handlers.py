@@ -7,6 +7,7 @@ import numpy as np
 import csv
 import os
 from typing import Dict, Any, List
+import httpx
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 from pybit.unified_trading import WebSocket as BybitWS
@@ -16,6 +17,26 @@ from logging_config import logger
 from indicators import _prepare_dataframe, calculate_macd, calculate_rsi, calculate_stoch_rsi, calculate_open_interest, calculate_jma_indicator, calculate_cto_line, get_timeframe_seconds, find_buy_signals
 from datetime import datetime, timezone
 from drawing_manager import get_drawings
+
+
+async def fetch_positions_from_trading_service() -> Dict[str, Any]:
+    """Fetch current positions from the trading service"""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get("http://localhost:8000/positions")
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("status") == "success":
+                    return data.get("positions", [])
+                else:
+                    logger.warning(f"Trading service returned error: {data}")
+                    return []
+            else:
+                logger.error(f"Failed to fetch positions from trading service: HTTP {response.status_code}")
+                return []
+    except Exception as e:
+        logger.error(f"Error fetching positions from trading service: {e}")
+        return []
 
 
 async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str):
@@ -37,7 +58,10 @@ async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str)
         "stream_delta_seconds": 1,  # Default, will be updated from settings
         "last_settings_check_timestamp": 0.0,  # For periodically re-checking settings
         "settings_check_interval_seconds": 3,  # How often to check settings (e.g., every 3 seconds)
-        "last_sent_live_price": None  # Track last sent live price to avoid duplicate sends
+        "last_sent_live_price": None,  # Track last sent live price to avoid duplicate sends
+        "last_positions_update": 0.0,  # Track last positions update
+        "positions_update_interval": 10,  # Update positions every 10 seconds
+        "cached_positions": []  # Cache positions data
     }
 
     try:
@@ -174,6 +198,25 @@ async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str)
         # and to allow for graceful exit when the client disconnects.
         while websocket.client_state == WebSocketState.CONNECTED:
             current_loop_time = time.time()
+            # Periodically send positions updates (independent of price ticks)
+            if current_loop_time - client_stream_state.get("last_positions_update", 0) >= client_stream_state.get("positions_update_interval", 10):
+                try:
+                    positions = await fetch_positions_from_trading_service()
+                    client_stream_state["cached_positions"] = positions
+                    client_stream_state["last_positions_update"] = current_loop_time
+
+                    # Send positions update as separate WebSocket message type
+                    positions_message = {
+                        "type": "positions_update",
+                        "symbol": symbol,  # Include symbol for context
+                        "positions": positions,
+                        "timestamp": int(current_loop_time)
+                    }
+                    await send_to_client(positions_message)
+                    logger.debug(f"📊 Live WebSocket sent positions update with {len(positions)} positions")
+                except Exception as pos_e:
+                    logger.warning(f"Failed to update and send positions: {pos_e}")
+
             # Periodically re-check settings from Redis
             if (current_loop_time - client_stream_state["last_settings_check_timestamp"]) >= client_stream_state["settings_check_interval_seconds"]:
                 try:
@@ -312,7 +355,10 @@ async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str)
         "stream_delta_seconds": 1,  # Default, will be updated from settings
         "last_settings_check_timestamp": 0.0,  # For periodically re-checking settings
         "settings_check_interval_seconds": 3,  # How often to check settings (e.g., every 3 seconds)
-        "last_sent_live_price": None  # Track last sent live price to avoid duplicate sends
+        "last_sent_live_price": None,  # Track last sent live price to avoid duplicate sends
+        "last_positions_update": 0.0,  # Track last positions update
+        "positions_update_interval": 10,  # Update positions every 10 seconds
+        "cached_positions": []  # Cache positions data
     }
 
     try:
@@ -593,6 +639,27 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
 
             while websocket.client_state == WebSocketState.CONNECTED:
                 try:
+                    current_time = time.time()
+
+                    # Periodically send positions updates (independent of price ticks)
+                    if current_time - client_state.get("last_positions_update", 0) >= client_state.get("positions_update_interval", 10):
+                        try:
+                            positions = await fetch_positions_from_trading_service()
+                            client_state["cached_positions"] = positions
+                            client_state["last_positions_update"] = current_time
+
+                            # Send positions update as separate WebSocket message type
+                            positions_message = {
+                                "type": "positions_update",
+                                "symbol": active_symbol,  # Include symbol for context
+                                "positions": positions,
+                                "timestamp": int(current_time)
+                            }
+                            await send_to_client(positions_message)
+                            logger.debug(f"📊 Sent positions update with {len(positions)} positions")
+                        except Exception as pos_e:
+                            logger.warning(f"Failed to update and send positions: {pos_e}")
+
                     # Read notifications with 1 second timeout
                     messages = await redis.xreadgroup(
                         group_name, consumer_id, {notification_stream_key: ">"}, count=10, block=1000

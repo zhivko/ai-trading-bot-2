@@ -4,6 +4,7 @@ uvicorn
 websockets
 jinja2
 httpx
+aiohttp
 redis
 pybit
 sse-starlette

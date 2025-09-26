@@ -20,6 +20,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
 import base64
+import aiohttp
 
 logger = logging.getLogger(__name__)
 
@@ -227,9 +228,10 @@ class EmailAlertService:
                 ), row=1, col=1)
 
         # --- Layout and Theming ---
+        cross_time_dt = datetime.fromtimestamp(cross_time, tz=timezone.utc).astimezone(pytz.timezone('Europe/Ljubljana'))
         fig.update_layout(
             title={
-                'text': f'{symbol} Alert ({resolution}) - {datetime.now(pytz.timezone("America/New_York")).strftime("%Y-%m-%d %H:%M:%S")}',
+                'text': f'{symbol} Alert ({resolution}) - {cross_time_dt.strftime("%Y-%m-%d %H:%M:%S")}',
                 'y':0.95,
                 'x':0.5,
                 'xanchor': 'center',
@@ -257,8 +259,19 @@ class EmailAlertService:
         # Set explicit ranges for tight fit (shared_xaxes affects all rows)
         fig.update_xaxes(range=x_range)
 
-        # Enable autorange for y-axes (free scaling)
-        for i in range(1, num_subplots + 1):
+        # Autoscale y-axis for price chart based on price data only
+        if not df.empty:
+            all_prices = df[['open', 'high', 'low', 'close']].values.flatten()
+            price_min = float(all_prices.min())
+            price_max = float(all_prices.max())
+            price_range = price_max - price_min
+            # Add 2% padding above and below
+            padding = price_range * 0.02
+            y_range = [price_min - padding, price_max + padding]
+            fig.update_yaxes(range=y_range, row=1, col=1)
+
+        # Enable autorange for indicator y-axes (free scaling)
+        for i in range(2, num_subplots + 1):
             fig.update_yaxes(autorange=True, row=i, col=1)
 
         fig.update_yaxes(title_text="Price (USD)", row=1, col=1)
@@ -496,13 +509,43 @@ class EmailAlertService:
                 try:
                     logger.info(f"Processing {len(alerts)} alerts for {user_email} on {symbol}.")
                     message_body = "<h2>Price Alerts Triggered</h2>"
+                    trading_actions = []
                     for alert in alerts:
-                        cross_time_str = datetime.fromtimestamp(alert['cross_time']).strftime('%Y-%m-%d %H:%M:%S UTC')
-                        if alert['trigger_type'] == 'price':
-                            message_body += f"<p><b>{alert['symbol']}</b> price crossed a trendline at <b>{alert['cross_value']:.2f}</b> on {cross_time_str}.</p>"
-                        else:
-                            message_body += f"<p><b>{alert['symbol']}</b> indicator <b>{alert['indicator_name']}</b> crossed a trendline at <b>{alert['cross_value']:.2f}</b> on {cross_time_str}.</p>"
-                    
+                        
+                        if(alert.get("drawing")['user_email'] == "klemenzivkovic@gmail.com"):
+                            cross_time_str = datetime.fromtimestamp(alert['cross_time']).strftime('%Y-%m-%d %H:%M:%S UTC')
+                            if alert['trigger_type'] == 'price':
+                                message_body += f"<p><b>{alert['symbol']}</b> price crossed a trendline at <b>{alert['cross_value']:.2f}</b> on {cross_time_str}.</p>"
+                            else:
+                                message_body += f"<p><b>{alert['symbol']}</b> indicator <b>{alert['indicator_name']}</b> crossed a trendline at <b>{alert['cross_value']:.2f}</b> on {cross_time_str}.</p>"
+
+                            # Check for trading flags
+                            properties = alert['drawing'].get('properties', {})
+                            if properties.get('buyOnCross'):
+                                if(alert.get("drawing", {}).get('buy_sent') == None):
+                                    logger.info(f"Buy on cross enabled for symbol {symbol}")
+                                    order_id = await self.place_trading_order(symbol, 'long', alert)
+                                    if order_id:
+                                        trading_actions.append(f"Placed LONG order for {symbol} (ID: {order_id})")
+                                        alert['drawing']['buy_sent'] = True
+                                    else:
+                                        trading_actions.append(f"Failed to place LONG order for {symbol}")
+                            if properties.get('sellOnCross'):
+                                if(alert.get("drawing", {}).get('sell_sent') == None):
+                                    logger.info(f"Sell on cross enabled for symbol {symbol}")
+                                    order_id = await self.place_trading_order(symbol, 'short', alert)
+                                    if order_id:
+                                        trading_actions.append(f"Placed SHORT order for {symbol} (ID: {order_id})")
+                                        alert['drawing']['sell_sent'] = True
+                                    else:
+                                        trading_actions.append(f"Failed to place SHORT order for {symbol}")
+
+                    if trading_actions:
+                        message_body += "<h3>Trading Actions:</h3><ul>"
+                        for action in trading_actions:
+                            message_body += f"<li>{action}</li>"
+                        message_body += "</ul>"
+
                     logger.info(f"Generating chart image for {symbol}")
                     chart_image = await self.generate_alert_chart(user_email, symbol, alerts[0]['resolution'], alerts)
                     images = [(f"{symbol}_alert_chart.png", chart_image)] if chart_image else []
@@ -573,18 +616,18 @@ class EmailAlertService:
 
         drawings_to_update = {}
         for alert in alerts:
-            drawing = alert.get('drawing', {})
-            user_email = drawing.get('user_email')
-            symbol = drawing.get('symbol')
-            drawing_id = drawing.get('id')
+            alert_drawing = alert.get('drawing', {})
+            user_email = alert_drawing.get('user_email')
+            symbol = alert_drawing.get('symbol')
+            drawing_id = alert_drawing.get('id')
             if not all([user_email, symbol, drawing_id]):
-                logger.warning(f"Skipping marking drawing as sent due to missing info: {drawing}")
+                logger.warning(f"Skipping marking drawing as sent due to missing info: {alert_drawing}")
                 continue
-            
+
             key = (user_email, symbol)
             if key not in drawings_to_update:
-                drawings_to_update[key] = set()
-            drawings_to_update[key].add(drawing_id)
+                drawings_to_update[key] = {}
+            drawings_to_update[key][drawing_id] = alert_drawing
 
         for (user_email, symbol), drawing_ids in drawings_to_update.items():
             redis_key = f"drawings:{user_email}:{symbol}"
@@ -600,7 +643,9 @@ class EmailAlertService:
                     
                     updated = False
                     for i, drawing in enumerate(user_drawings):
-                        if drawing.get('id') in drawing_ids:
+                        drawing_id_str = str(drawing.get('id'))
+                        if drawing_id_str in drawing_ids:
+                            alert_drawing = drawing_ids[drawing_id_str]
                             user_drawings[i]['alert_sent'] = True
                             alert_sent_time = int(datetime.now(timezone.utc).timestamp())
                             user_drawings[i]['alert_sent_time'] = alert_sent_time
@@ -610,6 +655,12 @@ class EmailAlertService:
                                 user_drawings[i]['properties'] = {}
                             user_drawings[i]['properties']['emailSent'] = True
                             user_drawings[i]['properties']['emailDate'] = alert_sent_time * 1000  # milliseconds for JS
+
+                            # Copy buy_sent and sell_sent from the alert's drawing
+                            if alert_drawing.get('buy_sent') is True:
+                                user_drawings[i]['buy_sent'] = True
+                            if alert_drawing.get('sell_sent') is True:
+                                user_drawings[i]['sell_sent'] = True
 
                             updated = True
 
@@ -621,6 +672,35 @@ class EmailAlertService:
 
             except Exception as e:
                 logger.error(f"Error marking drawings as sent for {user_email} on {symbol}: {e}", exc_info=True)
+
+    async def place_trading_order(self, symbol: str, action: str, alert_details: Dict) -> Optional[str]:
+        """Place a trading order via trading_service if enabled."""
+        try:
+            # Convert symbol from BTCUSDT to BTC-USDT format
+            if symbol.endswith('USDT'):
+                trading_symbol = symbol[:-4] + '-USDT'
+            else:
+                trading_symbol = symbol
+
+            trading_service_url = "http://localhost:8000"
+            endpoint = f"{trading_service_url}/{'buy' if action == 'long' else 'sell'}/{trading_symbol}"
+
+            logger.info(f"Attempting to place {action} order for {symbol} ({trading_symbol}) via trading service")
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(endpoint) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        order_id = result.get('orderId', 'unknown')
+                        logger.info(f"Successfully placed {action} order for {symbol}: {order_id}")
+                        return order_id
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Failed to place {action} order for {symbol}: {response.status} - {error_text}")
+                        return None
+        except Exception as e:
+            logger.error(f"Exception while placing {action} order for {symbol}: {e}")
+            return None
 
     async def remove_alert_after_delay(self, symbol: str, line_id: str, delay: int = 86400):
         await asyncio.sleep(delay)
