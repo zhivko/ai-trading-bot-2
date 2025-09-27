@@ -44,6 +44,17 @@ function determineSubplotNameForShape(shape) {
     return currentSymbol;
 }
 
+window.populateActiveIndicatorsState = function(activeIndicatorIds) {
+    // Populate activeIndicatorsState with correct yAxisRef mapping
+    // This should be called whenever indicators change and layout is created
+    window.activeIndicatorsState = activeIndicatorIds.map((indicatorId, index) => ({
+        id: indicatorId,
+        yAxisRef: `y${index + 2}` // y2, y3, y4, etc. matching Plotly layout
+    }));
+
+    console.log('🔧 Populated activeIndicatorsState:', window.activeIndicatorsState);
+};
+
 window.determineSubplotNameForShape = determineSubplotNameForShape; // Export to global scope
 
 function distSq(p1, p2) {

@@ -2140,25 +2140,38 @@ function getYrefForSubplot(subplotName) {
         return 'y';
     }
 
-    // Get current active indicators to determine the correct y-axis index
-    const activeIndicators = window.combinedIndicators || [];
-    const forcedIndicatorOrder = ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10', 'open_interest', 'jma'];
+    // Get user-selected indicators in their configured display order
+    const selectedIndicators = getSelectedIndicators() || [];
 
-    // Filter to only active indicators and maintain order
-    const activeIndicatorIds = forcedIndicatorOrder.filter(indicatorId => activeIndicators.includes(indicatorId));
+    // If this indicator is not selected, default to main chart
+    if (!selectedIndicators.includes(indicator)) {
+        console.warn(`🎨 DRAWINGS: Indicator ${indicator} not found in selected indicators (${selectedIndicators.join(', ')}), defaulting to main chart`);
+        return 'y';
+    }
 
-    // Find the index of this indicator in the active list
-    const indicatorIndex = activeIndicatorIds.indexOf(indicator);
+    // Find the index of this indicator in the selected indicators list
+    const indicatorIndex = selectedIndicators.indexOf(indicator);
 
     if (indicatorIndex === -1) {
-        console.warn(`🎨 DRAWINGS: Indicator ${indicator} not found in active indicators, defaulting to main chart`);
+        console.warn(`🎨 DRAWINGS: Error finding index for indicator ${indicator}, defaulting to main chart`);
         return 'y';
     }
 
     // Return the correct yref (y2, y3, y4, etc.)
     const yref = `y${indicatorIndex + 2}`;
-    console.log(`🎨 DRAWINGS: Mapped subplot ${subplotName} to yref ${yref} (indicator index: ${indicatorIndex})`);
+    console.log(`🎨 DRAWINGS: Mapped subplot ${subplotName} to yref ${yref} (indicator "${indicator}" at index ${indicatorIndex} in selected indicators: [${selectedIndicators.join(', ')}])`);
     return yref;
+}
+
+function getSelectedIndicators() {
+    // Get user-selected indicators in their display order
+    // First try combinedIndicators (set when WebSocket is connected)
+    if (combinedIndicators && combinedIndicators.length > 0) {
+        return combinedIndicators;
+    }
+
+    // Fallback: get currently active indicators from chart traces
+    return getCurrentActiveIndicators();
 }
 
 function convertDrawingToShape(drawing) {
@@ -3858,6 +3871,9 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
 }
 
 function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) {
+    // Populate activeIndicatorsState with the correct yAxisRef mapping
+    window.populateActiveIndicatorsState(activeIndicatorIds);
+
     const baseLayout = {
         title: `${combinedSymbol} - ${combinedResolution.toUpperCase()}`,
         // Remove fixed height to allow full viewport height

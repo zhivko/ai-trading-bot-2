@@ -4,7 +4,7 @@ from redis_utils import get_redis_connection
 
 async def main():
     redis = await get_redis_connection()
-    target_id = "175d0bae-6d5f-4e6e-a1c1-fe7cac50566e"
+    target_id = "e974c10b-7c04-4278-a26b-0979a424f4b7"
 
     async for key in redis.scan_iter(match="drawings:*:*"):
         key_str = key.decode() if isinstance(key, bytes) else key

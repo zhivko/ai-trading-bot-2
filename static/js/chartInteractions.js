@@ -54,6 +54,10 @@ function colorTheLine(eventParam)
             return;
         }
 
+        // Allow hover detection even when mouse is down for selection updates
+        // The original check was intended to prevent interference during drag operations,
+        // but it also prevented hover updates after shape selection changes
+
         // Use the passed event or fall back to global event
         const currentEvent = eventParam || event;
 
@@ -135,8 +139,8 @@ function colorTheLine(eventParam)
         // Convert DOM coordinates to Plotly paper coordinates
         // Paper coordinates are relative to the full chart area (including margins)
         const plotMargin = window.gd._fullLayout.margin;
-        const mouseX_paper = mouseX_div;
-        const mouseY_paper = mouseY_div;
+        const mouseX_paper = mouseX_div ;
+        const mouseY_paper = mouseY_div ;
 
         // console.log(`[colorTheLine] Chart dimensions: width=${window.gd._fullLayout.width}, height=${window.gd._fullLayout.height}`);
         // console.log(`[colorTheLine] Plot margins: l=${plotMargin.l}, r=${plotMargin.r}, t=${plotMargin.t}, b=${plotMargin.b}`);
@@ -144,10 +148,17 @@ function colorTheLine(eventParam)
 
         // Check if mouse is within the chart's plotting area (with some tolerance for edge cases)
         const tolerance = 10; // Allow 10px tolerance for edge cases
-        const isOutsideBounds = mouseX_paper < -tolerance ||
-                               mouseX_paper > window.gd._fullLayout.width + tolerance ||
-                               mouseY_paper < -tolerance ||
-                               mouseY_paper > window.gd._fullLayout.height + tolerance;
+        // Since mouseX_paper and mouseY_paper are in div coordinates (not subtracting margins),
+        // we need to account for margins in the bounds checking
+        const plotLeft = plotMargin.l;
+        const plotTop = plotMargin.t;
+        const plotRight = plotMargin.l + (window.gd._fullLayout.width - plotMargin.l - plotMargin.r);
+        const plotBottom = plotMargin.t + (window.gd._fullLayout.height - plotMargin.t - plotMargin.b);
+
+        const isOutsideBounds = mouseX_paper < plotLeft - tolerance ||
+                               mouseX_paper > plotRight + tolerance ||
+                               mouseY_paper < plotTop - tolerance ||
+                               mouseY_paper > plotBottom + tolerance;
 
         // console.log(`[colorTheLine] Bounds check: mouseX=${mouseX_paper}, mouseY=${mouseY_paper}, width=${window.gd._fullLayout.width}, height=${window.gd._fullLayout.height}, tolerance=${tolerance}, isOutside=${isOutsideBounds}`);
 
@@ -164,8 +175,8 @@ function colorTheLine(eventParam)
 
         const mainYAxis = window.gd._fullLayout.yaxis;
         const plotAreaHeight = mainYAxis._length;
-        const mouseX_plotArea = mouseX_div - plotMargin.l;
-        const mouseY_plotArea = plotAreaHeight - (mouseY_div - plotMargin.t);
+        const mouseX_plotArea = mouseX_paper;
+        const mouseY_plotArea = plotAreaHeight - mouseY_paper;
         let minDistanceSq = Infinity;
         const HOVER_THRESHOLD_PIXELS_SQ = 15 * 15;
 
@@ -189,6 +200,8 @@ function colorTheLine(eventParam)
             const shape = currentShapes[i];
             //console.log(`[colorTheLine] Shape ${i}: type=${shape.type}, id=${shape.id}, isSystemShape=${shape.isSystemShape}`);
             if (shape.type === 'line' && shape.id && !shape.isSystemShape) { // Ignore system shapes
+                // Process all valid shapes for hover detection, regardless of selection state
+                // Selected shapes should still show hover effects when hovered over
                 //console.group(`[colorTheLine] Processing Shape ${i} (ID: ${shape.id})`);
                 //console.log(`[colorTheLine] Processing shape ${i} (ID: ${shape.id}) for hover detection`);
                 const xrefKeyForFilter = getAxisLayoutKey(shape.xref, 'xaxis'); // Assumes getAxisLayoutKey is global
@@ -198,14 +211,8 @@ function colorTheLine(eventParam)
 
                 if (!shapeXaxisForFilter || !shapeYaxisForFilter) continue;
 
-                if (hoveredSubplotRefs) {
-                    if (shapeXaxisForFilter._id !== hoveredSubplotRefs.xref || shapeYaxisForFilter._id !== hoveredSubplotRefs.yref) {
-                        //console.log(`[NativeMousemove DEBUG] Skipping shape ${i} (ID: ${shape.id}, shape_xref: ${shape.xref}, shape_yref: ${shape.yref}) because its axes (_id: ${shapeXaxisForFilter._id}, ${shapeYaxisForFilter._id}) don't match hovered subplot axes (hover_xref: ${hoveredSubplotRefs.xref}, hover_yref: ${hoveredSubplotRefs.yref}).`);
-                        continue;
-                    }
-                } else {
-                    continue;
-                }
+                // Allow shapes in any valid subplot - process all shapes regardless of subplot detection
+                // This ensures hover detection works on any shape anywhere on the chart
 
                 const xrefKey = getAxisLayoutKey(shape.xref, 'xaxis');
                 const yrefKey = getAxisLayoutKey(shape.yref, 'yaxis');
@@ -476,8 +483,8 @@ function handleShapeClick(event) {
         const mouseX_div = event.clientX - rect.left;
         const mouseY_div = event.clientY - rect.top;
         const plotMargin = window.gd._fullLayout.margin;
-        const mouseX_paper = mouseX_div;
-        const mouseY_paper = mouseY_div;
+        const mouseX_paper = mouseX_div - plotMargin.l;
+        const mouseY_paper = mouseY_div - plotMargin.t;
 
         console.log('[DEBUG] handleShapeClick - checking for buy signals first');
 
@@ -537,7 +544,6 @@ function handleShapeClick(event) {
     const mouseX_div = event.clientX - rect.left;
     const mouseY_div = event.clientY - rect.top;
 
-    // Convert DOM coordinates to Plotly paper coordinates (same as colorTheLine function)
     const plotMargin = window.gd._fullLayout.margin;
     const mouseX_paper = mouseX_div;
     const mouseY_paper = mouseY_div;
@@ -626,6 +632,10 @@ function handleShapeClick(event) {
     console.log('[DEBUG] handleShapeClick - plot margins:', { l: plotMargin.l, r: plotMargin.r, t: plotMargin.t, b: plotMargin.b });
     console.log('[DEBUG] handleShapeClick - paper coordinates:', { mouseX_paper, mouseY_paper });
 
+    // Get the hovered subplot first (similar to colorTheLine function)
+    const hoveredSubplotRefs = getSubplotRefsAtPaperCoords(mouseX_paper, mouseY_paper, window.gd._fullLayout);
+    console.log('[DEBUG] handleShapeClick - hovered subplot refs:', hoveredSubplotRefs);
+
     // Find the closest shape to the click position
     const currentShapes = window.gd.layout.shapes || [];
     console.log('[DEBUG] handleShapeClick - checking', currentShapes.length, 'shapes');
@@ -639,6 +649,19 @@ function handleShapeClick(event) {
         //console.log(`[DEBUG] handleShapeClick - shape ${i}: type=${shape.type}, id=${shape.id}, isSystemShape=${shape.isSystemShape}`);
         if (shape.type === 'line' && shape.id && !shape.isSystemShape) {
             //console.log(`[DEBUG] handleShapeClick - processing clickable shape ${i} (ID: ${shape.id})`);
+            const xrefKeyForFilter = getAxisLayoutKey(shape.xref, 'xaxis');
+            const yrefKeyForFilter = getAxisLayoutKey(shape.yref, 'yaxis');
+            const shapeXaxisForFilter = window.gd._fullLayout[xrefKeyForFilter];
+            const shapeYaxisForFilter = window.gd._fullLayout[yrefKeyForFilter];
+
+            if (!shapeXaxisForFilter || !shapeYaxisForFilter) {
+                // console.log(`[DEBUG] handleShapeClick - invalid axes for shape ${i}`);
+                continue;
+            }
+
+            // Allow all shapes for click detection regardless of subplot location
+            // This ensures clicks work on any shape anywhere on the chart
+
             const xrefKey = getAxisLayoutKey(shape.xref, 'xaxis');
             const yrefKey = getAxisLayoutKey(shape.yref, 'yaxis');
             const shapeXaxis = window.gd._fullLayout[xrefKey];
@@ -716,8 +739,10 @@ function handleShapeClick(event) {
         // Update visual feedback by calling colorTheLine to handle the color change
         console.log('[DEBUG] handleShapeClick - calling colorTheLine for immediate color update at', new Date().toISOString());
         if (typeof colorTheLine === 'function') {
-            // Pass the click event to colorTheLine for coordinate handling if needed
-            colorTheLine(event);
+            // Use the last mouse event instead of the click event for accurate hover detection
+            // The click event position might not reflect current mouse position
+            const eventToUse = window.lastMouseEvent || event;
+            colorTheLine(eventToUse);
         } else {
             console.error('[DEBUG] handleShapeClick - colorTheLine not available!');
         }
@@ -779,6 +804,9 @@ function initializeChartInteractions() {
         console.log('[DEBUG] Mouse up detected, isMouseDown =', isMouseDown);
     }, { capture: true, passive: true });
 
+    // Store the last mouse event globally for accurate hover detection
+    window.lastMouseEvent = null;
+
     // Add a test function to manually trigger colorTheLine
     window.testColorTheLine = function() {
         console.log('[DEBUG] Manually testing colorTheLine function');
@@ -811,6 +839,9 @@ function initializeChartInteractions() {
             console.log('[DEBUG] Skipping mousemove - throttling active');
             return; // Skip if already processing
         }
+
+        // Store the current mouse event globally for use in other functions
+        window.lastMouseEvent = event;
 
         mousemoveThrottleTimer = true; // Set flag
         await delay(16); // ~60fps throttling

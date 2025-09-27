@@ -34,6 +34,8 @@ async def save_drawing(drawing_data: Dict[str, Any], request: Request) -> str:
     drawing_with_id = {**drawing_data, "id": str(uuid.uuid4())}
     drawings.append(drawing_with_id)
     await redis.set(key, json.dumps(drawings))
+    logger.info(f"Drawing {drawing_with_id['id']} saved.")
+    logger.info(f"Json of drawing {drawings_data_str}")
 
     return drawing_with_id["id"]
 
