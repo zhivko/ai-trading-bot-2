@@ -349,6 +349,25 @@ function processMessageQueue() {
         console.log(`🔄 ${safeLogMessage}`);
 
         // Process message based on type
+        function handleYouTubeVideos(message) {
+            console.log('🎥 Combined WebSocket: Received YouTube videos for', message.symbol);
+
+            if (!message.data || !Array.isArray(message.data)) {
+                console.warn('🎥 Combined WebSocket: Invalid YouTube videos data format');
+                return;
+            }
+
+            if (message.data.length === 0) {
+                console.log('🎥 Combined WebSocket: No YouTube videos to display');
+                return;
+            }
+
+            // Process and display YouTube videos as markers on the chart
+            addYouTubeVideosToChart(message.data, message.symbol);
+
+            console.log('🎥 Combined WebSocket: Successfully processed', message.data.length, 'YouTube videos for', message.symbol);
+        }
+
         switch (message.type) {
             case 'historical':
                 handleHistoricalData(message);
@@ -374,8 +393,28 @@ function processMessageQueue() {
             case 'youtube_videos':
                 handleYouTubeVideos(message);
                 break;
+            case 'trade_history':
+                handleTradeHistoryMessage(message);
+                break;
             default:
                 console.warn('⚠️ Unknown message type:', message.type);
+
+function handleTradeHistoryMessage(message) {
+    console.log(`💹 Combined WebSocket: Received trade history for ${message.symbol || 'unknown'} - ${message.data ? message.data.length : 0} trades`);
+
+    if (!message.data || !Array.isArray(message.data) || message.data.length === 0) {
+        console.warn('💹 Combined WebSocket: Invalid trade history data format');
+        return;
+    }
+
+    // Update trade history data using the tradeHistory.js module
+    if (window.updateTradeHistoryFromWebSocket) {
+        window.updateTradeHistoryFromWebSocket(message.data, message.symbol);
+        console.log(`💹 Combined WebSocket: Successfully processed ${message.data.length} trade history records`);
+    } else {
+        console.warn('💹 Combined WebSocket: updateTradeHistoryFromWebSocket function not available');
+    }
+}
         }
 
         console.log('✅ Message processing completed for type:', message.type);
@@ -2587,8 +2626,8 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     }
 
     // Create traces for each indicator with separate subplots
-    // FORCE indicator order: MACD first, RSI second, CTO third, then others
-    const forcedIndicatorOrder = ['macd', 'rsi', 'cto_line', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10', 'open_interest', 'jma'];
+    // FORCE indicator order to match backend configuration
+    const forcedIndicatorOrder = ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10', 'open_interest', 'jma', 'cto_line'];
     const indicatorTypes = forcedIndicatorOrder.filter(indicatorId => combinedIndicators.includes(indicatorId));
 
     // console.log('FORCED INDICATOR ORDER - Processing in this exact sequence:', indicatorTypes);
@@ -3116,6 +3155,21 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     if (window.gd && window.gd.layout && window.gd.layout.shapes) {
         layout.shapes = window.gd.layout.shapes;
         console.log('🎨 DRAWINGS: Preserving', window.gd.layout.shapes.length, 'existing shapes during historical data update');
+    }
+
+    // PRESERVE TRADE HISTORY VISUALIZATION DATA
+    if (window.gd && window.gd.data) {
+        // Look for existing trade history traces (volume profile or trade circles)
+        const tradeHistoryTraces = window.gd.data.filter(trace =>
+            trace.name && (trace.name.includes('Volume Profile') || trace.name.includes('Buy Trades') || trace.name.includes('Sell Trades'))
+        );
+
+        if (tradeHistoryTraces.length > 0) {
+            console.log('💹 TRADE HISTORY: Preserving', tradeHistoryTraces.length, 'trade history traces during chart update');
+            // Add preserved traces to the chart update
+            allTraces.push(...tradeHistoryTraces);
+            console.log('💹 TRADE HISTORY: Final traces after adding:', allTraces.length);
+        }
     }
 
     console.log('🔄 Using Plotly.react with user\'s zoom/pan settings preserved...');
@@ -3762,8 +3816,8 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
         }
     });
 
-    // CORRECT ORDER for CTO Line to appear properly positioned (second after MACD)
-    const forcedIndicatorOrder = ['macd', 'cto_line', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10', 'open_interest', 'jma'];
+    // FORCE indicator order to match backend configuration (CTO Line last)
+    const forcedIndicatorOrder = ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10', 'open_interest', 'jma', 'cto_line'];
     const activeIndicatorIds = forcedIndicatorOrder.filter(indicatorId => newIndicators.includes(indicatorId));
 
     console.log('🎯 INDICATOR DISPLAY UPDATE: FORCED ORDER activeIndicatorIds:', activeIndicatorIds);
@@ -4140,6 +4194,7 @@ window.updateCombinedResolution = updateCombinedResolution;
 window.setupWebSocketMessageHandler = setupWebSocketMessageHandler;
 window.mergeDataPoints = mergeDataPoints;
 window.mergeDataPointsWithIndicators = mergeDataPointsWithIndicators;
+window.createLayoutForIndicators = createLayoutForIndicators;
 
 // DEBUG: Add debugging function for chart diagnosis
 window.debugChartState = function() {

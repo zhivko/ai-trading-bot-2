@@ -736,15 +736,12 @@ function handleShapeClick(event) {
             isShapeSelected: window.isShapeSelected(shapeId)
         });
 
-        // Update visual feedback by calling colorTheLine to handle the color change
-        console.log('[DEBUG] handleShapeClick - calling colorTheLine for immediate color update at', new Date().toISOString());
-        if (typeof colorTheLine === 'function') {
-            // Use the last mouse event instead of the click event for accurate hover detection
-            // The click event position might not reflect current mouse position
-            const eventToUse = window.lastMouseEvent || event;
-            colorTheLine(eventToUse);
+        // Update visual feedback by calling updateShapeVisuals directly for immediate selection color change
+        console.log('[DEBUG] handleShapeClick - calling updateShapeVisuals for immediate selection color update at', new Date().toISOString());
+        if (typeof updateShapeVisuals === 'function') {
+            updateShapeVisuals();
         } else {
-            console.error('[DEBUG] handleShapeClick - colorTheLine not available!');
+            console.error('[DEBUG] handleShapeClick - updateShapeVisuals not available!');
         }
 
         // Update info panel

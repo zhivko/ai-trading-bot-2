@@ -27,6 +27,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.streamDeltaSlider = document.getElementById('stream-delta-slider');
     window.streamDeltaValueDisplay = document.getElementById('stream-delta-value-display');
 
+    // Trade filter slider elements
+    window.minVolumeSlider = document.getElementById('min-volume-slider');
+    window.minVolumeValueDisplay = document.getElementById('min-volume-value');
+
+    // Initialize trade filter slider to 0 by default to show all trades
+    if (window.minVolumeSlider) {
+        // Set slider properties for crypto volumes (0-0.2 range)
+        window.minVolumeSlider.min = 0;
+        window.minVolumeSlider.max = 0.2;
+        window.minVolumeSlider.step = 0.01;
+
+        // Always start at 0 to show all trades
+        window.minVolumeSlider.value = 0;
+        if (window.minVolumeValueDisplay) {
+            window.minVolumeValueDisplay.textContent = '0';
+        }
+    }
+
+    // Trade visualization checkbox elements
+    window.showVolumeProfileCheckbox = document.getElementById('show-volume-profile-checkbox');
+    window.showTradeMarkersCheckbox = document.getElementById('show-trade-markers-checkbox');
+
     // Initialize debounced functions
     window.debouncedUpdateShapeVisuals = debounce(updateShapeVisuals, VISUAL_UPDATE_DEBOUNCE_DELAY); // VISUAL_UPDATE_DEBOUNCE_DELAY from config.js
     // Crosshair functionality disabled due to panning interference
@@ -156,7 +178,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         forceHideHoverElements(); // Force hide hover elements via CSS
 
         console.log('[DEBUG] Chart initialization completed');
-    
+
+        // Initialize trade history after chart is ready
+        console.log('[DEBUG] About to call initializeTradeHistory');
+        initializeTradeHistory();
+        console.log('[DEBUG] initializeTradeHistory completed');
+
     }).catch(err => {
         console.error('[DEBUG] Plotly initialization error:', err);
         console.error('Full error details:', err);
@@ -677,6 +704,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // Trade filter slider event listener - only if tradeHistory.js hasn't set it up
+    if (window.minVolumeSlider && window.minVolumeValueDisplay && !window.tradeHistoryInitialized) {
+        window.minVolumeSlider.addEventListener('input', () => {
+            // Update the display value
+            window.minVolumeValueDisplay.textContent = window.minVolumeSlider.value;
+            // Save settings when slider value changes
+            saveSettings();
+        });
+    }
+
+    // Trade visualization checkboxes event listeners - only if tradeHistory.js hasn't set it up
+    if (window.showVolumeProfileCheckbox && !window.tradeHistoryInitialized) {
+        window.showVolumeProfileCheckbox.addEventListener('change', saveSettings);
+    }
+    if (window.showTradeMarkersCheckbox && !window.tradeHistoryInitialized) {
+        window.showTradeMarkersCheckbox.addEventListener('change', saveSettings);
+    }
+
     // Initialize other features
     initializeReplayControls(); // From replay.js
     initializeAIFeatures();   // From aiFeatures.js
@@ -1157,6 +1202,7 @@ async function populateShapePropertiesDialog(activeShape) {
             console.log('DEBUG: Full properties response:', properties);
             console.log('DEBUG: start_price in properties:', properties.start_price);
             console.log('DEBUG: end_price in properties:', properties.end_price);
+            console.log('DEBUG: resolution in properties:', properties.resolution);
 
             // Populate Y values
             if (startPrice) {
@@ -1202,6 +1248,17 @@ async function populateShapePropertiesDialog(activeShape) {
             }
             if (emailDateDisplay && properties.emailDate) {
                 emailDateDisplay.textContent = new Date(properties.emailDate).toLocaleString();
+            }
+
+            // Populate alert actions
+            if (document.getElementById('alert-actions-display') && properties.alert_actions) {
+                document.getElementById('alert-actions-display').value = Array.isArray(properties.alert_actions) ? properties.alert_actions.join('\n') : properties.alert_actions;
+            }
+
+            // Populate resolution
+            if (document.getElementById('shape-resolution')) {
+                document.getElementById('shape-resolution').value = properties.resolution || '';
+                console.log('DEBUG: Set shape-resolution to:', properties.resolution);
             }
 
             console.log('Loaded existing shape properties:', properties);
@@ -1258,6 +1315,7 @@ async function saveShapeProperties() {
 
     // Prepare properties object
     const properties = {
+        resolution: document.getElementById('shape-resolution').value,
         buyOnCross,
         sellOnCross,
         sendEmailOnCross

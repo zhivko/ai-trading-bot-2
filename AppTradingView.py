@@ -56,6 +56,7 @@ from endpoints.chart_endpoints import (
     history_endpoint, initial_chart_config, symbols_endpoint,
     config_endpoint, symbols_list_endpoint
 )
+# Trade history is now handled directly via WebSocket - no REST endpoint needed
 from endpoints.drawing_endpoints import (
     get_drawings_api_endpoint, save_drawing_api_endpoint,
     delete_drawing_api_endpoint, update_drawing_api_endpoint,
@@ -308,6 +309,7 @@ app.get("/initial_chart_config")(initial_chart_config)
 app.get("/symbols")(symbols_endpoint)
 app.get("/config")(config_endpoint)
 app.get("/symbols_list")(symbols_list_endpoint)
+
 
 # Drawing endpoints
 app.get("/get_drawings/{symbol}")(get_drawings_api_endpoint)

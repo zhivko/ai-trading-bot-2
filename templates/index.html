@@ -335,22 +335,28 @@
 <body>
     <div id="controls">
   <div>
-    <strong>Crypto Pair:</strong>
+    <strong>Pair:</strong>
     <select id="symbol-select">
     </select>
-    </div>
-  
+  </div>
+
   <div>
     <strong>Time Scale:</strong>
     <select id="resolution-select">
     </select>
   </div>
-  
+
   <div>
     <strong>Time Range:</strong>
     <select id="range-select">
     </select>
- </div>
+  </div>
+
+  <div>
+    <strong>Trade Filter:</strong><br>
+    <label>Min Volume: <input type="range" id="min-volume-slider" min="0" max="1000" value="0" step="1"></label><br>
+    <span id="min-volume-value">0</span>
+  </div>
 
   <div>
     {% if request.session.email %}
@@ -467,19 +473,28 @@
                 <input type="range" id="stream-delta-slider" min="0" max="60" value="0" step="1" style="width: 100%;">
             </div>
 
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="show-volume-profile-checkbox" checked>
+                <label class="form-check-label" for="show-volume-profile-checkbox">
+                    Show Volume Profile
+                </label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="show-trade-markers-checkbox" checked>
+                <label class="form-check-label" for="show-trade-markers-checkbox">
+                    Show Trade Markers
+                </label>
+            </div>
+
             <h4>Indicators:</h4>
             <div id="indicator-checkbox-list">
                 <div>
                     <input type="checkbox" id="indicator-macd" value="macd">
-                    <label for="indicator-macd">Macd</label>
+                    <label for="indicator-macd">MACD</label>
                 </div>
                 <div>
                     <input type="checkbox" id="indicator-rsi" value="rsi">
                     <label for="indicator-rsi">RSI</label>
-                </div>
-                <div>
-                    <input type="checkbox" id="indicator-cto_line" value="cto_line">
-                    <label for="indicator-cto_line">CTO Line</label>
                 </div>
                 <div>
                     <input type="checkbox" id="indicator-stoch-rsi-9-3" value="stochrsi_9_3">
@@ -505,6 +520,10 @@
                     <input type="checkbox" id="indicator-jma" value="jma">
                     <label for="indicator-jma">Jurik MA</label>
                 </div>
+                <div>
+                    <input type="checkbox" id="indicator-cto_line" value="cto_line">
+                    <label for="indicator-cto_line">CTO Line</label>
+                </div>
             </div>
         </div>
     </div>
@@ -520,7 +539,17 @@
             <input type="number" id="start-price" step="0.00000001" style="width: 100%; margin-bottom: 5px;"><br>
 
             <label for="end-price">End Price (Y2):</label>
-            <input type="number" id="end-price" step="0.00000001" style="width: 100%;"><br>
+            <input type="number" id="end-price" step="0.00000001" style="width: 100%; margin-bottom: 5px;"><br>
+
+<label for="shape-resolution">Time Scale:</label>
+<select id="shape-resolution" style="width: 100%; margin-bottom: 5px;">
+    <option value="">Select Time Scale</option>
+    <option value="1m">1 Minute</option>
+    <option value="5m">5 Minutes</option>
+    <option value="1h">1 Hour</option>
+    <option value="1d">1 Day</option>
+    <option value="1w">1 Week</option>
+</select><br>
         </div>
 
         <label for="buy-on-cross">Buy on Cross:</label>
@@ -544,6 +573,9 @@
 
         <label for="sell-sent">Sell Sent:</label>
         <input type="checkbox" id="sell-sent"><br><br>
+
+        <label for="alert-actions">Trading Actions:</label>
+        <textarea id="alert-actions-display" readonly style="width: 100%; height: 60px; resize: vertical;"></textarea><br><br>
 
         <label for="email-date">Email Date:</label>
         <span id="email-date-display">Not sent yet</span><br><br>
@@ -569,6 +601,9 @@
     <script src="/static/js/replay.js"></script>
     <script src="/static/js/settingsManager.js"></script>
     <script src="/static/js/plotlyEventHandlers.js"></script>
+
+    <!-- Trade history visualization -->
+    <script src="/static/js/tradeHistory.js"></script>
 
     <!-- Audio recording functionality -->
     <script src="/static/js/audioRecording.js"></script>

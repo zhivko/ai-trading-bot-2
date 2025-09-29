@@ -32,7 +32,7 @@ TRADING_SYMBOL = "BTCUSDT"  # Symbol to trade for background tasks and AI defaul
 TRADING_TIMEFRAME = "5m"  # Timeframe for background tasks and AI defaults
 
 # Supported symbols and resolutions
-SUPPORTED_SYMBOLS = ["BTCUSDT", "XMRUSDT", "ETHUSDT", "SOLUSDT", "SUIUSDT", "PAXGUSDT", "BNBUSDT", "ADAUSDT", "BTCDOM"]
+SUPPORTED_SYMBOLS = ["BTCUSDT", "XMRUSDT", "ETHUSDT", "SOLUSDT", "SUIUSDT", "PAXGUSDT", "BNBUSDT", "ADAUSDT", "BTCDOM", "APEXUSDT"]
 SUPPORTED_RESOLUTIONS = ["1m", "5m", "1h", "4h", "1d", "1w"]
 
 SUPPORTED_RANGES = [
@@ -72,6 +72,9 @@ DEFAULT_SYMBOL_SETTINGS = {
     'localOllamaModelName': None,  # New default
     'showAgentTrades': False  # New default for showing agent trades
 }
+
+# Trading Service Configuration
+TRADING_SERVICE_URL = os.getenv("TRADING_SERVICE_URL", "http://localhost:8000")
 
 # AI Configuration
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")

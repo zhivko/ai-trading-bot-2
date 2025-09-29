@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytz
 import asyncio
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass
 import logging
 from redis.asyncio import Redis
@@ -509,9 +509,9 @@ class EmailAlertService:
                 try:
                     logger.info(f"Processing {len(alerts)} alerts for {user_email} on {symbol}.")
                     message_body = "<h2>Price Alerts Triggered</h2>"
-                    trading_actions = []
+                    alert_actions = []
                     for alert in alerts:
-                        
+
                         if(alert.get("drawing")['user_email'] == "klemenzivkovic@gmail.com"):
                             cross_time_str = datetime.fromtimestamp(alert['cross_time']).strftime('%Y-%m-%d %H:%M:%S UTC')
                             if alert['trigger_type'] == 'price':
@@ -524,25 +524,26 @@ class EmailAlertService:
                             if properties.get('buyOnCross'):
                                 if(alert.get("drawing", {}).get('buy_sent') == None):
                                     logger.info(f"Buy on cross enabled for symbol {symbol}")
-                                    order_id = await self.place_trading_order(symbol, 'long', alert)
+                                    order_id, error_message = await self.place_trading_order(symbol, 'long', alert)
                                     if order_id:
-                                        trading_actions.append(f"Placed LONG order for {symbol} (ID: {order_id})")
+                                        alert_actions.append(f"Placed LONG order for {symbol} (ID: {order_id})")
                                         alert['drawing']['buy_sent'] = True
                                     else:
-                                        trading_actions.append(f"Failed to place LONG order for {symbol}")
+                                        alert_actions.append(f"Failed LONG order for {symbol}: {error_message}")
                             if properties.get('sellOnCross'):
                                 if(alert.get("drawing", {}).get('sell_sent') == None):
                                     logger.info(f"Sell on cross enabled for symbol {symbol}")
-                                    order_id = await self.place_trading_order(symbol, 'short', alert)
+                                    order_id, error_message = await self.place_trading_order(symbol, 'short', alert)
                                     if order_id:
-                                        trading_actions.append(f"Placed SHORT order for {symbol} (ID: {order_id})")
+                                        alert_actions.append(f"Placed SHORT order for {symbol} (ID: {order_id})")
                                         alert['drawing']['sell_sent'] = True
                                     else:
-                                        trading_actions.append(f"Failed to place SHORT order for {symbol}")
+                                        alert_actions.append(f"Failed SHORT order for {symbol}: {error_message}")
+                            alert['drawing']['alert_actions'] = alert_actions
 
-                    if trading_actions:
+                    if alert_actions:
                         message_body += "<h3>Trading Actions:</h3><ul>"
-                        for action in trading_actions:
+                        for action in alert_actions:
                             message_body += f"<li>{action}</li>"
                         message_body += "</ul>"
 
@@ -662,6 +663,10 @@ class EmailAlertService:
                             if alert_drawing.get('sell_sent') is True:
                                 user_drawings[i]['sell_sent'] = True
 
+                            # Copy alert_actions to properties for UI display
+                            if 'alert_actions' in alert_drawing:
+                                user_drawings[i]['properties']['alert_actions'] = alert_drawing['alert_actions']
+
                             updated = True
 
                     if updated:
@@ -673,8 +678,8 @@ class EmailAlertService:
             except Exception as e:
                 logger.error(f"Error marking drawings as sent for {user_email} on {symbol}: {e}", exc_info=True)
 
-    async def place_trading_order(self, symbol: str, action: str, alert_details: Dict) -> Optional[str]:
-        """Place a trading order via trading_service if enabled."""
+    async def place_trading_order(self, symbol: str, action: str, alert_details: Dict) -> Tuple[Optional[str], Optional[str]]:
+        """Place a trading order via trading_service if enabled. Returns (order_id, error_message)."""
         try:
             # Convert symbol from BTCUSDT to BTC-USDT format
             if symbol.endswith('USDT'):
@@ -693,14 +698,16 @@ class EmailAlertService:
                         result = await response.json()
                         order_id = result.get('orderId', 'unknown')
                         logger.info(f"Successfully placed {action} order for {symbol}: {order_id}")
-                        return order_id
+                        return order_id, None
                     else:
                         error_text = await response.text()
-                        logger.error(f"Failed to place {action} order for {symbol}: {response.status} - {error_text}")
-                        return None
+                        error_message = f"HTTP {response.status}: {error_text}"
+                        logger.error(f"Failed to place {action} order for {symbol}: {error_message}")
+                        return None, error_message
         except Exception as e:
-            logger.error(f"Exception while placing {action} order for {symbol}: {e}")
-            return None
+            error_message = str(e)
+            logger.error(f"Exception while placing {action} order for {symbol}: {error_message}")
+            return None, error_message
 
     async def remove_alert_after_delay(self, symbol: str, line_id: str, delay: int = 86400):
         await asyncio.sleep(delay)

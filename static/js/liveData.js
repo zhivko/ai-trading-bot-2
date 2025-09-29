@@ -275,6 +275,7 @@ function handleRealtimeKline(klineData) {
             Plotly.extendTraces(gd, newCandleData, [priceTraceIndex], MAX_LIVE_CANDLES);
             Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations });
         } else if (currentPeriodStartSec === lastCandleOpenTimeSec) {
+            console.log('🔴 LIVE CANDLE: Updating existing candle at index', lastCandleIndex, 'with price', livePrice);
             const candleTrace = gd.data[priceTraceIndex];
 
             // Validate existing candle data
@@ -290,6 +291,7 @@ function handleRealtimeKline(klineData) {
 
             const currentHigh = candleTrace.high[lastCandleIndex];
             const currentLow = candleTrace.low[lastCandleIndex];
+            const prevPrice = candleTrace.close[lastCandleIndex];
 
             if (isNaN(currentHigh) || isNaN(currentLow)) {
                 console.error("WebSocket: Invalid existing candle high/low values");
@@ -299,6 +301,8 @@ function handleRealtimeKline(klineData) {
             candleTrace.high[lastCandleIndex] = Math.max(currentHigh, livePrice);
             candleTrace.low[lastCandleIndex] = Math.min(currentLow, livePrice);
             candleTrace.close[lastCandleIndex] = livePrice;
+
+            console.log('🔴 LIVE CANDLE: Updated candle - prev close:', prevPrice, 'new high/low/close:', livePrice);
 
             // Use live price from Redis if available, otherwise use the WebSocket price
             const priceToUse = livePriceFromRedis !== null ? livePriceFromRedis : livePrice;

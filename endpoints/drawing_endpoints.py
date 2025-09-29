@@ -89,6 +89,7 @@ async def save_shape_properties_api_endpoint(symbol: str, drawing_id: str, prope
         end_price = properties.pop('end_price', existing_drawing.get('end_price'))
         buy_sent = properties.pop('buy_sent', existing_drawing.get('buy_sent', False))
         sell_sent = properties.pop('sell_sent', existing_drawing.get('sell_sent', False))
+        resolution = properties.pop('resolution', existing_drawing.get('resolution'))
 
         drawing_data_instance = DrawingData(
             symbol=existing_drawing['symbol'],
@@ -98,7 +99,7 @@ async def save_shape_properties_api_endpoint(symbol: str, drawing_id: str, prope
             start_price=start_price,
             end_price=end_price,
             subplot_name=existing_drawing['subplot_name'],
-            resolution=existing_drawing.get('resolution'),
+            resolution=resolution,
             properties=existing_drawing.get('properties', {})  # Start with existing properties
         )
         # Merge new properties with existing ones
@@ -172,7 +173,8 @@ async def get_shape_properties_api_endpoint(symbol: str, drawing_id: str, reques
         "start_price": drawing.get("start_price"),
         "end_price": drawing.get("end_price"),
         "buy_sent": drawing.get("buy_sent", False),
-        "sell_sent": drawing.get("sell_sent", False)
+        "sell_sent": drawing.get("sell_sent", False),
+        "resolution": drawing.get("resolution")
     }
 
     # Debug logging to understand the drawing state

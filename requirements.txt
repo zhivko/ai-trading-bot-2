@@ -16,11 +16,13 @@ langchain-core
 pydantic
 scipy
 numpy==1.26.4
-torch==2.2.2+cpu --index-url https://download.pytorch.org/whl/cpu # CPU-only version for compatibility
+torch==2.4.1
+torchvision==0.19.1
 gymnasium
 stable-baselines3
 tqdm
 ta
+scikit-learn
 
 
 google-generativeai
@@ -57,3 +59,6 @@ google-api-python-client
 google-auth-oauthlib
 google-auth-httplib2
 python-dotenv
+scipy
+backtesting
+websockets

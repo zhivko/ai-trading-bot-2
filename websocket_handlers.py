@@ -39,6 +39,66 @@ async def fetch_positions_from_trading_service() -> Dict[str, Any]:
         return []
 
 
+async def fetch_recent_trade_history(symbol: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """
+    Fetch recent trade history from the trading service for websocket delivery.
+    Returns trade data in the same format as the source service.
+    """
+    try:
+        # Convert symbol format for trading service (BTCUSDT -> BTC-USDT)
+        logger.info(f"Fetching trade history for websocket: {symbol}, limit: {limit}")
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "http://localhost:8000/trade-history",
+                params={'symbol': symbol, 'limit': limit}
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"Trading service returned trade history: {len(data.get('result', []))} trades")
+
+                # The trading service returns data in Bybit format
+                # Transform to the format expected by combinedData.js
+                transformed_trades = []
+                for trade in data.get('trade_history', []):
+                    try:
+                        # Convert timestamp from string to milliseconds if needed
+                        timestamp = trade.get('createdAt', 0)
+                        if isinstance(timestamp, str):
+                            # Try to parse ISO string
+                            try:
+                                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                                timestamp_ms = int(dt.timestamp() * 1000)
+                            except:
+                                timestamp_ms = 0
+                        else:
+                            timestamp_ms = int(timestamp)
+
+                        # Transform to the format expected by tradeHistory.js
+                        transformed_trade = {
+                            "timestamp": timestamp_ms,  # Timestamp in milliseconds
+                            "price": float(trade.get('price', 0)),
+                            "quantity": float(trade.get('size', 0)),  # Total quantity of the trade
+                            "side": trade.get('side', 'BUY').upper(),
+                            "size": float(trade.get('size', 0))  # Alias for quantity
+                        }
+                        transformed_trades.append(transformed_trade)
+                    except Exception as trade_e:
+                        logger.warning(f"Failed to transform trade data: {trade_e}")
+                        continue
+
+                logger.info(f"Successfully transformed {len(transformed_trades)} trades for websocket delivery")
+                return transformed_trades
+            else:
+                logger.warning(f"Trading service returned {response.status_code} for trade history: {response.text}")
+                return []
+
+    except Exception as e:
+        logger.error(f"Error fetching trade history for websocket: {e}")
+        return []
+
+
 async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str):
     # SECURITY FIX: Validate symbol BEFORE accepting WebSocket connection
     # This prevents accepting connections for invalid/malicious symbols
@@ -120,7 +180,7 @@ async def stream_live_data_websocket_endpoint(websocket: WebSocket, symbol: str)
         if "topic" in message and "data" in message:
             topic_str = message["topic"]  # topic is already a string
             # No need to split topic_str if we are only checking the full topic string
-            # Check if the topic is for tickers and matches the requested symbol
+                        # Check if the topic is for tickers and matches the requested symbol
             if topic_str == f"tickers.{symbol}":  # Direct comparison
                 ticker_data = message["data"]
                 # The ticker data structure might vary slightly based on Bybit's API version for V5 tickers.
@@ -1385,7 +1445,26 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                 except Exception as e:
                     logger.error(f"Failed to send buy signals for {active_symbol}: {e}")
 
+            # Fetch and send trade history data for visualization
+            try:
+                logger.info(f"WebSocket - Fetching trade history for {active_symbol}")
+                trade_history = await fetch_recent_trade_history(active_symbol, limit=50)
+                if trade_history and len(trade_history) > 0:
+                    # Send trade history data for chart visualization
+                    await send_to_client({
+                        "type": "trade_history",
+                        "symbol": active_symbol,
+                        "data": trade_history,
+                        "timestamp": int(time.time())
+                    })
+                    logger.info(f"WebSocket - Sent {len(trade_history)} trade history records for {active_symbol}")
+                else:
+                    logger.debug(f"WebSocket - No trade history available for {active_symbol}")
+            except Exception as e:
+                logger.error(f"Failed to send trade history for {active_symbol}: {e}")
+
             # logger.info(f"Completed sending {len(combined_data)} historical data points for {active_symbol}")
+            logger.info(f"WebSocket - Completed data transmission for {active_symbol} (OHLC: {len(combined_data)}, videos: {len(youtube_videos)}, signals: {len(buy_signals)})")
             client_state["historical_sent"] = True
 
         except Exception as e:
@@ -1718,17 +1797,25 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                 if is_valid:
                     valid_indicators += 1
 
-            # Log validation summary
+            # Log validation summary only once per data calculation session (not on every message)
             failed_count = total_indicators - valid_indicators
 
-            logger.info(f"🔍 WEBSOCKET VALIDATION RESULTS: {valid_indicators}/{total_indicators} indicators valid for requested range, {failed_count} failed")
+            # Cache validation results to avoid endless logging on every WebSocket message
+            if not hasattr(calculate_indicators_for_data, '_validation_logged'):
+                calculate_indicators_for_data._validation_logged = {}
+            validation_key = f"{active_symbol}_{client_state['from_ts']}_{client_state['to_ts']}"
 
-            if failed_count > 0:
-                logger.error(f"🚨 CRITICAL WEBSOCKET ISSUE: {failed_count}/{total_indicators} indicators have null values in WebSocket historical data!")
-                logger.error("This will cause frontend chart display problems in WebSocket streaming.")
-                logger.error(f"WebSocket requested range: {client_state['from_ts']} to {client_state['to_ts']}")
-            else:
-                logger.info(f"✅ WEBSOCKET SUCCESS: All {total_indicators} indicators have complete data for WebSocket historical range {client_state['from_ts']} to {client_state['to_ts']}")
+            if validation_key not in calculate_indicators_for_data._validation_logged:
+                calculate_indicators_for_data._validation_logged[validation_key] = True
+
+                logger.info(f"🔍 WEBSOCKET VALIDATION RESULTS: {valid_indicators}/{total_indicators} indicators valid for requested range, {failed_count} failed")
+
+                if failed_count > 0:
+                    logger.warning(f"⚠️ WEBOCKET VALIDATION: {failed_count}/{total_indicators} indicators have null values in requested chart range")
+                    logger.warning(f"Null values are normal for indicators needing longer data history. Requested range: {client_state['from_ts']} to {client_state['to_ts']}")
+                    logger.debug("This may impact chart display for early data points but won't cause streaming failures")
+                else:
+                    logger.info(f"✅ WEBSOCKET SUCCESS: All {total_indicators} indicators have complete data for requested range")
         else:
             logger.warning("⚠️ WEBSOCKET VALIDATION SKIPPED: No DataFrame available for validation")
 
@@ -1759,9 +1846,26 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                     logger.error(f"Failed to receive WebSocket message for {active_symbol}: {e}", exc_info=True)
                     # Check if this is a WebSocketDisconnect with service restart code
                     if isinstance(e, WebSocketDisconnect) and e.code == 1012:
-                        logger.warning(f"🚨 CRITICAL: WebSocket disconnect with service restart code (1012) detected for {active_symbol}")
+                        logger.warning(f"⚠️ WebSocket disconnect with service restart code (1012) detected for {active_symbol}")
                         logger.info(f"📋 CONTEXT: Last processed indicators: {client_state.get('indicators', [])}")
                         logger.info(f"📋 CONTEXT: Active symbol: {active_symbol}, Resolution: {client_state.get('resolution', 'unknown')}")
+                        # Add diagnostic info for service restart issues
+                        import psutil
+                        import os
+                        try:
+                            process = psutil.Process(os.getpid())
+                            memory_mb = process.memory_info().rss / 1024 / 1024
+                            logger.info(f"📊 SERVER DIAGNOSTICS: Memory usage: {memory_mb:.2f} MB, PID: {os.getpid()}")
+                        except Exception as diag_e:
+                            logger.warning(f"Failed to get server diagnostics: {diag_e}")
+                        # Fixed: Add exponential backoff using global reconnection delay
+                        if 'reconnect_delay' not in locals():
+                            reconnect_delay = 5  # Start with 5 seconds
+                        else:
+                            reconnect_delay = min(reconnect_delay * 2, 60)  # Double delay, max 60 seconds
+                        logger.info(f"⏳ SERVICE RESTART RECONNECT: Waiting {reconnect_delay} seconds before retry")
+                        await asyncio.sleep(reconnect_delay)
+                        continue
                     continue
                 else:
                     # Validate message structure
