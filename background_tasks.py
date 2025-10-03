@@ -1,11 +1,15 @@
 # Background tasks for data fetching and processing
 
 import asyncio
+import json
 from datetime import datetime, timezone, timedelta
-from config import SUPPORTED_SYMBOLS, timeframe_config, TRADING_SYMBOL, TRADING_TIMEFRAME
+from config import SUPPORTED_SYMBOLS, timeframe_config, TRADING_SYMBOL, TRADING_TIMEFRAME, SUPPORTED_EXCHANGES, TRADE_AGGREGATION_RESOLUTION
 from redis_utils import (
     get_cached_klines, cache_klines, get_cached_open_interest,
-    cache_open_interest, publish_resolution_kline, detect_gaps_in_cached_data, fill_data_gaps
+    cache_open_interest, publish_resolution_kline, detect_gaps_in_cached_data, fill_data_gaps,
+    get_cached_trades, cache_trades, publish_trade_bar, detect_gaps_in_trade_data,
+    fill_trade_data_gaps, fetch_trades_from_ccxt, aggregate_trades_to_bars,
+    get_redis_connection
 )
 from redis_utils import fetch_klines_from_bybit
 from indicators import fetch_open_interest_from_bybit
@@ -142,6 +146,169 @@ async def fetch_and_publish_klines():
         except Exception as e:
             logger.error(f"💥 ERROR in fetch_and_publish_klines task cycle #{cycle_count}: {e}", exc_info=True)
             logger.error(f"🔄 RETRYING: Sleeping for 10 seconds before next cycle")
+            await asyncio.sleep(10)
+
+async def fetch_and_aggregate_trades():
+    """Background task to fetch recent trades from multiple exchanges and aggregate into minute-level bars."""
+    logger.info("🚀 STARTING BACKGROUND TASK: fetch_and_aggregate_trades")
+
+    # Redis key for storing last fetch times
+    last_fetch_times_key = "last_fetch_times:trade_aggregator"
+
+    # Load persisted last fetch times from Redis
+    redis_conn = await get_redis_connection()
+    persisted_times_json = await redis_conn.get(last_fetch_times_key)
+
+    if persisted_times_json:
+        try:
+            persisted_times = json.loads(persisted_times_json)
+            last_fetch_times = {}
+            for exchange_id, timestamp_str in persisted_times.items():
+                last_fetch_times[exchange_id] = datetime.fromtimestamp(float(timestamp_str), timezone.utc)
+            logger.info(f"📋 Restored last fetch times from Redis: {len(last_fetch_times)} exchanges")
+        except Exception as e:
+            logger.warning(f"Failed to load persisted fetch times: {e}, starting fresh")
+            last_fetch_times = {}
+    else:
+        logger.info("📋 No persisted fetch times found, starting fresh")
+        last_fetch_times = {}
+
+    cycle_count = 0
+
+    while True:
+        try:
+            cycle_count += 1
+            current_time_utc = datetime.now(timezone.utc)
+            logger.info(f"🔄 TRADE AGGREGATOR: Cycle #{cycle_count} started at {current_time_utc}")
+
+            # Process each supported exchange
+            total_exchanges_processed = 0
+            total_symbols_processed = 0
+            total_bars_aggregated = 0
+
+            for exchange_id, exchange_config in SUPPORTED_EXCHANGES.items():
+                exchange_name = exchange_config.get('name', exchange_id)
+                symbol_mappings = exchange_config.get('symbols', {})
+
+                # Skip exchanges with no symbols configured
+                if not symbol_mappings:
+                    continue
+
+                total_exchanges_processed += 1
+                symbols_in_exchange = 0
+
+                logger.info(f"📊 PROCESSING {exchange_name} ({exchange_id})")
+
+                # Get last fetch time for this exchange
+                last_fetch = last_fetch_times.get(exchange_id)
+
+                # Calculate time range for this fetch
+                end_ts = int(current_time_utc.timestamp())
+                if last_fetch is None:
+                    # First time - fetch last 4 hours of trade data
+                    start_ts = end_ts - (4 * 3600)
+                else:
+                    # Subsequent fetches - from last fetch time
+                    start_ts = int(last_fetch.timestamp())
+
+                # Only fetch if we have a valid time range
+                if start_ts >= end_ts:
+                    logger.debug(f"⚠️ Skipping {exchange_id}: invalid time range {start_ts} to {end_ts}")
+                    continue
+
+                # Process each symbol supported by this exchange
+                for internal_symbol, exchange_symbol in symbol_mappings.items():
+                    # Only process symbols that are in our SUPPORTED_SYMBOLS list
+                    if internal_symbol not in SUPPORTED_SYMBOLS:
+                        continue
+
+                    symbols_in_exchange += 1
+
+                    try:
+                        start_dt = datetime.fromtimestamp(start_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                        end_dt = datetime.fromtimestamp(end_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                        logger.debug(f"📈 FETCHING TRADES: {internal_symbol} ({exchange_symbol}) on {exchange_name} from {start_dt} to {end_dt}")
+
+                        # Fetch recent trades from this exchange
+                        trade_bars = await fetch_trades_from_ccxt(exchange_id, internal_symbol, start_ts, end_ts)
+
+                        if trade_bars:
+                            # Cache the aggregated trade bars
+                            await cache_trades(internal_symbol, exchange_id, trade_bars)
+
+                            # Publish latest bar if it's recent enough (within last 2 minutes)
+                            current_ts = int(current_time_utc.timestamp())
+                            for bar in trade_bars:
+                                if current_ts - bar['time'] <= 120:  # Within last 2 minutes
+                                    await publish_trade_bar(internal_symbol, exchange_id, bar)
+                                    total_bars_aggregated += 1
+                                    # logger.debug(f"📡 PUBLISHED trade bar for {internal_symbol} on {exchange_id} at {bar['time']}")
+
+                            logger.debug(f"✅ CACHED {len(trade_bars)} trade bars for {internal_symbol} on {exchange_name}")
+                        else:
+                            logger.debug(f"⚠️ No trade bars received for {internal_symbol} on {exchange_name}")
+
+                    except Exception as e:
+                        logger.error(f"❌ Error processing {internal_symbol} on {exchange_id}: {e}")
+                        continue
+
+                total_symbols_processed += symbols_in_exchange
+                # logger.info(f"📊 COMPLETED {exchange_name}: processed {symbols_in_exchange} symbols")
+
+            # Gap detection and filling for trade data
+            logger.info("🔍 STARTING TRADE DATA GAP DETECTION: Scanning for gaps across all exchanges and symbols")
+
+            all_trade_gaps = []
+            current_time_utc = datetime.now(timezone.utc)
+            end_ts = int(current_time_utc.timestamp())
+            # Check for gaps in the last 24 hours
+            start_ts = end_ts - (24 * 3600)
+
+            for exchange_id, exchange_config in SUPPORTED_EXCHANGES.items():
+                symbol_mappings = exchange_config.get('symbols', {})
+
+                for internal_symbol in symbol_mappings.keys():
+                    if internal_symbol not in SUPPORTED_SYMBOLS:
+                        continue
+
+                    try:
+                        # Detect gaps in cached trade data
+                        gaps = await detect_gaps_in_trade_data(internal_symbol, exchange_id, start_ts, end_ts)
+                        if gaps:
+                            all_trade_gaps.extend(gaps)
+                            logger.debug(f"📊 Found {len(gaps)} trade gaps for {internal_symbol} on {exchange_id}")
+                    except Exception as e:
+                        logger.error(f"Error detecting trade gaps for {exchange_id}:{internal_symbol}: {e}")
+                        continue
+
+            # Fill all detected trade data gaps
+            if all_trade_gaps:
+                logger.info(f"🔧 FILLING {len(all_trade_gaps)} TRADE DATA GAPS")
+                await fill_trade_data_gaps(all_trade_gaps)
+            else:
+                logger.info("✅ No trade data gaps detected across all exchanges and symbols")
+
+            # Update last fetch time for each exchange and persist to Redis
+            updated_times = {}
+            for exchange_id in SUPPORTED_EXCHANGES.keys():
+                last_fetch_times[exchange_id] = current_time_utc
+                updated_times[exchange_id] = str(current_time_utc.timestamp())
+
+            # Persist the updated fetch times to Redis
+            try:
+                await redis_conn.set(last_fetch_times_key, json.dumps(updated_times))
+                logger.debug(f"💾 Persisted last fetch times to Redis: {len(updated_times)} exchanges")
+            except Exception as e:
+                logger.warning(f"Failed to persist last fetch times to Redis: {e}")
+
+            logger.info(f"✅ TRADE AGGREGATOR COMPLETED: Cycle #{cycle_count} - processed {total_exchanges_processed} exchanges, {total_symbols_processed} symbols, aggregated {total_bars_aggregated} recent bars")
+            logger.info("😴 TRADE AGGREGATOR: Sleeping for 60 seconds")
+
+            await asyncio.sleep(60)
+
+        except Exception as e:
+            logger.error(f"💥 ERROR in fetch_and_aggregate_trades task cycle #{cycle_count}: {e}", exc_info=True)
+            logger.error("🔄 RETRYING: Sleeping for 10 seconds before next cycle")
             await asyncio.sleep(10)
 
 async def bybit_realtime_feed_listener():

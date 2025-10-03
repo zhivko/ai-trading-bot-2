@@ -1,0 +1,9 @@
+- [ ] Examine current handleShapeVolumeProfilesMessage implementation
+- [ ] Study createVolumeProfileBars() function in tradeHistory.js
+- [ ] Extract volume profile data per shape from WebSocket message
+- [ ] Create horizontal scatter traces for each shape's volume profile
+- [ ] Position bars based on shape time and price ranges
+- [ ] Assign different colors/modes for each drawingId
+- [ ] Integrate with chart layout (separate subplot or overlay)
+- [ ] Handle multiple shapes simultaneously
+- [ ] Test with backend data structure logging

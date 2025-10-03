@@ -1,14 +1,40 @@
 # Logging configuration for the trading application
 
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from config import LOGS_DIR
 
-class FlushingFileHandler(logging.FileHandler):
-    """A file handler that flushes on every log record."""
+# Define project paths (avoid circular import)
+PROJECT_ROOT = Path(__file__).parent
+LOGS_DIR = PROJECT_ROOT / "logs"
+LOGS_DIR.mkdir(exist_ok=True)
+
+class FlushingFileHandler(RotatingFileHandler):
+    """A rotating file handler that flushes on every log record."""
+    def __init__(self, *args, maxBytes=None, backupCount=None, **kwargs):
+        if maxBytes is None:
+            maxBytes = 10 * 1024 * 1024  # 10MB
+        if backupCount is None:
+            backupCount = 1  # Keep one backup file
+        super().__init__(*args, maxBytes=maxBytes, backupCount=backupCount, **kwargs)
+
     def emit(self, record):
         super().emit(record)
         self.flush()
+
+    def doRollover(self):
+        """
+        Do a rollover, as described in __init__().
+        Override to handle permission errors on Windows when file is locked.
+        """
+        try:
+            super().doRollover()
+        except OSError as e:
+            # On Windows, if another process has the file open, we can't rotate it.
+            # Log a warning and continue without rotation.
+            import logging
+            rollover_logger = logging.getLogger('FlushingFileHandler')
+            rollover_logger.warning(f"Could not rotate log file {self.baseFilename}: {e}. Continuing without rotation.")
 
 # Configure logging
 log_file_path = LOGS_DIR / 'trading_view.log'
@@ -48,6 +74,10 @@ sse_logger.setLevel(logging.WARNING)
 # Configure urllib3 logger to WARNING level to reduce HTTP request debug logs
 urllib3_logger = logging.getLogger('urllib3.connectionpool')
 urllib3_logger.setLevel(logging.WARNING)
+
+# Configure ccxt logger to WARNING level to reduce exchange API debug logs
+ccxt_logger = logging.getLogger('ccxt')
+ccxt_logger.setLevel(logging.WARNING)
 
 # Configure bybit_price_feed logger to INFO level for file output
 bybit_logger = logging.getLogger('bybit_price_feed')

@@ -2,7 +2,7 @@
 
 import json
 import os
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, AsyncGenerator
 from redis.asyncio import Redis as AsyncRedis
 from redis import Redis as SyncRedis
 from config import (
@@ -53,7 +53,7 @@ async def init_redis():
         return redis_client
     except Exception as e:
         logger.error(f"Failed to connect to Redis: {e}")
-        logger.error("Run this to start it on wsl2: cmd /c wsl --exec sudo service redis-server start && Exit /B 5")
+        logger.error("Run this to start it on wsl2: cmd /c wsl --exec sudo service redis-server restart")
         redis_client = None
         sync_redis_client = None
         raise
@@ -1192,7 +1192,7 @@ async def generate_realistic_historical_dominance(start_ts: int, end_ts: int) ->
     # 2017: ~40-50% (major altcoin run-up)
     # 2018-2020: ~55-65%
     # 2021-2023: ~40-45%
-    # 2024-2025: ~50-60%
+    # 2024-2025: ~50-60% (current approximate)
 
     base_dominance = 50.0  # Current approximate baseline
     volatility = 3.0       # Daily volatility in percentage points
@@ -1217,8 +1217,8 @@ async def generate_realistic_historical_dominance(start_ts: int, end_ts: int) ->
         kline = {
             "time": current_ts,
             "open": round(final_dominance, 2),
-            "high": round(final_dominance * 1.01, 2),  # Small daily range
-            "low": round(final_dominance * 0.99, 2),
+            "high": round(final_dominance * 1.008, 2),  # Small daily range
+            "low": round(final_dominance * 0.992, 2),
             "close": round(final_dominance + (current_ts % 2 - 1) * 0.1, 2),  # Slight daily drift
             "vol": 0.0
         }
@@ -1227,3 +1227,406 @@ async def generate_realistic_historical_dominance(start_ts: int, end_ts: int) ->
         current_ts += 86400  # Next day
 
     return dominance_data
+
+# ============================================================================
+# TRADE AGGREGATION FUNCTIONS
+# ============================================================================
+
+def get_trade_key(symbol: str, exchange: str, timestamp: int) -> str:
+    """Generate Redis key for individual trade bar."""
+    aligned_ts = (timestamp // 60) * 60  # Align to 1-minute boundaries
+    return f"trade:{exchange}:{symbol}:{aligned_ts}"
+
+def get_sorted_set_trade_key(symbol: str, exchange: str) -> str:
+    """Generate Redis sorted set key for trade bars."""
+    return f"zset:trade:{exchange}:{symbol}"
+
+def get_stream_trade_key(symbol: str, exchange: str) -> str:
+    """Generate Redis stream key for trade bars."""
+    return f"stream:trade:{exchange}:{symbol}"
+
+async def get_cached_trades(symbol: str, exchange: str, start_ts: int, end_ts: int) -> list[Dict[str, Any]]:
+    """Retrieve cached trade bars from Redis."""
+    try:
+        redis = await get_redis_connection()
+        sorted_set_key = get_sorted_set_trade_key(symbol, exchange)
+
+        klines_data_redis = await redis.zrangebyscore(
+            sorted_set_key,
+            min=start_ts,
+            max=end_ts,
+            withscores=False
+        )
+
+        cached_data = []
+        for data_item in klines_data_redis:
+            try:
+                if isinstance(data_item, bytes):
+                    data_str = data_item.decode('utf-8')
+                elif isinstance(data_item, str):
+                    data_str = data_item
+                else:
+                    continue
+                parsed_data = json.loads(data_str)
+                cached_data.append(parsed_data)
+            except json.JSONDecodeError:
+                continue
+
+        logger.info(f"Found {len(cached_data)} cached trade bars for {symbol} on {exchange} between {start_ts} and {end_ts}")
+        return cached_data
+    except Exception as e:
+        logger.error(f"Error in get_cached_trades: {e}", exc_info=True)
+        return []
+
+async def cache_trades(symbol: str, exchange: str, trade_bars: list[Dict[str, Any]]) -> None:
+    """Cache trade bars to Redis."""
+    try:
+        redis = await get_redis_connection()
+        expiration = 60 * 60 * 24  # 24 hours for trade bars
+
+        # De-duplicate bars
+        unique_bars = {}
+        for bar in trade_bars:
+            unique_bars[bar['time']] = bar
+
+        bars_to_process = sorted(list(unique_bars.values()), key=lambda x: x['time'])
+        sorted_set_key = get_sorted_set_trade_key(symbol, exchange)
+
+        async with redis.pipeline() as pipe:
+            for bar in bars_to_process:
+                timestamp = bar["time"]
+                data_str = json.dumps(bar)
+
+                # Cache individual trade bar
+                individual_key = get_trade_key(symbol, exchange, timestamp)
+                await pipe.setex(individual_key, expiration, data_str)
+
+                # Add to sorted set
+                await pipe.zremrangebyscore(sorted_set_key, timestamp, timestamp)
+                await pipe.zadd(sorted_set_key, {data_str: timestamp})
+
+                # Pipeline batching
+                if len(pipe) >= 500:
+                    await pipe.execute()
+            await pipe.execute()
+
+        # Trim sorted set to keep manageable size
+        max_entries = 10000
+        await redis.zremrangebyrank(sorted_set_key, 0, -(max_entries + 1))
+
+        logger.info(f"Successfully cached {len(bars_to_process)} trade bars for {symbol} on {exchange}")
+    except Exception as e:
+        logger.error(f"Error caching trade data: {e}", exc_info=True)
+
+async def publish_trade_bar(symbol: str, exchange: str, trade_bar: dict) -> None:
+    """Publish trade bar to Redis stream."""
+    try:
+        redis = await get_redis_connection()
+        stream_key = get_stream_trade_key(symbol, exchange)
+        sorted_set_key = get_sorted_set_trade_key(symbol, exchange)
+        bar_json_str = json.dumps(trade_bar)
+
+        await redis.xadd(stream_key, {"data": bar_json_str}, maxlen=1000)
+        await redis.zadd(sorted_set_key, {bar_json_str: trade_bar["time"]})
+        await redis.zremrangebyrank(sorted_set_key, 0, -1001)
+
+        #logger.debug(f"Published trade bar for {symbol} on {exchange} at {trade_bar['time']}")
+    except Exception as e:
+        logger.error(f"Error publishing trade bar to Redis: {e}", exc_info=True)
+
+def aggregate_trades_to_bars(trades: list[Dict[str, Any]], resolution_seconds: int = 60) -> list[Dict[str, Any]]:
+    """Aggregate individual trades into time-based bars."""
+    if not trades:
+        return []
+
+    # Sort trades by timestamp
+    trades.sort(key=lambda x: x['timestamp'])
+
+    bars = {}
+    bar_timestamps = []
+
+    for trade in trades:
+        # Align timestamp to bar boundary
+        bar_ts = (trade['timestamp'] // resolution_seconds) * resolution_seconds
+
+        if bar_ts not in bars:
+            bars[bar_ts] = {
+                'time': bar_ts,
+                'trades': [],
+                'prices': [],
+                'volumes': [],
+                'buyer_count': 0,
+                'seller_count': 0
+            }
+            bar_timestamps.append(bar_ts)
+
+        bar = bars[bar_ts]
+        bar['trades'].append(trade)
+        bar['prices'].append(trade['price'])
+        bar['volumes'].append(trade['amount'])
+
+        # Classify trade side (buy/sell count)
+        if 'side' in trade:
+            if trade['side'] == 'buy' or trade['side'] == 'Buy':
+                bar['buyer_count'] += 1
+            elif trade['side'] == 'sell' or trade['side'] == 'Sell':
+                bar['seller_count'] += 1
+        else:
+            # If no side info, use price movement heuristic (simple approximation)
+            if len(bar['prices']) > 1:
+                if trade['price'] >= bar['prices'][-2]:
+                    bar['buyer_count'] += 1
+                else:
+                    bar['seller_count'] += 1
+            else:
+                bar['buyer_count'] += 1  # Default to buy for first trade
+
+    # Convert to final bar format
+    trade_bars = []
+    for bar_ts in bar_timestamps:
+        bar = bars[bar_ts]
+        if not bar['trades']:
+            continue
+
+        prices = bar['prices']
+        volumes = bar['volumes']
+
+        # Calculate OHLCV and VWAP
+        open_price = prices[0]
+        high_price = max(prices)
+        low_price = min(prices)
+        close_price = prices[-1]
+        total_volume = sum(volumes)
+        trade_count = len(prices)
+
+        # Calculate VWAP (Volume Weighted Average Price)
+        if total_volume > 0:
+            vwap = sum(p * v for p, v in zip(prices, volumes)) / total_volume
+        else:
+            vwap = close_price
+
+        trade_bar = {
+            'time': bar_ts,
+            'open': round(open_price, 8),
+            'high': round(high_price, 8),
+            'low': round(low_price, 8),
+            'close': round(close_price, 8),
+            'vwap': round(vwap, 8),
+            'volume': round(total_volume, 8),
+            'count': trade_count,
+            'buyer_count': bar['buyer_count'],
+            'seller_count': bar['seller_count']
+        }
+
+        trade_bars.append(trade_bar)
+
+    return trade_bars
+
+async def detect_gaps_in_trade_data(symbol: str, exchange: str, start_ts: int, end_ts: int) -> List[Dict[str, Any]]:
+    """Detect gaps in cached trade bar data."""
+    try:
+        redis = await get_redis_connection()
+        sorted_set_key = get_sorted_set_trade_key(symbol, exchange)
+
+        klines_data_redis = await redis.zrangebyscore(
+            sorted_set_key,
+            min=start_ts,
+            max=end_ts,
+            withscores=False
+        )
+
+        cached_data = []
+        for data_item in klines_data_redis:
+            try:
+                if isinstance(data_item, bytes):
+                    data_str = data_item.decode('utf-8')
+                elif isinstance(data_item, str):
+                    data_str = data_item
+                else:
+                    continue
+                parsed_data = json.loads(data_str)
+                cached_data.append(parsed_data)
+            except json.JSONDecodeError:
+                continue
+
+        if not cached_data:
+            logger.info(f"No cached trade data found for {symbol} on {exchange} in range {start_ts} to {end_ts}")
+            return []
+
+        cached_data.sort(key=lambda x: x['time'])
+        timestamps = [item['time'] for item in cached_data]
+
+        resolution_seconds = 60  # 1-minute bars
+        gaps = []
+
+        # Check for gaps between consecutive bars
+        for i in range(1, len(timestamps)):
+            gap = timestamps[i] - timestamps[i-1]
+            if gap > resolution_seconds:
+                missing_points = int(gap / resolution_seconds) - 1
+                gaps.append({
+                    'from_ts': timestamps[i-1] + resolution_seconds,
+                    'to_ts': timestamps[i] - resolution_seconds,
+                    'gap_seconds': gap - resolution_seconds,
+                    'missing_points': missing_points,
+                    'symbol': symbol,
+                    'exchange': exchange
+                })
+
+        # Check for gap at the beginning
+        if timestamps and start_ts < timestamps[0]:
+            gap = timestamps[0] - start_ts
+            if gap > resolution_seconds:
+                missing_points = int(gap / resolution_seconds) - 1
+                if missing_points > 0:
+                    gaps.append({
+                        'from_ts': start_ts,
+                        'to_ts': timestamps[0] - resolution_seconds,
+                        'gap_seconds': gap - resolution_seconds,
+                        'missing_points': missing_points,
+                        'symbol': symbol,
+                        'exchange': exchange
+                    })
+
+        # Check for gap at the end
+        if timestamps and end_ts > timestamps[-1]:
+            gap = end_ts - timestamps[-1]
+            if gap > resolution_seconds:
+                missing_points = int(gap / resolution_seconds) - 1
+                if missing_points > 0:
+                    gaps.append({
+                        'from_ts': timestamps[-1] + resolution_seconds,
+                        'to_ts': end_ts,
+                        'gap_seconds': gap - resolution_seconds,
+                        'missing_points': missing_points,
+                        'symbol': symbol,
+                        'exchange': exchange
+                    })
+
+        return gaps
+
+    except Exception as e:
+        logger.error(f"Error detecting gaps in trade data for {exchange}:{symbol}: {e}", exc_info=True)
+        return []
+
+async def fill_trade_data_gaps(gaps: List[Dict[str, Any]]) -> None:
+    """Fill detected gaps in trade data by fetching from exchanges."""
+    if not gaps:
+        return
+
+    logger.info(f"🔧 Starting trade data gap filling for {len(gaps)} gaps")
+
+    for gap in gaps:
+        try:
+            symbol = gap['symbol']
+            exchange_id = gap['exchange']
+            from_ts = gap['from_ts']
+            to_ts = gap['to_ts']
+
+            logger.info(f"📡 Fetching trade gap data for {symbol} on {exchange_id}: {from_ts} to {to_ts}")
+
+            # Fetch missing trade data from exchange
+            missing_bars = await fetch_trades_from_ccxt(exchange_id, symbol, from_ts, to_ts)
+
+            if missing_bars:
+                await cache_trades(symbol, exchange_id, missing_bars)
+                logger.info(f"✅ Filled trade gap with {len(missing_bars)} bars for {symbol} on {exchange_id}")
+            else:
+                logger.warning(f"❌ No trade data received for gap in {symbol} on {exchange_id}")
+
+        except Exception as e:
+            logger.error(f"Error filling trade gap for {gap['exchange']}:{gap['symbol']}: {e}", exc_info=True)
+            continue
+
+    logger.info("🎉 Trade data gap filling completed")
+
+async def fetch_trades_from_ccxt(exchange_id: str, symbol: str, start_ts: int, end_ts: int) -> list[Dict[str, Any]]:
+    """Fetch recent trades from CCXT exchange and aggregate into bars."""
+    try:
+        import ccxt.async_support as ccxt
+
+        exchange_class = getattr(ccxt, exchange_id)
+        exchange = exchange_class({
+            'enableRateLimit': True,
+            'rateLimit': 1000,  # Conservative rate limit
+        })
+
+        # Get the correct symbol format for this exchange
+        from config import SUPPORTED_EXCHANGES
+        exchange_config = SUPPORTED_EXCHANGES.get(exchange_id, {})
+        symbol_mappings = exchange_config.get('symbols', {})
+        ccxt_symbol = symbol_mappings.get(symbol, symbol)
+
+        # CCXT limit is usually 1000 trades per request
+        limit = 1000
+
+        # Fetch trades in batches to cover the time range
+        all_trades = []
+        current_ts = start_ts
+
+        while current_ts < end_ts:
+            try:
+                # Get recent trades (since_id approach is generally better than timestamp)
+                if not all_trades:
+                    # First request - get most recent trades
+                    trades = await exchange.fetch_trades(ccxt_symbol, limit=limit)
+                else:
+                    # Subsequent requests using since parameter
+                    since = int(current_ts * 1000)  # CCXT uses milliseconds
+                    trades = await exchange.fetch_trades(ccxt_symbol, since=since, limit=limit)
+
+                if not trades:
+                    logger.info(f"No more trades available for {ccxt_symbol} on {exchange_id}")
+                    break
+
+                # Add fetched trades to all_trades list
+                all_trades.extend(trades)
+
+                # Update current_ts based on last trade
+                if trades:
+                    last_trade_ts = int(trades[-1]['timestamp'] / 1000)
+                    if last_trade_ts <= current_ts:
+                        break  # No progress made
+                    current_ts = last_trade_ts + 1
+
+                    if len(trades) < limit:
+                        break  # Reached the end
+
+                # Break if too many trades to prevent memory issues
+                if len(all_trades) > 10000:
+                    logger.warning(f"Too many trades ({len(all_trades)}) for {ccxt_symbol} on {exchange_id}, truncating")
+                    all_trades = all_trades[-10000:]
+                    break
+
+            except Exception as e:
+                logger.error(f"Error fetching trades from {exchange_id} for {ccxt_symbol}: {e}")
+                break
+
+        await exchange.close()
+
+        if not all_trades:
+            logger.info(f"No trades found for {ccxt_symbol} on {exchange_id}")
+            return []
+
+        # Filter trades to the requested time range and convert to seconds
+        # CCXT returns timestamps in milliseconds, convert to seconds for processing
+        filtered_trades = []
+        for t in all_trades:
+            trade_seconds = int(t['timestamp'] / 1000)  # Convert to seconds
+            if start_ts <= trade_seconds <= end_ts:
+                # Create a copy with seconds timestamp for processing
+                trade_copy = t.copy()
+                trade_copy['timestamp'] = trade_seconds
+                filtered_trades.append(trade_copy)
+
+        # logger.info(f"Fetched {len(filtered_trades)} trades for {ccxt_symbol} on {exchange_id} (filtered to time range)")
+
+        # Aggregate trades into 1-minute bars
+        trade_bars = aggregate_trades_to_bars(filtered_trades, resolution_seconds=60)
+
+        # logger.info(f"Aggregated {len(filtered_trades)} trades into {len(trade_bars)} bars for {symbol} on {exchange_id}")
+        return trade_bars
+
+    except Exception as e:
+        logger.error(f"Error fetching trades from CCXT for {exchange_id}:{symbol}: {e}", exc_info=True)
+        return []

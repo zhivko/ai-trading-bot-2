@@ -177,6 +177,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         disableMobileHover(gd);
         forceHideHoverElements(); // Force hide hover elements via CSS
 
+        // Enable mobile pinch zoom features
+        enableMobilePinchZoom(gd);
+
         console.log('[DEBUG] Chart initialization completed');
 
         // Initialize trade history after chart is ready
@@ -1520,6 +1523,20 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Draw Rectangle button
+    const drawrectBtn = document.getElementById('drawrect-btn');
+    if (drawrectBtn) {
+        drawrectBtn.addEventListener('click', function() {
+            if (window.gd) {
+                Plotly.relayout(window.gd, { dragmode: 'drawrect' });
+                console.log('Switched to drawrect mode');
+
+                // Update button states
+                updateToolbarButtonStates('drawrect');
+            }
+        });
+    }
+
     // Screenshot button
     const screenshotBtn = document.getElementById('screenshot-btn');
     if (screenshotBtn) {
@@ -1561,18 +1578,22 @@ document.addEventListener('DOMContentLoaded', function() {
 function updateToolbarButtonStates(activeMode) {
     const panBtn = document.getElementById('pan-btn');
     const drawlineBtn = document.getElementById('drawline-btn');
+    const drawrectBtn = document.getElementById('drawrect-btn');
 
-    if (!panBtn || !drawlineBtn) return;
+    if (!panBtn || !drawlineBtn || !drawrectBtn) return;
 
     // Remove active class from all buttons
     panBtn.classList.remove('active');
     drawlineBtn.classList.remove('active');
+    drawrectBtn.classList.remove('active');
 
     // Add active class to current mode button
     if (activeMode === 'pan' || (!activeMode && window.gd && window.gd.layout.dragmode === 'pan')) {
         panBtn.classList.add('active');
     } else if (activeMode === 'drawline' || (!activeMode && window.gd && window.gd.layout.dragmode === 'drawline')) {
         drawlineBtn.classList.add('active');
+    } else if (activeMode === 'drawrect' || (!activeMode && window.gd && window.gd.layout.dragmode === 'drawrect')) {
+        drawrectBtn.classList.add('active');
     }
 }
 

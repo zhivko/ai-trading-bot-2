@@ -1,6 +1,7 @@
 /**
  * YouTube Markers Integration for Trading Charts
  * Adds YouTube video markers with hover tooltips to Plotly charts
+ * NOW WEBSOCKET-BASED: No longer loads from HTTP endpoints
  */
 
 class YouTubeMarkersManager {
@@ -9,20 +10,22 @@ class YouTubeMarkersManager {
         this.updateInterval = 30 * 60 * 1000; // 30 minutes (reduced frequency)
         this.currentSymbol = null;
         this.isEnabled = true;
-        this.periodicUpdatesEnabled = false; // Disabled by default
+        this.periodicUpdatesEnabled = false; // Disabled by default - now using websocket
+        this.websocketBased = true; // Use websocket instead of HTTP
     }
 
     /**
      * Initialize the YouTube markers for a specific symbol
+     * Now uses websocket instead of HTTP loading
      */
     async initializeForSymbol(symbol) {
         this.currentSymbol = symbol;
-        console.log('🎥 YouTube Markers: Initializing for', symbol);
+        console.log('🎥 YouTube Markers: Initializing for', symbol, '(websocket-based)');
 
-        // Load initial markers
-        await this.loadMarkers();
+        // WebSocket-based: markers will come from websocket handlers
+        // No need to load from HTTP endpoint
 
-        // Set up periodic updates
+        // Set up periodic updates (disabled by default)
         this.startPeriodicUpdates();
 
         // Listen for chart updates to refresh markers
@@ -310,13 +313,15 @@ class YouTubeMarkersManager {
 
     /**
      * Enable/disable YouTube markers
+     * WebSocket-based: markers come from websocket, we only control display
      */
     setEnabled(enabled) {
         this.isEnabled = enabled;
-        console.log('🎥 YouTube Markers:', enabled ? 'Enabled' : 'Disabled');
+        console.log('🎥 YouTube Markers:', enabled ? 'Enabled' : 'Disabled', '(websocket-based)');
 
         if (enabled) {
-            this.loadMarkers();
+            // WebSocket-based: markers will come from websocket handlers
+            // No need to load from HTTP endpoint
             this.startPeriodicUpdates();
         } else {
             this.removeExistingMarkers();
@@ -325,13 +330,15 @@ class YouTubeMarkersManager {
     }
 
     /**
-     * Update symbol and reload markers
+     * Update symbol
+     * WebSocket-based: symbol change is handled by websocket handlers
      */
     updateSymbol(symbol) {
         if (this.currentSymbol !== symbol) {
-            console.log('🎥 YouTube Markers: Symbol changed to', symbol);
+            console.log('🎥 YouTube Markers: Symbol changed to', symbol, '(websocket-based)');
             this.currentSymbol = symbol;
-            this.loadMarkers();
+            // WebSocket-based: markers will come from websocket handlers
+            // No need to load from HTTP endpoint
         }
     }
 
@@ -341,10 +348,12 @@ class YouTubeMarkersManager {
     getStats() {
         return {
             enabled: this.isEnabled,
+            websocketBased: this.websocketBased,
             symbol: this.currentSymbol,
             markerCount: this.markers && this.markers.x ? this.markers.x.length : 0,
             lastUpdate: new Date().toISOString(),
-            updateInterval: this.updateInterval / 1000 / 60 // in minutes
+            updateInterval: this.updateInterval / 1000 / 60, // in minutes
+            periodicUpdatesEnabled: this.periodicUpdatesEnabled
         };
     }
 
@@ -558,10 +567,12 @@ class YouTubeMarkersManager {
 
     /**
      * Force refresh markers
+     * WebSocket-based: markers come from websocket, manual refresh not needed
      */
     async refresh() {
-        console.log('🎥 YouTube Markers: Manual refresh requested');
-        await this.loadMarkers();
+        console.log('🎥 YouTube Markers: Manual refresh requested (websocket-based - no action needed)');
+        // WebSocket-based: markers come from websocket handlers
+        // No need to manually load from HTTP endpoint
     }
 }
 

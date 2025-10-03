@@ -13,6 +13,552 @@ let storedCTOTraces = null;
 // Store buy signals by timestamp for enhanced hover info on candlesticks
 let buySignalsByTimestamp = {};
 
+function handleVolumeProfileMessage(message) {
+    console.log(`💹 Combined WebSocket: Received volume profile for ${message.symbol || 'unknown'} - ${message.data ? message.data.volume_profile?.length || 0 : 0} price levels`);
+
+    // Validate message format
+    if (!message.data || !message.data.volume_profile || !Array.isArray(message.data.volume_profile)) {
+        console.warn('💹 Combined WebSocket: Invalid volume profile data format - message.data or volume_profile missing/invalid');
+        return;
+    }
+
+    // Process empty volume profile arrays - this might indicate clearing/resetting
+    if (message.data.volume_profile.length === 0) {
+        console.log(`💹 Combined WebSocket: Processing empty volume profile array for ${message.symbol || 'unknown'} (total_trades: ${message.data.total_trades || 0}, price_levels: ${message.data.price_levels || 0})`);
+
+        // Still call the update function with empty array to allow clearing logic in tradeHistory.js
+        if (window.updateVolumeProfileFromWebSocket) {
+            window.updateVolumeProfileFromWebSocket(message.data.volume_profile, message.symbol, message.rectangle_id);
+            console.log(`💹 Combined WebSocket: Called updateVolumeProfileFromWebSocket with empty array (potential clear operation for ${message.symbol || 'unknown'})`);
+        } else {
+            console.warn('💹 Combined WebSocket: updateVolumeProfileFromWebSocket function not available from tradeHistory.js');
+        }
+        return;
+    }
+
+    // Process non-empty volume profile data within rectangle bounds
+    renderVolumeProfileWithinRectangle(message.data.volume_profile, message.symbol, message.rectangle_id);
+}
+
+// Render volume profile bars within a rectangle's bounds
+function renderVolumeProfileWithinRectangle(volumeProfileData, symbol, rectangleId) {
+    console.log(`🚑 Combined WebSocket: Rendering volume profile within rectangle ${rectangleId} for ${symbol}`);
+
+    if (!volumeProfileData || !Array.isArray(volumeProfileData) || volumeProfileData.length === 0) {
+        console.warn(`🚑 Combined WebSocket: No volume profile data to render for ${symbol}`);
+        return;
+    }
+
+    // Check if chart is ready
+    const gd = document.getElementById('chart');
+    if (!gd || !gd.layout || !gd.layout.shapes) {
+        console.warn('🚑 Combined WebSocket: Chart not ready for rectangle volume profile');
+        return;
+    }
+
+    // Find the rectangle shape by ID
+    const targetRectangle = gd.layout.shapes.find(shape =>
+        shape.id === rectangleId &&
+        (shape.type === 'rect' || shape.type === 'rectangle' || shape.type === 'box')
+    );
+
+    if (!targetRectangle) {
+        console.warn(`🚑 Combined WebSocket: Rectangle with ID "${rectangleId}" not found in chart shapes`);
+        console.log(`🚑 Available shapes:`, gd.layout.shapes.map(s => ({ id: s.id, type: s.type })));
+        return;
+    }
+
+    console.log(`🚑 Found rectangle ${rectangleId} for volume profile rendering:`, {
+        x0: targetRectangle.x0,
+        x1: targetRectangle.x1,
+        y0: targetRectangle.y0,
+        y1: targetRectangle.y1,
+        type: targetRectangle.type
+    });
+
+    // Extract rectangle bounds (time and price ranges)
+    const timeRange = [
+        targetRectangle.x0 instanceof Date ? targetRectangle.x0.getTime() / 1000 : targetRectangle.x0,
+        targetRectangle.x1 instanceof Date ? targetRectangle.x1.getTime() / 1000 : targetRectangle.x1
+    ];
+
+    const priceRange = [
+        Math.min(targetRectangle.y0, targetRectangle.y1),
+        Math.max(targetRectangle.y0, targetRectangle.y1)
+    ];
+
+    console.log(`🚑 Rectangle bounds: time [${new Date(timeRange[0] * 1000).toISOString()} to ${new Date(timeRange[1] * 1000).toISOString()}], price [${priceRange[0]} to ${priceRange[1]}]`);
+
+    // Create volume profile bars positioned within the rectangle
+    const volumeProfileTraces = createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRange, rectangleId, symbol);
+
+    if (!volumeProfileTraces || volumeProfileTraces.length === 0) {
+        console.warn(`🚑 Combined WebSocket: Failed to create volume profile bars for rectangle ${rectangleId}`);
+        return;
+    }
+
+    // Remove existing volume profile traces for this rectangle
+    const filteredData = gd.data.filter(trace =>
+        !trace.name || !trace.name.includes(`VP-${rectangleId}`)
+    );
+
+    // Add new volume profile traces
+    filteredData.push(...volumeProfileTraces);
+
+    console.log(`🚑 Combined WebSocket: Adding ${volumeProfileTraces.length} volume profile traces for rectangle ${rectangleId}`);
+    Plotly.react(gd, filteredData, gd.layout);
+    console.log(`🚑 Combined WebSocket: Successfully rendered volume profile within rectangle ${rectangleId} for ${symbol}`);
+}
+
+function handleTradeHistoryMessage(message) {
+    console.log(`💹 Combined WebSocket: Received trade history for ${message.symbol || 'unknown'}`);
+
+    // Handle other trade history message types if needed
+    console.log('💹 Combined WebSocket: Trade history message received (general handler)');
+}
+
+function handleShapeVolumeProfilesMessage(message) {
+    console.log(`💹 Combined WebSocket: Received shape volume profiles for ${message.symbol || 'unknown'}`);
+
+    if (!message.data || typeof message.data !== 'object') {
+        console.warn('💹 Combined WebSocket: Invalid shape volume profiles data format');
+        return;
+    }
+
+    const drawingIds = Object.keys(message.data);
+    if (drawingIds.length === 0) {
+        console.log('💹 Combined WebSocket: No shape volume profiles to process');
+        return;
+    }
+
+    console.log(`💹 Combined WebSocket: Processing volume profiles for ${drawingIds.length} shape(s):`, drawingIds);
+
+    // Check if chart is ready
+    if (!window.gd || !window.gd.layout) {
+        console.warn('💹 Combined WebSocket: Chart not ready for shape volume profiles');
+        return;
+    }
+
+    // Remove existing shape volume profile traces
+    const filteredData = window.gd.data.filter(trace =>
+        !trace.name || !trace.name.startsWith('Shape Volume:')
+    );
+
+    // Process each shape's volume profile and create visualization
+    const shapeVolumeTraces = [];
+    const shapeColors = [
+        'rgba(255, 0, 0, 0.8)',   // Red
+        'rgba(0, 255, 0, 0.8)',   // Green
+        'rgba(0, 0, 255, 0.8)',   // Blue
+        'rgba(255, 255, 0, 0.8)', // Yellow
+        'rgba(255, 0, 255, 0.8)', // Magenta
+        'rgba(0, 255, 255, 0.8)', // Cyan
+        'rgba(255, 165, 0, 0.8)', // Orange
+        'rgba(128, 0, 128, 0.8)'  // Purple
+    ];
+
+    drawingIds.forEach((drawingId, index) => {
+        const shapeData = message.data[drawingId];
+        console.log(`🔹 Processing shape ${drawingId}:`, {
+            shape_type: shapeData.shape_type,
+            trade_count: shapeData.trade_count,
+            time_range: shapeData.time_range,
+            price_range: shapeData.price_range,
+            volume_profile_points: shapeData.volume_profile?.volume_profile?.length || 0
+        });
+
+        if (!shapeData.volume_profile || !shapeData.volume_profile.volume_profile ||
+            !Array.isArray(shapeData.volume_profile.volume_profile)) {
+            console.warn(`   No valid volume profile data found for shape ${drawingId}`);
+            return;
+        }
+
+        const volumeData = shapeData.volume_profile.volume_profile;
+        if (volumeData.length === 0) {
+            console.warn(`   Empty volume profile for shape ${drawingId}`);
+            return;
+        }
+
+        // Create horizontal bars for this shape
+        const shapeTraces = createShapeVolumeProfileBars(
+            volumeData,
+            shapeData.time_range,
+            shapeData.price_range,
+            drawingId,
+            shapeData.shape_type,
+            shapeColors[index % shapeColors.length]
+        );
+
+        if (shapeTraces && shapeTraces.length > 0) {
+            shapeVolumeTraces.push(...shapeTraces);
+            console.log(`   Created ${shapeTraces.length} volume bar traces for shape ${drawingId}`);
+        } else {
+            console.warn(`   Failed to create volume bars for shape ${drawingId}`);
+        }
+    });
+
+    // Add shape volume profile traces to chart
+    if (shapeVolumeTraces.length > 0) {
+        filteredData.push(...shapeVolumeTraces);
+
+        console.log(`💹 Combined WebSocket: Adding ${shapeVolumeTraces.length} shape volume profile traces to chart`);
+        Plotly.react(window.gd, filteredData, window.gd.layout);
+        console.log(`💹 Combined WebSocket: Successfully updated chart with shape volume profiles`);
+    } else {
+        console.log(`💹 Combined WebSocket: No shape volume profile traces to add`);
+    }
+
+console.log(`💹 Combined WebSocket: Successfully processed shape volume profiles for ${drawingIds.length} shape(s)`);
+}
+
+// Create horizontal volume profile bars for a rectangle
+function createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRange, rectangleId, symbol) {
+    console.log(`🚑 Creating rectangle volume profile bars for ${symbol} - Rectangle ${rectangleId}`);
+
+    if (!volumeProfileData || !Array.isArray(volumeProfileData) || volumeProfileData.length === 0) {
+        console.warn(`🚑 No volume profile data for rectangle ${rectangleId}`);
+        return null;
+    }
+
+    if (!timeRange || !Array.isArray(timeRange) || timeRange.length !== 2) {
+        console.warn(`🚑 Invalid time range for rectangle ${rectangleId}:`, timeRange);
+        return null;
+    }
+
+    if (!priceRange || !Array.isArray(priceRange) || priceRange.length !== 2) {
+        console.warn(`🚑 Invalid price range for rectangle ${rectangleId}:`, priceRange);
+        return null;
+    }
+
+    const [startTime, endTime] = timeRange;
+    const [lowPrice, highPrice] = priceRange;
+
+    // Validate ranges
+    if (startTime >= endTime || lowPrice >= highPrice) {
+        console.warn(`🚑 Invalid ranges for rectangle ${rectangleId}: time ${startTime}-${endTime}, price ${lowPrice}-${highPrice}`);
+        return null;
+    }
+
+    const startDate = new Date(startTime * 1000);
+    const endDate = new Date(endTime * 1000);
+    const timeSpan = endDate - startDate;
+
+    console.log(`🚑 Rectangle ${rectangleId} time span: ${timeSpan}ms (${(timeSpan / (1000 * 60 * 60)).toFixed(2)} hours)`);
+
+    // Filter volume profile data to be within the rectangle's price range
+    const relevantVolumeData = volumeProfileData.filter(level => {
+        const price = typeof level.price === 'string' ? parseFloat(level.price) : level.price;
+        return price >= lowPrice && price <= highPrice;
+    });
+
+    console.log(`🚑 Rectangle ${rectangleId} filtered ${relevantVolumeData.length} volume levels from ${volumeProfileData.length} total (price range: ${lowPrice}-${highPrice})`);
+
+    if (relevantVolumeData.length === 0) {
+        console.warn(`🚑 No volume data within rectangle ${rectangleId} price range`);
+        return null;
+    }
+
+    // Find max volume for scaling within this rectangle
+    const maxVolumeInRectangle = Math.max(...relevantVolumeData.map(level => Math.max(
+        level.totalVolume || 0,
+        level.buyVolume || 0,
+        level.sellVolume || 0
+    )));
+
+    if (maxVolumeInRectangle === 0) {
+        console.warn(`🚑 No volume data for rectangle ${rectangleId}`);
+        return null;
+    }
+
+    console.log(`🚑 Rectangle ${rectangleId} max volume: ${maxVolumeInRectangle}`);
+
+    // Create traces for the volume profile bars
+    const traces = [];
+    const timeCenter = new Date((startTime + endTime) / 2 * 1000);
+
+    // Sort by price for visual consistency
+    relevantVolumeData.sort((a, b) => a.price - b.price);
+
+    relevantVolumeData.forEach((level, index) => {
+        const price = typeof level.price === 'string' ? parseFloat(level.price) : level.price;
+        const totalVol = level.totalVolume || 0;
+        const buyVol = level.buyVolume || 0;
+        const sellVol = level.sellVolume || 0;
+
+        // Offset vertically by index to avoid overlapping on the same price level
+        const verticalOffset = (index - relevantVolumeData.length / 2) * 0.001;
+        const actualPrice = price + verticalOffset;
+
+        // Normalize bar length to full rectangle time span - no capping
+        const maxBarLengthMs = timeSpan; // Full rectangle width for maximum volume bars
+
+        // Create separate bars for buyers (right side) and sellers (left side)
+
+        // BUY BAR - positioned to the RIGHT of center, within rectangle bounds
+        if (buyVol > 0) {
+            const buyBarLengthMs = (buyVol / maxVolumeInRectangle) * maxBarLengthMs;
+            const buyBarStartTime = timeCenter;
+            const buyBarEndTime = new Date(timeCenter.getTime() + buyBarLengthMs);
+
+            // Ensure bar doesn't extend beyond rectangle bounds
+            const maxEndTime = new Date(Math.min(buyBarEndTime.getTime(), endDate.getTime()));
+
+            const buyBarTrace = {
+                x: [buyBarStartTime, maxEndTime],
+                y: [actualPrice, actualPrice],
+                type: 'scatter',
+                mode: 'lines',
+                name: `VP-${rectangleId} Buy: ${price.toFixed(2)}`,
+                line: {
+                    color: 'rgba(0, 255, 0, 0.9)',
+                    width: Math.max(2, Math.min(10, (buyVol / maxVolumeInRectangle) * 8))
+                },
+                hovertemplate:
+                    `<b>Rectangle Volume Profile - BUYERS</b><br>` +
+                    `Rectangle: ${rectangleId}<br>` +
+                    `Symbol: ${symbol}<br>` +
+                    `Price: $${price.toFixed(2)}<br>` +
+                    `Buy Volume: ${buyVol.toFixed(4)}<br>` +
+                    `Total Volume: ${totalVol.toFixed(4)}<br>` +
+                    `Time Range: ${startDate.toLocaleString()} - ${endDate.toLocaleString()}<br>` +
+                    `<extra></extra>`,
+                xaxis: 'x',
+                yaxis: 'y',
+                showlegend: false,
+                hoverlabel: {
+                    bgcolor: 'rgba(0, 0, 0, 0.8)',
+                    bordercolor: 'rgba(0, 255, 0, 0.9)',
+                    font: { color: 'white', size: 12 }
+                }
+            };
+
+            traces.push(buyBarTrace);
+        }
+
+        // SELL BAR - positioned to the LEFT of center, within rectangle bounds
+        if (sellVol > 0) {
+            const sellBarLengthMs = (sellVol / maxVolumeInRectangle) * maxBarLengthMs;
+            const sellBarStartTime = new Date(timeCenter.getTime() - sellBarLengthMs);
+            const sellBarEndTime = timeCenter;
+
+            // Allow bar to extend beyond rectangle bounds for maximum visibility
+            const minStartTime = sellBarStartTime;
+
+            const sellBarTrace = {
+                x: [minStartTime, sellBarEndTime],
+                y: [actualPrice, actualPrice],
+                type: 'scatter',
+                mode: 'lines',
+                name: `VP-${rectangleId} Sell: ${price.toFixed(2)}`,
+                line: {
+                    color: 'rgba(255, 0, 0, 0.9)',
+                    width: Math.max(2, Math.min(10, (sellVol / maxVolumeInRectangle) * 8))
+                },
+                hovertemplate:
+                    `<b>Rectangle Volume Profile - SELLERS</b><br>` +
+                    `Rectangle: ${rectangleId}<br>` +
+                    `Symbol: ${symbol}<br>` +
+                    `Price: $${price.toFixed(2)}<br>` +
+                    `Sell Volume: ${sellVol.toFixed(4)}<br>` +
+                    `Total Volume: ${totalVol.toFixed(4)}<br>` +
+                    `Time Range: ${startDate.toLocaleString()} - ${endDate.toLocaleString()}<br>` +
+                    `<extra></extra>`,
+                xaxis: 'x',
+                yaxis: 'y',
+                showlegend: false,
+                hoverlabel: {
+                    bgcolor: 'rgba(0, 0, 0, 0.8)',
+                    bordercolor: 'rgba(255, 0, 0, 0.9)',
+                    font: { color: 'white', size: 12 }
+                }
+            };
+
+            traces.push(sellBarTrace);
+        }
+
+        console.log(`🚑 Created bars for rectangle ${rectangleId}, price ${price.toFixed(2)}: Buy=${buyVol.toFixed(4)}, Sell=${sellVol.toFixed(4)}`);
+    });
+
+    console.log(`🚑 Created ${traces.length} volume bar traces for rectangle ${rectangleId}`);
+
+    return traces;
+}
+
+// Create horizontal volume profile bars for a shape
+function createShapeVolumeProfileBars(volumeData, timeRange, priceRange, drawingId, shapeType, shapeColor) {
+    console.log(`📊 Creating volume profile bars for shape ${drawingId} (${shapeType}):`, {
+        volumePoints: volumeData.length,
+        timeRange,
+        priceRange,
+        color: shapeColor
+    });
+
+    if (!volumeData || !Array.isArray(volumeData) || volumeData.length === 0) {
+        console.warn(`No volume data for shape ${drawingId}`);
+        return null;
+    }
+
+    if (!timeRange || !Array.isArray(timeRange) || timeRange.length !== 2) {
+        console.warn(`Invalid time range for shape ${drawingId}:`, timeRange);
+        return null;
+    }
+
+    if (!priceRange || !Array.isArray(priceRange) || priceRange.length !== 2) {
+        console.warn(`Invalid price range for shape ${drawingId}:`, priceRange);
+        return null;
+    }
+
+    const [startTime, endTime] = timeRange;
+    const [lowPrice, highPrice] = priceRange;
+
+    // Validate time and price ranges
+    if (startTime >= endTime || lowPrice >= highPrice) {
+        console.warn(`Invalid ranges for shape ${drawingId}: time ${startTime}-${endTime}, price ${lowPrice}-${highPrice}`);
+        return null;
+    }
+
+    // Convert times to Date objects if they're not already
+    const startDate = new Date(startTime * 1000);
+    const endDate = new Date(endTime * 1000);
+    const timeSpan = endDate - startDate;
+
+    console.log(`📊 Shape ${drawingId} time span: ${timeSpan}ms (${(timeSpan / (1000 * 60 * 60)).toFixed(2)} hours)`);
+
+    // Filter volume data to be within the shape's price range
+    const relevantVolumeData = volumeData.filter(level => {
+        const price = level.price;
+        return price >= lowPrice && price <= highPrice;
+    });
+
+    console.log(`📊 Shape ${drawingId} filtered ${relevantVolumeData.length} volume levels from ${volumeData.length} total (price range: ${lowPrice}-${highPrice})`);
+
+    if (relevantVolumeData.length === 0) {
+        console.warn(`No volume data within shape ${drawingId} price range`);
+        return null;
+    }
+
+    // Find max volume for scaling within this shape
+    const maxVolumeInShape = Math.max(...relevantVolumeData.map(level => Math.max(
+        level.totalVolume || 0,
+        level.buyVolume || 0,
+        level.sellVolume || 0
+    )));
+
+    if (maxVolumeInShape === 0) {
+        console.warn(`No volume data for shape ${drawingId}`);
+        return null;
+    }
+
+    console.log(`📊 Shape ${drawingId} max volume: ${maxVolumeInShape}`);
+
+    // Create traces for the volume profile bars
+    const traces = [];
+    const timeCenter = new Date((startTime + endTime) / 2 * 1000);
+
+    // Sort by price for visual consistency
+    relevantVolumeData.sort((a, b) => a.price - b.price);
+
+    relevantVolumeData.forEach((level, index) => {
+        const price = level.price;
+        const totalVol = level.totalVolume || 0;
+        const buyVol = level.buyVolume || 0;
+        const sellVol = level.sellVolume || 0;
+
+        // Offset vertically by index to avoid overlapping on the same price level
+        const verticalOffset = (index - relevantVolumeData.length / 2) * 0.001; // Small offset per bar
+        const actualPrice = price + verticalOffset;
+
+        // Calculate maximum bar length proportional to time span of shape
+        const maxBarLengthHours = Math.min(1.0, timeSpan / (1000 * 60 * 60 * 4)); // Max 1 hour bars or 25% of shape width
+        const maxBarLengthMs = maxBarLengthHours * 60 * 60 * 1000;
+
+        // Create separate bars for buyers (right side) and sellers (left side)
+
+        // BUY BAR - positioned to the RIGHT of center
+        if (buyVol > 0) {
+            const buyBarLengthMs = (buyVol / maxVolumeInShape) * maxBarLengthMs;
+            const buyBarStartTime = timeCenter;
+            const buyBarEndTime = new Date(timeCenter.getTime() + buyBarLengthMs);
+
+            const buyBarTrace = {
+                x: [buyBarStartTime, buyBarEndTime],
+                y: [actualPrice, actualPrice],
+                type: 'scatter',
+                mode: 'lines',
+                name: `Shape Buy: ${drawingId} @ ${price.toFixed(2)}`,
+                line: {
+                    color: 'rgba(0, 255, 0, 0.8)', // Green for buyers
+                    width: Math.max(2, Math.min(8, (buyVol / maxVolumeInShape) * 6)) // Same thickness calculation
+                },
+                hovertemplate:
+                    `<b>Shape Volume Profile - BUYERS</b><br>` +
+                    `Shape: ${drawingId} (${shapeType})<br>` +
+                    `Price: $${price.toFixed(2)}<br>` +
+                    `Buy Volume: ${buyVol.toFixed(4)}<br>` +
+                    `Total Volume: ${totalVol.toFixed(4)}<br>` +
+                    `Time Range: ${startDate.toLocaleString()} - ${endDate.toLocaleString()}<br>` +
+                    `<extra></extra>`,
+                xaxis: 'x', // Main x-axis (time)
+                yaxis: 'y', // Main price chart
+                showlegend: false,
+                hoverlabel: {
+                    bgcolor: 'rgba(0, 0, 0, 0.8)',
+                    bordercolor: 'rgba(0, 255, 0, 0.8)',
+                    font: { color: 'white', size: 12 }
+                }
+            };
+
+            traces.push(buyBarTrace);
+        }
+
+        // SELL BAR - positioned to the LEFT of center
+        if (sellVol > 0) {
+            const sellBarLengthMs = (sellVol / maxVolumeInShape) * maxBarLengthMs;
+            const sellBarStartTime = new Date(timeCenter.getTime() - sellBarLengthMs);
+            const sellBarEndTime = timeCenter;
+
+            const sellBarTrace = {
+                x: [sellBarStartTime, sellBarEndTime],
+                y: [actualPrice, actualPrice],
+                type: 'scatter',
+                mode: 'lines',
+                name: `Shape Sell: ${drawingId} @ ${price.toFixed(2)}`,
+                line: {
+                    color: 'rgba(255, 0, 0, 0.8)', // Red for sellers
+                    width: Math.max(2, Math.min(8, (sellVol / maxVolumeInShape) * 6)) // Same thickness calculation
+                },
+                hovertemplate:
+                    `<b>Shape Volume Profile - SELLERS</b><br>` +
+                    `Shape: ${drawingId} (${shapeType})<br>` +
+                    `Price: $${price.toFixed(2)}<br>` +
+                    `Sell Volume: ${sellVol.toFixed(4)}<br>` +
+                    `Total Volume: ${totalVol.toFixed(4)}<br>` +
+                    `Time Range: ${startDate.toLocaleString()} - ${endDate.toLocaleString()}<br>` +
+                    `<extra></extra>`,
+                xaxis: 'x', // Main x-axis (time)
+                yaxis: 'y', // Main price chart
+                showlegend: false,
+                hoverlabel: {
+                    bgcolor: 'rgba(0, 0, 0, 0.8)',
+                    bordercolor: 'rgba(255, 0, 0, 0.8)',
+                    font: { color: 'white', size: 12 }
+                }
+            };
+
+            traces.push(sellBarTrace);
+        }
+
+        console.log(`📊 Created bars for shape ${drawingId}, price ${price.toFixed(2)}: Buy=${buyVol.toFixed(4)}, Sell=${sellVol.toFixed(4)}`);
+    });
+
+    console.log(`📊 Created ${traces.length} volume bar traces for shape ${drawingId}`);
+
+    // Shape labels removed as requested
+
+    return traces;
+}
+
+
 // Initialize timestamps with default values (30 days ago to now)
 function initializeDefaultTimestamps() {
     if (combinedFromTs === null || combinedToTs === null) {
@@ -72,6 +618,12 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
         return;
     }
 
+    // Set flag to prevent relayout event processing during price line updates
+    if (!window.ignoreRelayoutEvents) {
+        window.ignoreRelayoutEvents = false;
+    }
+    window.ignoreRelayoutEvents = true;
+
     // Ensure layout exists
     if (!gd.layout) {
         gd.layout = {};
@@ -110,7 +662,7 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
                     width: 1.5,
                     dash: 'solid'
                 },
-                layer: 'above',
+                layer: 'below',
                 editable: false // Explicitly make this system shape not editable by Plotly
         };
 
@@ -172,11 +724,23 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
 
     if (doRelayout) {
         // console.log('[PriceLine] updateOrAddRealtimePriceLine - Calling Plotly.relayout with full layout object due to doRelayout=true. Annotations:', JSON.parse(JSON.stringify(gd.layout.annotations)));
-        Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations });
+        Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations }).then(() => {
+            // Clear the flag after Plotly operation completes
+            window.ignoreRelayoutEvents = false;
+        }).catch(() => {
+            // Clear the flag even if operation fails
+            window.ignoreRelayoutEvents = false;
+        });
     } else {
         // For live price updates, use Plotly.update to refresh shapes/annotations without triggering relayout events
         // console.log('[PriceLine] updateOrAddRealtimePriceLine - Calling Plotly.update to refresh shapes/annotations without relayout');
-        Plotly.update(gd, {}, { shapes: gd.layout.shapes, annotations: gd.layout.annotations });
+        Plotly.update(gd, {}, { shapes: gd.layout.shapes, annotations: gd.layout.annotations }).then(() => {
+            // Clear the flag after Plotly operation completes
+            window.ignoreRelayoutEvents = false;
+        }).catch(() => {
+            // Clear the flag even if operation fails
+            window.ignoreRelayoutEvents = false;
+        });
     }
 }
 
@@ -393,28 +957,17 @@ function processMessageQueue() {
             case 'youtube_videos':
                 handleYouTubeVideos(message);
                 break;
+            case 'volume_profile':
+                handleVolumeProfileMessage(message);
+                break;
+            case 'shape_volume_profiles':
+                handleShapeVolumeProfilesMessage(message);
+                break;
             case 'trade_history':
                 handleTradeHistoryMessage(message);
                 break;
             default:
                 console.warn('⚠️ Unknown message type:', message.type);
-
-function handleTradeHistoryMessage(message) {
-    console.log(`💹 Combined WebSocket: Received trade history for ${message.symbol || 'unknown'} - ${message.data ? message.data.length : 0} trades`);
-
-    if (!message.data || !Array.isArray(message.data) || message.data.length === 0) {
-        console.warn('💹 Combined WebSocket: Invalid trade history data format');
-        return;
-    }
-
-    // Update trade history data using the tradeHistory.js module
-    if (window.updateTradeHistoryFromWebSocket) {
-        window.updateTradeHistoryFromWebSocket(message.data, message.symbol);
-        console.log(`💹 Combined WebSocket: Successfully processed ${message.data.length} trade history records`);
-    } else {
-        console.warn('💹 Combined WebSocket: updateTradeHistoryFromWebSocket function not available');
-    }
-}
         }
 
         console.log('✅ Message processing completed for type:', message.type);
@@ -489,10 +1042,39 @@ function handleRealtimeKlineForCombined(dataPoint) {
         return;
     }
 
-    // Extract price data
-    const livePrice = dataPoint.ohlc ? dataPoint.ohlc.close : dataPoint.close;
-    if (typeof livePrice !== 'number' || isNaN(livePrice)) {
-        console.warn('🔴 Combined WebSocket: Invalid live price:', livePrice);
+    // Extract price data with comprehensive fallbacks
+    let livePrice = null;
+
+    // First try OHLC close price
+    if (dataPoint.ohlc && typeof dataPoint.ohlc.close === 'number' && !isNaN(dataPoint.ohlc.close)) {
+        livePrice = dataPoint.ohlc.close;
+    }
+    // Then try direct close property
+    else if (typeof dataPoint.close === 'number' && !isNaN(dataPoint.close)) {
+        livePrice = dataPoint.close;
+    }
+    // Then try direct price property
+    else if (typeof dataPoint.price === 'number' && !isNaN(dataPoint.price)) {
+        livePrice = dataPoint.price;
+    }
+    // Backend sometimes sends "live_price" property
+    else if (typeof dataPoint.live_price === 'number' && !isNaN(dataPoint.live_price)) {
+        livePrice = dataPoint.live_price;
+    }
+
+    // Final validation
+    if (livePrice === null || typeof livePrice !== 'number' || isNaN(livePrice)) {
+        console.warn('🔴 Combined WebSocket: Invalid live price detected', {
+            livePrice: livePrice,
+            livePriceType: typeof livePrice,
+            dataPointKeys: dataPoint ? Object.keys(dataPoint) : 'dataPoint is null/undefined',
+            ohlcExists: !!(dataPoint && dataPoint.ohlc),
+            ohlcKeys: dataPoint && dataPoint.ohlc ? Object.keys(dataPoint.ohlc) : null,
+            hasClose: !!(dataPoint && dataPoint.close),
+            closeType: dataPoint && dataPoint.close ? typeof dataPoint.close : null,
+            hasPrice: !!(dataPoint && dataPoint.price),
+            priceType: dataPoint && dataPoint.price ? typeof dataPoint.price : null
+        });
         return;
     }
 
@@ -1491,22 +2073,34 @@ function handleBuySignals(message) {
 }
 
 function handleDrawingsData(message) {
-    // console.log(`Combined WebSocket: Received drawings data for ${message.symbol}`);
+    console.log(`Combined WebSocket: Received drawings data for ${message.symbol || 'unknown'}`);
 
-    if (!message.data || !Array.isArray(message.data)) {
-        console.warn('Combined WebSocket: Invalid drawings data format');
+    // Handle both old and new message formats for compatibility
+    let drawingsData = message.drawings || message.data;
+
+    // If message.data is an object with drawings array, use that
+    if (!drawingsData && message.data && Array.isArray(message.data.drawings)) {
+        drawingsData = message.data.drawings;
+        console.log(`🎨 DRAWINGS: Using message.data.drawings array (${drawingsData.length} drawings)`);
+    }
+
+    // If drawingsData is still not found, check if the entire message.data is the drawings
+    if (!drawingsData || !Array.isArray(drawingsData)) {
+        console.warn('Combined WebSocket: Invalid drawings data format - no drawings array found');
+        console.warn('Expected message structure:', { symbol: 'SYMBOL', drawings: '[array of drawings]' });
+        console.warn('Received message structure:', JSON.stringify(message, null, 2));
         return;
     }
 
-    if (message.data.length === 0) {
+    if (drawingsData.length === 0) {
         console.log('Combined WebSocket: No drawings to process');
         return;
     }
 
-    // console.log('🎨 DRAWINGS: Processing', message.data.length, 'drawings:', message.data);
+    console.log('🎨 DRAWINGS: Processing', drawingsData.length, 'drawings');
 
     // Process and add drawings to the chart
-    addDrawingsToChart(message.data, message.symbol);
+    addDrawingsToChart(drawingsData, message.symbol || 'unknown');
 }
 
 function addPositionsToChart(positions, symbol) {
@@ -2242,7 +2836,6 @@ function convertDrawingToShape(drawing) {
                 width: drawing.properties?.width || 2,
                 dash: drawing.properties?.dash || 'solid'
             };
-            /*
             console.log('🎨 DRAWINGS: Created line shape:', {
                 x0: shape.x0,
                 y0: shape.y0,
@@ -2251,8 +2844,7 @@ function convertDrawingToShape(drawing) {
                 yref: shape.yref,
                 line: shape.line
             });
-            */
-        } else if (drawing.type === 'rectangle' || drawing.type === 'box') {
+        } else if (drawing.type === 'rect' || drawing.type === 'rectangle' || drawing.type === 'box') {
             // For rectangles, we need to determine min/max coordinates
             const x0 = new Date(Math.min(drawing.start_time, drawing.end_time) * 1000);
             const x1 = new Date(Math.max(drawing.start_time, drawing.end_time) * 1000);
@@ -3318,7 +3910,38 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
 
 function updateChartWithLiveData(dataPoint, symbol) {
     if (!dataPoint) {
-        // console.warn('Combined WebSocket: No live data point to process');
+        console.warn('Combined WebSocket: No live data point to process');
+        return;
+    }
+
+    // Safely extract live price for validation with comprehensive fallbacks
+    let livePrice = null;
+
+    // First try OHLC close price
+    if (dataPoint.ohlc && typeof dataPoint.ohlc.close === 'number' && !isNaN(dataPoint.ohlc.close)) {
+        livePrice = dataPoint.ohlc.close;
+    }
+    // Then try direct close property
+    else if (typeof dataPoint.close === 'number' && !isNaN(dataPoint.close)) {
+        livePrice = dataPoint.close;
+    }
+    // Then try direct price property
+    else if (typeof dataPoint.price === 'number' && !isNaN(dataPoint.price)) {
+        livePrice = dataPoint.price;
+    }
+    // Backend sometimes sends "live_price" property
+    else if (typeof dataPoint.live_price === 'number' && !isNaN(dataPoint.live_price)) {
+        livePrice = dataPoint.live_price;
+    }
+
+    if (livePrice === null || typeof livePrice !== 'number' || isNaN(livePrice)) {
+        console.warn('🔴 Combined WebSocket: Invalid live price:', livePrice, {
+            dataPointKeys: dataPoint ? Object.keys(dataPoint) : 'dataPoint is null/undefined',
+            ohlcExists: !!(dataPoint && dataPoint.ohlc),
+            hasClose: !!(dataPoint && dataPoint.close),
+            hasPrice: !!(dataPoint && dataPoint.price),
+            hasLivePrice: !!(dataPoint && dataPoint.live_price)
+        });
         return;
     }
 
@@ -3354,7 +3977,11 @@ function updateChartWithLiveData(dataPoint, symbol) {
         return;
     }
 
-    const price = dataPoint.ohlc.close;
+    // Safely extract price with fallback for different data structures
+    const price = (dataPoint.ohlc && dataPoint.ohlc.close) ? dataPoint.ohlc.close :
+                  (dataPoint.close !== undefined ? dataPoint.close :
+                  (dataPoint.price !== undefined ? dataPoint.price :
+                  (dataPoint.live_price !== undefined ? dataPoint.live_price : null)));
 
     // Find the candlestick trace
     const priceTraceIndex = gd.data.findIndex(trace => trace.type === 'candlestick');
@@ -3379,12 +4006,13 @@ function updateChartWithLiveData(dataPoint, symbol) {
         if (isNewCandle) {
             // Add new candle
             // console.log('[CHART_UPDATE] combinedData.js live data - adding new candle at', new Date().toISOString());
+            const ohlc = dataPoint.ohlc || {};
             const newData = {
                 x: [[timestamp]],
-                open: [[dataPoint.ohlc.open]],
-                high: [[dataPoint.ohlc.high]],
-                low: [[dataPoint.ohlc.low]],
-                close: [[dataPoint.ohlc.close]]
+                open: [[ohlc.open || livePrice]],
+                high: [[ohlc.high || livePrice]],
+                low: [[ohlc.low || livePrice]],
+                close: [[ohlc.close || livePrice]]
             };
 
             Plotly.extendTraces(gd, newData, [priceTraceIndex]);
@@ -3392,9 +4020,18 @@ function updateChartWithLiveData(dataPoint, symbol) {
         } else {
             // Update existing candle
             // console.log('[CHART_UPDATE] combinedData.js live data - updating existing candle at', new Date().toISOString());
-            trace.high[trace.high.length - 1] = Math.max(trace.high[trace.high.length - 1], dataPoint.ohlc.high);
-            trace.low[trace.low.length - 1] = Math.min(trace.low[trace.low.length - 1], dataPoint.ohlc.low);
-            trace.close[trace.close.length - 1] = dataPoint.ohlc.close;
+            const ohlc = dataPoint.ohlc || {};
+            if (ohlc.high !== undefined) {
+                trace.high[trace.high.length - 1] = Math.max(trace.high[trace.high.length - 1], ohlc.high);
+            }
+            if (ohlc.low !== undefined) {
+                trace.low[trace.low.length - 1] = Math.min(trace.low[trace.low.length - 1], ohlc.low);
+            }
+            if (ohlc.close !== undefined) {
+                trace.close[trace.close.length - 1] = ohlc.close;
+            } else {
+                trace.close[trace.close.length - 1] = livePrice;
+            }
 
             // Preserve shapes when updating live data
             const layoutWithShapes = { ...gd.layout };

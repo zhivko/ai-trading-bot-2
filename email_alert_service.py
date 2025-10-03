@@ -355,19 +355,19 @@ class EmailAlertService:
         return [None] * len(timestamps)
 
     async def check_price_alerts(self, test: bool = False):
-        logger.info("Starting check_price_alerts cycle.")
+        # logger.info("Starting check_price_alerts cycle.")
         try:
             redis = await get_redis_connection()
-            logger.info("Redis connection established.")
+            # logger.info("Redis connection established.")
             drawings = await self.get_all_drawings(redis)
-            logger.info(f"Found {len(drawings)} total drawings.")
+            # logger.info(f"Found {len(drawings)} total drawings.")
         except Exception as e:
             logger.error(f"Error connecting to Redis or getting drawings: {e}", exc_info=True)
             return
 
         alerts_by_user = {}
 
-        logger.info(f"Filtering {len(drawings)} drawings for alerts...")
+        # logger.info(f"Filtering {len(drawings)} drawings for alerts...")
         eligible_drawings = 0
 
         for idx, drawing in enumerate(drawings):
@@ -436,9 +436,9 @@ class EmailAlertService:
                     # logger.debug(f"Drawing time range {start_time}-{end_time} (normalized: {line_start}-{line_end}) not matching bar time {bar_time}")
                     continue
 
-                logger.info(f"Calling detect_cross for drawing {drawing.get('id')}")
+                # logger.info(f"Calling detect_cross for drawing {drawing.get('id')}")
                 cross_info = await self.detect_cross(redis, drawing, latest_kline, prev_kline)
-                logger.info(f"Cross detection result: {cross_info}")
+                # logger.info(f"Cross detection result: {cross_info}")
 
                 if cross_info:
                     logger.info(f"Cross detected for {symbol} by {user_email}: {cross_info}")
@@ -460,8 +460,8 @@ class EmailAlertService:
             except Exception as e:
                 logger.error(f"Error processing drawing {drawing.get('id', 'N/A')}: {e}", exc_info=True)
 
-        logger.info(f"Eligible drawings: {eligible_drawings}")
-        logger.info(f"Alerts by user: {list(alerts_by_user.keys())}")
+        # logger.info(f"Eligible drawings: {eligible_drawings}")
+        # logger.info(f"Alerts by user: {list(alerts_by_user.keys())}")
 
         # Test mode: fake a cross for the last drawing on BTCUSDT
         if test:

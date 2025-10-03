@@ -35,6 +35,37 @@ TRADING_TIMEFRAME = "5m"  # Timeframe for background tasks and AI defaults
 SUPPORTED_SYMBOLS = ["BTCUSDT", "XMRUSDT", "ETHUSDT", "SOLUSDT", "SUIUSDT", "PAXGUSDT", "BNBUSDT", "ADAUSDT", "BTCDOM", "APEXUSDT"]
 SUPPORTED_RESOLUTIONS = ["1m", "5m", "1h", "4h", "1d", "1w"]
 
+# Trade aggregator configuration
+TRADE_AGGREGATION_RESOLUTION = "1m"  # Aggregate trades into 1-minute bars
+
+# Supported exchanges for trade aggregation (CCXT exchange IDs)
+SUPPORTED_EXCHANGES = {
+    "binance": {
+        "name": "Binance",
+        "symbols": {"BTCUSDT": "BTC/USDT", "ETHUSDT": "ETH/USDT", "SOLUSDT": "SOL/USDT", "ADAUSDT": "ADA/USDT", "BNBUSDT": "BNB/USDT"},
+        "rate_limit": 1200,  # requests per minute
+        "weight_limit": 60000  # API weight per minute
+    },
+    "bybit": {
+        "name": "Bybit",
+        "symbols": {"BTCUSDT": "BTCUSDT", "ETHUSDT": "ETHUSDT", "SOLUSDT": "SOLUSDT", "ADAUSDT": "ADAUSDT", "XMRUSDT": "XMRUSDT", "SUIUSDT": "SUIUSDT", "PAXGUSDT": "PAXGUSDT"},
+        "rate_limit": 50,  # requests per second
+        "weight_limit": 100  # API requests per second limit
+    },
+    "kucoin": {
+        "name": "KuCoin",
+        "symbols": {"BTCUSDT": "BTC-USDT", "ETHUSDT": "ETH-USDT", "SOLUSDT": "SOL-USDT", "ADAUSDT": "ADA-USDT"},
+        "rate_limit": 30,  # requests per second
+        "weight_limit": 30
+    },
+    "okex": {
+        "name": "OKX",
+        "symbols": {"BTCUSDT": "BTC-USDT", "ETHUSDT": "ETH-USDT", "SOLUSDT": "SOL-USDT", "ADAUSDT": "ADA/USDT"},
+        "rate_limit": 20,  # requests per second
+        "weight_limit": 20
+    }
+}
+
 SUPPORTED_RANGES = [
     {"value": "1h", "label": "1h"},
     {"value": "8h", "label": "8h"},

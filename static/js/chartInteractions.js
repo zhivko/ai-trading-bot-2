@@ -199,7 +199,7 @@ function colorTheLine(eventParam)
         for (let i = 0; i < currentShapes.length; i++) {
             const shape = currentShapes[i];
             //console.log(`[colorTheLine] Shape ${i}: type=${shape.type}, id=${shape.id}, isSystemShape=${shape.isSystemShape}`);
-            if (shape.type === 'line' && shape.id && !shape.isSystemShape) { // Ignore system shapes
+            if ((shape.type === 'line' || shape.type === 'rect' || shape.type === 'rectangle' || shape.type === 'box') && shape.id && !shape.isSystemShape) { // Ignore system shapes
                 // Process all valid shapes for hover detection, regardless of selection state
                 // Selected shapes should still show hover effects when hovered over
                 //console.group(`[colorTheLine] Processing Shape ${i} (ID: ${shape.id})`);
@@ -242,6 +242,8 @@ function colorTheLine(eventParam)
                 const p1 = { x: shapeXaxis._offset + p1x_subplot_relative_hover, y: shapeYaxis._offset + p1y_subplot_relative_hover };
                 //console.log(`Shape Pixel Endpoints (Paper Relative): P0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}), P1=(${p1.x.toFixed(2)},${p1.y.toFixed(2)}). Mouse: (${mouseX_paper.toFixed(2)},${mouseY_paper.toFixed(2)})`);
 
+            if (shape.type === 'line') {
+                // Handle line shapes with segment distance calculation
                 if (isNaN(p0.x) || isNaN(p0.y) || isNaN(p1.x) || isNaN(p1.y) || !isFinite(p0.x) || !isFinite(p0.y) || !isFinite(p1.x) || !isFinite(p1.y)) {
                     /*console.warn(`[NativeMousemove DEBUG] Shape ${i} (ID: ${shape.id}) had NaN/Infinite pixel coordinates. Skipping.`);
                     console.groupEnd();
@@ -255,6 +257,29 @@ function colorTheLine(eventParam)
                     window.newHoveredShapeId = shape.id;
                    // console.log(`[colorTheLine] Shape ${i} (ID: ${shape.id}) is now the closest hovered shape!`);
                 }
+            } else if (shape.type === 'rect' || shape.type === 'rectangle' || shape.type === 'box') {
+                // Handle rectangle shapes with point-in-rectangle calculation
+                const rectLeft = Math.min(shapeXaxis.d2p(shapeX0Val), shapeXaxis.d2p(shapeX1Val)) + shapeXaxis._offset;
+                const rectRight = Math.max(shapeXaxis.d2p(shapeX0Val), shapeXaxis.d2p(shapeX1Val)) + shapeXaxis._offset;
+                const rectTop = Math.min(shapeYaxis.d2p(Math.min(shape.y0, shape.y1)), shapeYaxis.d2p(Math.max(shape.y0, shape.y1))) + shapeYaxis._offset;
+                const rectBottom = Math.max(shapeYaxis.d2p(Math.min(shape.y0, shape.y1)), shapeYaxis.d2p(Math.max(shape.y0, shape.y1))) + shapeYaxis._offset;
+
+                // Check if mouse point is inside rectangle bounds (with some tolerance for hover)
+                const hoverTolerance = 5; // pixels of tolerance around rectangle for hover
+                if (mouseX_paper >= rectLeft - hoverTolerance && mouseX_paper <= rectRight + hoverTolerance &&
+                    mouseY_paper >= rectTop - hoverTolerance && mouseY_paper <= rectBottom + hoverTolerance) {
+                    // For rectangles, use distance from center as the hover distance metric
+                    const rectCenterX = (rectLeft + rectRight) / 2;
+                    const rectCenterY = (rectTop + rectBottom) / 2;
+                    const centerDistSq = Math.pow(mouseX_paper - rectCenterX, 2) + Math.pow(mouseY_paper - rectCenterY, 2);
+
+                    if (centerDistSq < HOVER_THRESHOLD_PIXELS_SQ && centerDistSq < minDistanceSq) {
+                        minDistanceSq = centerDistSq;
+                        window.newHoveredShapeId = shape.id;
+                        // console.log(`[colorTheLine] Rectangle ${i} (ID: ${shape.id}) is now the closest hovered shape! centerDistSq: ${centerDistSq.toFixed(2)}`);
+                    }
+                }
+            }
             }
         }
         console.groupEnd(); // End group for this shape
@@ -647,7 +672,8 @@ function handleShapeClick(event) {
     for (let i = 0; i < currentShapes.length; i++) {
         const shape = currentShapes[i];
         //console.log(`[DEBUG] handleShapeClick - shape ${i}: type=${shape.type}, id=${shape.id}, isSystemShape=${shape.isSystemShape}`);
-        if (shape.type === 'line' && shape.id && !shape.isSystemShape) {
+        if (((shape.type === 'line' || shape.type === 'rect' || shape.type === 'rectangle' || shape.type === 'box') && shape.id && !shape.isSystemShape) ||
+            (shape.type === 'rect' && shape.id && !shape.isSystemShape)) {
             //console.log(`[DEBUG] handleShapeClick - processing clickable shape ${i} (ID: ${shape.id})`);
             const xrefKeyForFilter = getAxisLayoutKey(shape.xref, 'xaxis');
             const yrefKeyForFilter = getAxisLayoutKey(shape.yref, 'yaxis');
@@ -672,29 +698,56 @@ function handleShapeClick(event) {
                 continue;
             }
 
-            let shapeX0Val = (shapeXaxis.type === 'date') ? ((shape.x0 instanceof Date) ? shape.x0.getTime() : new Date(shape.x0).getTime()) : Number(shape.x0);
-            let shapeX1Val = (shapeXaxis.type === 'date') ? ((shape.x1 instanceof Date) ? shape.x1.getTime() : new Date(shape.x1).getTime()) : Number(shape.x1);
+            if (shape.type === 'line') {
+                // Handle line shapes with segment distance calculation
+                let shapeX0Val = (shapeXaxis.type === 'date') ? ((shape.x0 instanceof Date) ? shape.x0.getTime() : new Date(shape.x0).getTime()) : Number(shape.x0);
+                let shapeX1Val = (shapeXaxis.type === 'date') ? ((shape.x1 instanceof Date) ? shape.x1.getTime() : new Date(shape.x1).getTime()) : Number(shape.x1);
 
-            const p0y = shapeYaxis.d2p(shape.y0);
-            const p1y = shapeYaxis.d2p(shape.y1);
-            const p0x = shapeXaxis.d2p(shapeX0Val);
-            const p1x = shapeXaxis.d2p(shapeX1Val);
+                const p0y = shapeYaxis.d2p(shape.y0);
+                const p1y = shapeYaxis.d2p(shape.y1);
+                const p0x = shapeXaxis.d2p(shapeX0Val);
+                const p1x = shapeXaxis.d2p(shapeX1Val);
 
-            const p0 = { x: shapeXaxis._offset + p0x, y: shapeYaxis._offset + p0y };
-            const p1 = { x: shapeXaxis._offset + p1x, y: shapeYaxis._offset + p1y };
+                const p0 = { x: shapeXaxis._offset + p0x, y: shapeYaxis._offset + p0y };
+                const p1 = { x: shapeXaxis._offset + p1x, y: shapeYaxis._offset + p1y };
 
-            // console.log(`[DEBUG] handleShapeClick - shape ${i} pixel endpoints: p0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}), p1=(${p1.x.toFixed(2)},${p1.y.toFixed(2)}), mouse=(${mouseX_paper.toFixed(2)},${mouseY_paper.toFixed(2)})`);
+                // console.log(`[DEBUG] handleShapeClick - shape ${i} pixel endpoints: p0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}), p1=(${p1.x.toFixed(2)},${p1.y.toFixed(2)}), mouse=(${mouseX_paper.toFixed(2)},${mouseY_paper.toFixed(2)})`);
 
-            if (!isNaN(p0.x) && !isNaN(p0.y) && !isNaN(p1.x) && !isNaN(p1.y)) {
-                const distSq = distToSegmentSquared({ x: mouseX_paper, y: mouseY_paper }, p0, p1);
-                // console.log(`[DEBUG] handleShapeClick - shape ${i} distance squared: ${distSq.toFixed(2)}, threshold: ${(CLICK_THRESHOLD * CLICK_THRESHOLD)}`);
-                if (distSq < CLICK_THRESHOLD * CLICK_THRESHOLD && distSq < minDistance) {
-                    minDistance = distSq;
-                    closestShape = shape;
-                    //console.log(`[DEBUG] handleShapeClick - shape ${i} is now closest`);
+                if (!isNaN(p0.x) && !isNaN(p0.y) && !isNaN(p1.x) && !isNaN(p1.y)) {
+                    const distSq = distToSegmentSquared({ x: mouseX_paper, y: mouseY_paper }, p0, p1);
+                    // console.log(`[DEBUG] handleShapeClick - shape ${i} distance squared: ${distSq.toFixed(2)}, threshold: ${(CLICK_THRESHOLD * CLICK_THRESHOLD)}`);
+                    if (distSq < CLICK_THRESHOLD * CLICK_THRESHOLD && distSq < minDistance) {
+                        minDistance = distSq;
+                        closestShape = shape;
+                        //console.log(`[DEBUG] handleShapeClick - shape ${i} is now closest`);
+                    }
+                } else {
+                    //console.log(`[DEBUG] handleShapeClick - shape ${i} has NaN coordinates`);
                 }
-            } else {
-                //console.log(`[DEBUG] handleShapeClick - shape ${i} has NaN coordinates`);
+            } else if (shape.type === 'rect' || shape.type === 'rectangle' || shape.type === 'box') {
+                // Handle rectangle shapes with point-in-rectangle calculation
+                let shapeX0Val = (shapeXaxis.type === 'date') ? ((shape.x0 instanceof Date) ? shape.x0.getTime() : new Date(shape.x0).getTime()) : Number(shape.x0);
+                let shapeX1Val = (shapeXaxis.type === 'date') ? ((shape.x1 instanceof Date) ? shape.x1.getTime() : new Date(shape.x1).getTime()) : Number(shape.x1);
+
+                const rectLeft = Math.min(shapeXaxis.d2p(shapeX0Val), shapeXaxis.d2p(shapeX1Val)) + shapeXaxis._offset;
+                const rectRight = Math.max(shapeXaxis.d2p(shapeX0Val), shapeXaxis.d2p(shapeX1Val)) + shapeXaxis._offset;
+                const rectTop = Math.min(shapeYaxis.d2p(Math.min(shape.y0, shape.y1)), shapeYaxis.d2p(Math.max(shape.y0, shape.y1))) + shapeYaxis._offset;
+                const rectBottom = Math.max(shapeYaxis.d2p(Math.min(shape.y0, shape.y1)), shapeYaxis.d2p(Math.max(shape.y0, shape.y1))) + shapeYaxis._offset;
+
+                // Check if mouse point is inside rectangle bounds
+                if (mouseX_paper >= rectLeft && mouseX_paper <= rectRight &&
+                    mouseY_paper >= rectTop && mouseY_paper <= rectBottom) {
+                    // For rectangles, use a small distance from center as a tiebreaker for closest selection
+                    const rectCenterX = (rectLeft + rectRight) / 2;
+                    const rectCenterY = (rectTop + rectBottom) / 2;
+                    const centerDistSq = Math.pow(mouseX_paper - rectCenterX, 2) + Math.pow(mouseY_paper - rectCenterY, 2);
+
+                    if (centerDistSq < minDistance) {
+                        minDistance = centerDistSq;
+                        closestShape = shape;
+                        //console.log(`[DEBUG] handleShapeClick - rectangle ${i} is now closest, centerDistSq: ${centerDistSq.toFixed(2)}`);
+                    }
+                }
             }
         }
     }

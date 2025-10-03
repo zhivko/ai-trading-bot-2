@@ -492,8 +492,11 @@ function handleVolumeProfileToggle(event) {
 
     console.log(`[TRADE_HISTORY] Volume profile toggled: ${isChecked}`);
 
-    // Trade history data comes automatically via WebSocket
-    // Just update the visualizations based on current data
+    // Update volume profile visualization immediately when checkbox changes
+    // This will add/remove the horizontal bars overlay on the price chart
+    updateVolumeProfileVisualization();
+
+    // Also update other trade history visualizations to maintain consistency
     updateTradeHistoryVisualizations();
 
     // Save settings if function exists
@@ -569,19 +572,376 @@ function clearTradeHistoryData() {
     console.log('[TRADE_HISTORY] Cleared all trade history data');
 }
 
-// Update trade history data from WebSocket message
+// Memory management for volume profile traces
+function cleanupOldVolumeProfileTraces() {
+    console.log('[VOLUME_PROFILE] Cleaning up old volume profile traces for memory management');
+
+    // Clear the global volume profile data to prevent memory leaks
+    window.volumeProfileData = [];
+
+    // Remove volume profile traces from chart if they exist
+    if (window.gd && window.gd.data) {
+        const originalCount = window.gd.data.length;
+        const filteredData = window.gd.data.filter(trace =>
+            !trace.name || !trace.name.includes('Volume Profile')
+        );
+
+        if (filteredData.length < originalCount) {
+            // Only update chart if traces were actually removed
+            Plotly.react(window.gd, filteredData, window.gd.layout);
+            console.log(`[VOLUME_PROFILE] Removed ${originalCount - filteredData.length} old volume profile traces from chart`);
+        }
+    }
+
+    // Clear volume profile layout axes to free up resources
+    if (window.gd && window.gd.layout) {
+        delete window.gd.layout.yaxis2;
+        delete window.gd.layout.xaxis2;
+        console.log('[VOLUME_PROFILE] Cleared volume profile axes from layout');
+    }
+
+    volumeProfileTraces = [];
+
+    console.log('[VOLUME_PROFILE] Memory cleanup completed - volume profile traces cleared');
+}
+
+// Periodic memory cleanup - clear volume profile data after extended periods
+function scheduleVolumeProfileCleanup(cleanupIntervalMinutes = 30) {
+    const cleanupInterval = cleanupIntervalMinutes * 60 * 1000; // Convert to milliseconds
+
+    console.log(`[VOLUME_PROFILE] Scheduling periodic cleanup every ${cleanupIntervalMinutes} minutes`);
+
+    // Clear any existing cleanup timer
+    if (window.volumeProfileCleanupTimer) {
+        clearInterval(window.volumeProfileCleanupTimer);
+    }
+
+    // Schedule periodic cleanup
+    window.volumeProfileCleanupTimer = setInterval(() => {
+        console.log('[VOLUME_PROFILE] Running scheduled memory cleanup');
+        cleanupOldVolumeProfileTraces();
+
+        // Optional: Force garbage collection if available (Chrome/Edge)
+        if (window.gc) {
+            console.log('[VOLUME_PROFILE] Triggering garbage collection');
+            window.gc();
+        }
+    }, cleanupInterval);
+
+    console.log('[VOLUME_PROFILE] Periodic cleanup scheduled');
+}
+
+// Cleanup on symbol/resolution changes to prevent stale data
+function handleSymbolResolutionChange() {
+    console.log('[VOLUME_PROFILE] Symbol/resolution change detected - cleaning up volume profile data');
+
+    // Delay cleanup slightly to allow new data to arrive
+    setTimeout(() => {
+        cleanupOldVolumeProfileTraces();
+
+        // Clear the cleanup timer when changing symbols to prevent accumulation
+        if (window.volumeProfileCleanupTimer) {
+            clearInterval(window.volumeProfileCleanupTimer);
+            window.volumeProfileCleanupTimer = null;
+        }
+    }, 1000); // 1 second delay
+}
+
+// Update volume profile data from WebSocket message
+function updateVolumeProfileFromWebSocket(volumeProfileData, symbol = null) {
+    if (!volumeProfileData || !Array.isArray(volumeProfileData) || volumeProfileData.length === 0) {
+        console.log('[TRADE_HISTORY] No volume profile data received from WebSocket');
+        return;
+    }
+
+    console.log(`[TRADE_HISTORY] Updating volume profile from WebSocket: ${volumeProfileData.length} price levels for ${symbol || 'unknown symbol'}`);
+
+    // Check if we have existing volume profile data for merging
+    if (window.volumeProfileData && Array.isArray(window.volumeProfileData) && window.volumeProfileData.length > 0) {
+        // Merge new data with existing data
+        console.log(`[VOLUME_PROFILE] Merging ${volumeProfileData.length} new price levels with ${window.volumeProfileData.length} existing levels`);
+        window.volumeProfileData = mergeVolumeProfileData(window.volumeProfileData, volumeProfileData);
+        console.log(`[VOLUME_PROFILE] After merging: ${window.volumeProfileData.length} total price levels`);
+    } else {
+        // No existing data, use new data directly
+        window.volumeProfileData = volumeProfileData;
+        console.log(`[VOLUME_PROFILE] No existing data, using ${volumeProfileData.length} new price levels`);
+    }
+
+    // Synchronize the scaled volume bars on chart immediately
+    updateVolumeProfileVisualization();
+
+    console.log(`[TRADE_HISTORY] Volume profile updated from WebSocket for ${symbol || 'unknown symbol'} - ${window.volumeProfileData.length} price levels ready for visualization`);
+}
+
+// Merge volume profile data by combining data at same price levels
+function mergeVolumeProfileData(existingData, newData) {
+    if (!existingData || !Array.isArray(existingData)) return newData;
+    if (!newData || !Array.isArray(newData)) return existingData;
+
+    console.log(`[VOLUME_PROFILE] Performing detailed merge of ${existingData.length} existing + ${newData.length} new price levels`);
+
+    // Create a map of existing data by price for quick lookup
+    const mergedMap = new Map();
+
+    // Add existing data to map
+    existingData.forEach(level => {
+        if (level && typeof level.price === 'number') {
+            mergedMap.set(level.price, {
+                price: level.price,
+                totalVolume: level.totalVolume || 0,
+                buyVolume: level.buyVolume || 0,
+                sellVolume: level.sellVolume || 0,
+                trades: level.trades || []
+            });
+        }
+    });
+
+    // Merge new data
+    let mergedLevels = 0;
+    let addedLevels = 0;
+
+    newData.forEach(newLevel => {
+        if (!newLevel || typeof newLevel.price !== 'number') return;
+
+        const existingLevel = mergedMap.get(newLevel.price);
+
+        if (existingLevel) {
+            // Merge data at same price level - add to existing volumes
+            existingLevel.totalVolume = (existingLevel.totalVolume || 0) + (newLevel.totalVolume || 0);
+            existingLevel.buyVolume = (existingLevel.buyVolume || 0) + (newLevel.buyVolume || 0);
+            existingLevel.sellVolume = (existingLevel.sellVolume || 0) + (newLevel.sellVolume || 0);
+
+            // Combine trades arrays
+            if (newLevel.trades && Array.isArray(newLevel.trades)) {
+                existingLevel.trades = (existingLevel.trades || []).concat(newLevel.trades);
+            }
+
+            mergedLevels++;
+        } else {
+            // New price level, add it
+            mergedMap.set(newLevel.price, {
+                price: newLevel.price,
+                totalVolume: newLevel.totalVolume || 0,
+                buyVolume: newLevel.buyVolume || 0,
+                sellVolume: newLevel.sellVolume || 0,
+                trades: newLevel.trades || []
+            });
+            addedLevels++;
+        }
+    });
+
+    // Convert map back to array and sort by price
+    const mergedArray = Array.from(mergedMap.values()).sort((a, b) => a.price - b.price);
+
+    console.log(`[VOLUME_PROFILE] Merge complete: ${mergedLevels} levels merged, ${addedLevels} levels added, total: ${mergedArray.length}`);
+
+    // Log a sample of the merged data for verification
+    if (mergedArray.length > 0) {
+        console.log(`[VOLUME_PROFILE] Sample merged data:`);
+        mergedArray.slice(0, 3).forEach((level, idx) => {
+            console.log(`  [${idx}] Price: ${level.price}, Total: ${level.totalVolume?.toFixed(4)}, Buy: ${level.buyVolume?.toFixed(4)}, Sell: ${level.sellVolume?.toFixed(4)}, Trades: ${level.trades?.length || 0}`);
+        });
+    }
+
+    return mergedArray;
+}
+
+// Dedicated volume profile visualization that adds horizontal volume bars to the price chart
+function updateVolumeProfileVisualization() {
+    if (!window.volumeProfileData || window.volumeProfileData.length === 0) {
+        console.log('[VOLUME_PROFILE] No volume profile data to visualize');
+        return;
+    }
+
+    if (!window.gd || !window.gd.data) {
+        console.log('[VOLUME_PROFILE] Chart not ready for volume profile visualization');
+        return;
+    }
+
+    console.log(`[VOLUME_PROFILE] Visualizing ${window.volumeProfileData.length} volume profile price levels`);
+
+    // Remove existing volume profile traces
+    const filteredData = window.gd.data.filter(trace =>
+        !trace.name || !trace.name.includes('Volume Profile')
+    );
+
+    // Check if volume profile is enabled
+    const volumeProfileCheckbox = document.getElementById('show-volume-profile-checkbox');
+    const showVolumeProfile = volumeProfileCheckbox ? volumeProfileCheckbox.checked : false;
+
+    if (!showVolumeProfile) {
+        // If not enabled, just update without adding the trace
+        if (filteredData.length !== window.gd.data.length) {
+            Plotly.react(window.gd, filteredData, window.gd.layout);
+        }
+        return;
+    }
+
+    // Create the volume profile horizontal bars
+    const volumeProfileTrace = createVolumeProfileBars();
+
+    if (volumeProfileTrace) {
+        filteredData.push(volumeProfileTrace);
+
+        // Ensure layout has proper y2 axis for volume profile
+        const layout = { ...window.gd.layout };
+
+        // Get current price range to position volume bars
+        const yRange = layout.yaxis && layout.yaxis.range ? layout.yaxis.range : [0, 100];
+        const priceRange = yRange[1] - yRange[0];
+        const rightEdgePosition = yRange[1] + (priceRange * 0.05); // Position 5% above price max
+
+        // Configure y2 axis for volume bars (right side, overlaid on price chart)
+        layout.yaxis2 = {
+            title: '',
+            range: [yRange[0], rightEdgePosition],
+            autorange: false,
+            fixedrange: false,
+            showticklabels: false,
+            showgrid: false,
+            side: 'right',
+            overlaying: 'y',  // Overlay on main price y-axis
+            layer: 'above'
+        };
+
+        // Configure x2 axis for volume bars
+        layout.xaxis2 = {
+            showticklabels: false,
+            showgrid: false,
+            overlaying: 'x'
+        };
+
+        console.log('[VOLUME_PROFILE] Adding volume profile horizontal bars to chart overlay');
+        Plotly.react(window.gd, filteredData, layout);
+
+        console.log('[VOLUME_PROFILE] Volume profile visualization updated successfully');
+    } else {
+        console.warn('[VOLUME_PROFILE] Failed to create volume profile bars');
+        if (filteredData.length !== window.gd.data.length) {
+            Plotly.react(window.gd, filteredData, window.gd.layout);
+        }
+    }
+}
+
+// Create horizontal bars for volume profile visualization
+function createVolumeProfileBars() {
+    if (!window.volumeProfileData || !Array.isArray(window.volumeProfileData)) {
+        return null;
+    }
+
+    const data = window.volumeProfileData;
+    if (data.length === 0) return null;
+
+    console.log(`[VOLUME_PROFILE] Creating horizontal bars for ${data.length} price levels`);
+
+    // Find max volume for scaling
+    const maxVolume = Math.max(...data.map(level => Math.max(level.totalVolume || 0, level.buyVolume || 0, level.sellVolume || 0)));
+
+    if (maxVolume === 0) {
+        console.warn('[VOLUME_PROFILE] No volume data found in volume profile');
+        return null;
+    }
+
+    // Prepare x and y coordinates for horizontal bars
+    const xCoords = [];
+    const yCoords = [];
+    const colors = [];
+    const widths = [];
+    const hoverText = [];
+    const customData = [];
+
+    // Bar length scaling (how far bars extend to the right)
+    const maxBarLength = 50; // Relative units for bar length
+
+    data.forEach(level => {
+        const price = level.price;
+        const totalVol = level.totalVolume || 0;
+        const buyVol = level.buyVolume || 0;
+        const sellVol = level.sellVolume || 0;
+        const trades = level.trades || [];
+
+        if (totalVol === 0) return; // Skip empty levels
+
+        // Calculate bar lengths for buy and sell volumes
+        const buyLength = buyVol > 0 ? (buyVol / maxVolume) * maxBarLength : 0;
+        const sellLength = sellVol > 0 ? (sellVol / maxVolume) * maxBarLength : 0;
+
+        // Create horizontal line segments for each volume component
+        if (buyLength > 0) {
+            // Buy volume bar (green, extending to the right from price level)
+            xCoords.push(0, buyLength);
+            yCoords.push(price, price);
+            colors.push('rgba(0, 255, 0, 0.8)', 'rgba(0, 255, 0, 0.8)');
+            widths.push(4, 4); // Line width
+            hoverText.push(
+                `Buy Volume: ${totalVol.toFixed(4)} @ $${price.toFixed(2)}`,
+                `Buy Volume: ${totalVol.toFixed(4)} @ $${price.toFixed(2)}`
+            );
+            customData.push(level, level);
+        }
+
+        if (sellLength > 0) {
+            // Sell volume bar (red, extending to the right from price level, offset if buy exists)
+            const xOffset = buyLength; // Start after buy bar
+            xCoords.push(xOffset, xOffset + sellLength);
+            yCoords.push(price, price);
+            colors.push('rgba(255, 0, 0, 0.8)', 'rgba(255, 0, 0, 0.8)');
+            widths.push(4, 4); // Line width
+            hoverText.push(
+                `Sell Volume: ${totalVol.toFixed(4)} @ $${price.toFixed(2)}`,
+                `Sell Volume: ${totalVol.toFixed(4)} @ $${price.toFixed(2)}`
+            );
+            customData.push(level, level);
+        }
+    });
+
+    if (xCoords.length === 0) {
+        console.warn('[VOLUME_PROFILE] No valid volume data to create bars');
+        return null;
+    }
+
+    // Create the volume profile bars trace
+    const volumeProfileBars = {
+        x: xCoords,
+        y: yCoords,
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Volume Profile',
+        line: {
+            color: colors,
+            width: widths
+        },
+        hovertemplate: '%{text}<br>Volume: %{customdata.totalVolume:.4f}<br>Buys: %{customdata.buyVolume:.4f}<br>Sells: %{customdata.sellVolume:.4f}<extra></extra>',
+        hovertext: hoverText,
+        customdata: customData,
+        xaxis: 'x2',  // Use secondary x-axis (overlay)
+        yaxis: 'y2',  // Use secondary y-axis (overlay on price)
+        showlegend: true,
+        hoverlabel: {
+            bgcolor: 'rgba(255, 255, 255, 0.9)',
+            bordercolor: 'black',
+            font: { color: 'black', size: 12 }
+        }
+    };
+
+    console.log(`[VOLUME_PROFILE] Created volume profile bars trace with ${xCoords.length / 2} bars`);
+    return volumeProfileBars;
+}
+
+// Update trade history data from WebSocket message (legacy or fallback)
 function updateTradeHistoryFromWebSocket(tradeData, symbol = null) {
     if (!tradeData || !Array.isArray(tradeData) || tradeData.length === 0) {
         console.log('[TRADE_HISTORY] No trade data received from WebSocket');
         return;
     }
 
-    console.log(`[TRADE_HISTORY] Updating trade history from WebSocket: ${tradeData.length} trades`);
+    console.log(`[TRADE_HISTORY] Updating trade history from WebSocket: ${tradeData.length} trades (legacy mode)`);
 
     // Update the internal trade data
     tradeHistoryData = tradeData;
 
-    // Process the new data
+    // Process the new data to generate volume profile
     processTradeHistoryData();
 
     // Update visualizations if enabled
@@ -596,3 +956,4 @@ window.fetchTradeHistoryForCurrentSymbol = fetchTradeHistoryForCurrentSymbol;
 window.updateTradeHistoryVisualizations = updateTradeHistoryVisualizations;
 window.clearTradeHistoryData = clearTradeHistoryData;
 window.updateTradeHistoryFromWebSocket = updateTradeHistoryFromWebSocket;
+window.updateVolumeProfileFromWebSocket = updateVolumeProfileFromWebSocket;

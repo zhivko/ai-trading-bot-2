@@ -572,18 +572,11 @@ def calculate_stoch_rsi(df_input: pd.DataFrame, rsi_period: int, stoch_period: i
 
     result = _extract_results(df_processed, [k_col, d_col], original_time_index)
 
-    # INFO LOGGING FOR TROUBLESHOOTING - Show actual values being returned
-    logger.info(f"🔍 STOCHRSI CALCULATION RESULT: rsi_period={rsi_period}, stoch_period={stoch_period}, k_period={k_period}, d_period={d_period}, total_points={len(result.get('t', []))}")
-    logger.info(f"🔍 STOCHRSI K VALUES SAMPLE (last 5): {[f'{v:.2f}' if v is not None else 'None' for v in result.get('stoch_k', [])[-5:]]}")
-    logger.info(f"🔍 STOCHRSI D VALUES SAMPLE (last 5): {[f'{v:.2f}' if v is not None else 'None' for v in result.get('stoch_d', [])[-5:]]}")
-    logger.info(f"🔍 STOCHRSI TIMESTAMP SAMPLE (last 5): {[datetime.fromtimestamp(ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S') for ts in result.get('t', [])[-5:]]}")
-
     # Count non-null values
     stoch_k_values = result.get('stoch_k', [])
     stoch_d_values = result.get('stoch_d', [])
     stoch_k_non_null = sum(1 for v in stoch_k_values if v is not None)
     stoch_d_non_null = sum(1 for v in stoch_d_values if v is not None)
-    logger.info(f"🔍 STOCHRSI NON-NULL VALUES: stoch_k={stoch_k_non_null}/{len(stoch_k_values)}, stoch_d={stoch_d_non_null}/{len(stoch_d_values)}")
 
     # 🚨 CRITICAL: Check for data lag
     current_time = datetime.now(timezone.utc)

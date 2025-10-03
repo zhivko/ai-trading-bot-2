@@ -43,6 +43,7 @@ from logging_config import logger
 from auth import creds, get_session
 from redis_utils import init_redis
 from background_tasks import fetch_and_publish_klines
+from background_tasks import fetch_and_aggregate_trades
 from bybit_price_feed import start_bybit_price_feed
 
 # Import email alert service
@@ -102,6 +103,10 @@ async def lifespan(app_instance: FastAPI):
         # Store the task in the application state so it can be accessed during shutdown
         logger.info("🔧 STARTING BACKGROUND TASK: Creating fetch_and_publish_klines task...")
         app_instance.state.fetch_klines_task = asyncio.create_task(fetch_and_publish_klines())
+
+        # Start trade aggregator background task
+        logger.info("🔧 STARTING BACKGROUND TASK: Creating fetch_and_aggregate_trades task...")
+        app_instance.state.trade_aggregator_task = asyncio.create_task(fetch_and_aggregate_trades())
         # logger.info("✅ BACKGROUND TASK STARTED: fetch_and_publish_klines task created and running")
         # logger.info(f"📊 TASK STATUS: {app_instance.state.fetch_klines_task}")
 
@@ -118,7 +123,7 @@ async def lifespan(app_instance: FastAPI):
         app_instance.state.email_alert_task = asyncio.create_task(alert_service.monitor_alerts())
         # logger.info("Email alert monitoring service started.")
 
-        '''
+
         # Start YouTube monitor background task
         try:
             logger.info("🔧 STARTING BACKGROUND TASK: Creating YouTube monitor task...")
@@ -128,7 +133,6 @@ async def lifespan(app_instance: FastAPI):
         except Exception as e:
             logger.error(f"❌ FAILED TO START YOUTUBE MONITOR: {e}")
             app_instance.state.youtube_monitor_task = None
-        '''
         
         # Preload Whisper model for audio transcription
         try:
@@ -159,11 +163,24 @@ async def lifespan(app_instance: FastAPI):
     except Exception as e:
         logger.error(f"Failed to initialize Redis or start background tasks: {e}", exc_info=True)
         app_instance.state.fetch_klines_task = None
+        app_instance.state.trade_aggregator_task = None
         app_instance.state.price_feed_task = None
         app_instance.state.email_alert_task = None
         app_instance.state.whisper_model = None
     yield
     logger.info("Application shutdown...")
+    trade_aggregator_task = getattr(app_instance.state, 'trade_aggregator_task', None)
+    if trade_aggregator_task:
+        # logger.info("🛑 CANCELLING BACKGROUND TASK: trade_aggregator...")
+        trade_aggregator_task.cancel()
+        try:
+            await trade_aggregator_task
+            logger.info(f"✅ TASK CANCELLED: trade_aggregator_task status: Done={trade_aggregator_task.done()}, Cancelled={trade_aggregator_task.cancelled()}, Exception={trade_aggregator_task.exception()}")
+        except asyncio.CancelledError:
+            logger.info("✅ TASK SUCCESSFULLY CANCELLED: trade_aggregator task cancelled cleanly")
+        except Exception as e:
+            logger.error(f"💥 ERROR DURING TASK SHUTDOWN: trade_aggregator: {e}", exc_info=True)
+
     fetch_klines_task = getattr(app_instance.state, 'fetch_klines_task', None)
     if fetch_klines_task:
         # logger.info("🛑 CANCELLING BACKGROUND TASK: fetch_and_publish_klines...")
@@ -485,6 +502,7 @@ async def transcribe_audio_endpoint(request: Request, audio_file: UploadFile):
 async def background_tasks_health():
     """Check the status of background tasks."""
     fetch_task = getattr(app.state, 'fetch_klines_task', None)
+    trade_aggregator_task = getattr(app.state, 'trade_aggregator_task', None)
     email_task = getattr(app.state, 'email_alert_task', None)
     price_feed_task = getattr(app.state, 'price_feed_task', None)
     youtube_monitor_task = getattr(app.state, 'youtube_monitor_task', None)
@@ -498,6 +516,13 @@ async def background_tasks_health():
                 "done": fetch_task.done() if fetch_task else None,
                 "cancelled": fetch_task.cancelled() if fetch_task else None,
                 "exception": str(fetch_task.exception()) if fetch_task and fetch_task.exception() else None
+            },
+            "trade_aggregator_task": {
+                "exists": trade_aggregator_task is not None,
+                "running": trade_aggregator_task is not None and not trade_aggregator_task.done(),
+                "done": trade_aggregator_task.done() if trade_aggregator_task else None,
+                "cancelled": trade_aggregator_task.cancelled() if trade_aggregator_task else None,
+                "exception": str(trade_aggregator_task.exception()) if trade_aggregator_task and trade_aggregator_task.exception() else None
             },
             "price_feed_task": {
                 "exists": price_feed_task is not None,

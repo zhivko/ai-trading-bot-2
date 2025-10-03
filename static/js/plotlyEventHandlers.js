@@ -8,7 +8,7 @@ async function handleNewShapeSave(shapeObject) {
         return null;
     }
 
-    if (shapeObject.type === 'line' && typeof shapeObject.x0 !== 'undefined' && typeof shapeObject.y0 !== 'undefined' && typeof shapeObject.x1 !== 'undefined' && typeof shapeObject.y1 !== 'undefined') {
+    if ((shapeObject.type === 'line' || shapeObject.type === 'rect') && typeof shapeObject.x0 !== 'undefined' && typeof shapeObject.y0 !== 'undefined' && typeof shapeObject.x1 !== 'undefined' && typeof shapeObject.y1 !== 'undefined') {
         try {
             const start_time_ms = (shapeObject.x0 instanceof Date) ? shapeObject.x0.getTime() : new Date(shapeObject.x0).getTime();
             const end_time_ms = (shapeObject.x1 instanceof Date) ? shapeObject.x1.getTime() : new Date(shapeObject.x1).getTime();
@@ -233,7 +233,9 @@ function initializePlotlyEventHandlers(gd) {
     const originalRelayoutHandler = gd.onplotly_relayout;
 
     let shapeDragEndTimer = null;
+    let settingsSaveTimer = null;
     const DEBOUNCE_DELAY = 500; // ms
+    const SETTINGS_SAVE_DEBOUNCE_DELAY = 3000; // 3 seconds for settings save during chart resize
 
     gd.on('plotly_relayouting', function(eventData) {
         // Clean up duplicate drag helpers that might interfere with dragging
@@ -400,7 +402,20 @@ function initializePlotlyEventHandlers(gd) {
     });
 
 
+
     gd.on('plotly_relayout', async function(eventData) {
+        // Check if we should ignore relayout events (during price line updates)
+        if (window.ignoreRelayoutEvents) {
+            try {
+                if (typeof console !== 'undefined' && console.log) {
+                    console.log('[DEBUG] Ignoring plotly_relayout event during price line update');
+                }
+            } catch (e) {
+                // Ignore console errors in headless environments
+            }
+            return;
+        }
+
         // Safe console logging for Puppeteer compatibility
         try {
             if (typeof console !== 'undefined' && console.log) {
@@ -625,7 +640,7 @@ function initializePlotlyEventHandlers(gd) {
                 continue; // Skip paper coordinate shapes
             }
 
-            if (shapeInLayout.type === 'line' &&
+            if ((shapeInLayout.type === 'line' || shapeInLayout.type === 'rect') &&
                 !shapeInLayout.id &&
                 !shapeInLayout.isSystemShape && // Already correctly ignores system shapes
                 !shapeInLayout._savingInProgress && // Check this flag
@@ -823,9 +838,19 @@ function initializePlotlyEventHandlers(gd) {
             yRangesChangedByEvent = true;
         }
 
+// Function to debounced save settings for chart resize events
+function debouncedSaveSettingsForResize() {
+    console.log('[DEBOUNCE] Settings save triggered, scheduling debounced save (3 seconds minimum)');
+    clearTimeout(settingsSaveTimer);
+    settingsSaveTimer = setTimeout(() => {
+        console.log('[DEBOUNCE] Executing debounced settings save after chart resize timeout');
+        saveSettings();
+    }, SETTINGS_SAVE_DEBOUNCE_DELAY);
+}
+
         if (xRangesChangedByEvent && userModifiedRanges) {
             console.log('[plotly_relayout] X-axis ranges changed by user. User modified:', userModifiedRanges, 'New X-Range:', window.currentXAxisRange, 'New Y-Range:', window.currentYAxisRange);
-            saveSettings(); // from settingsManager.js
+            debouncedSaveSettingsForResize(); // Debounced settings save for chart resize events
 
             // 🚨 CLEAR CHART DATA BEFORE REQUESTING NEW DATA 🚨
             // This prevents data overlapping when user pans/zooms to new time ranges

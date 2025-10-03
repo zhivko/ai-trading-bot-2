@@ -74,7 +74,10 @@ const config = {
         axisTitleText: false,
         legendText: false,
         titleText: false
-    }
+    },
+    // Enable pinch-to-zoom and other mobile gestures
+    staticPlot: false,
+    doubleClick: 'reset'
 };
 
 // Function to disable hover on mobile devices
@@ -85,6 +88,40 @@ function disableMobileHover(gd) {
             hoverdistance: 0
         });
         console.log('Mobile hover disabled via Plotly.relayout');
+    }
+}
+
+// Function to enable mobile pinch zoom features
+function enableMobilePinchZoom(gd) {
+    if (isMobileDevice() && gd) {
+        // Ensure the chart responds to touch gestures for pinch-to-zoom
+        Plotly.relayout(gd, {
+            scrollZoom: true,
+            responsive: true,
+            // Ensure double-click resets zoom on mobile
+            doubleClick: 'reset'
+        });
+        console.log('Mobile pinch zoom enabled');
+
+        // Add touch event logging for debugging
+        const chartDiv = document.getElementById('chart');
+        if (chartDiv) {
+            chartDiv.addEventListener('touchstart', function(event) {
+                if (event.touches.length === 2) {
+                    console.log('[PINCH] Two-finger touch detected - initiating pinch zoom');
+                }
+            }, { passive: true });
+
+            chartDiv.addEventListener('touchmove', function(event) {
+                if (event.touches.length === 2) {
+                    console.log('[PINCH] Pinch move detected');
+                }
+            }, { passive: true });
+
+            chartDiv.addEventListener('touchend', function(event) {
+                console.log('[PINCH] Touch end detected, touches remaining:', event.touches.length);
+            }, { passive: true });
+        }
     }
 }
 
@@ -123,6 +160,7 @@ window.BUY_EVENT_MARKER_SYMBOL = BUY_EVENT_MARKER_SYMBOL;
 window.SELL_EVENT_MARKER_SYMBOL = SELL_EVENT_MARKER_SYMBOL;
 window.isMobileDevice = isMobileDevice;
 window.disableMobileHover = disableMobileHover;
+window.enableMobilePinchZoom = enableMobilePinchZoom;
 window.forceHideHoverElements = forceHideHoverElements;
 
 // Make config globally available

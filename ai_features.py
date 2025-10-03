@@ -44,6 +44,8 @@ class AIRequest(BaseModel):
     use_local_ollama: bool = False
     local_ollama_model_name: Optional[str] = None
     use_gemini: bool = False  # New field for Gemini
+    use_lm_studio: bool = False  # New field for LM Studio
+    lm_studio_model_name: Optional[str] = None
 
 class IndicatorConfigRequest(BaseModel):
     id: str
@@ -185,6 +187,8 @@ async def get_ai_suggestion(request_data: AIRequest):
     # Determine api_source early for logging and error handling
     if request_data.use_local_ollama:
         api_source = "Local Ollama"
+    elif request_data.use_lm_studio:
+        api_source = "LM Studio"
     else:
         api_source = "Gemini"
 
