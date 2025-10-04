@@ -1,4 +1,3 @@
-console.log('[DEBUG] plotlyEventHandlers.js loaded.');
 
 async function handleNewShapeSave(shapeObject) {
     const symbol = window.symbolSelect.value; // Assumes symbolSelect is global
@@ -27,7 +26,6 @@ async function handleNewShapeSave(shapeObject) {
                     sellOnCross: false
                 }
             };
-            console.log(`Attempting to save new shape for ${symbol}:`, drawingData);
             const response = await fetch(`/save_drawing/${symbol}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -36,10 +34,32 @@ async function handleNewShapeSave(shapeObject) {
 
             if (!response.ok) throw new Error(`Failed to save drawing: ${response.status} ${await response.text()}`);
             const result = await response.json();
-            console.log('Drawing saved via handleNewShapeSave:', result);
+
+            // Request volume profile calculation for rectangles immediately after saving
+            if (shapeObject.type === 'rect') {
+
+                if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
+                    const volumeProfileRequest = {
+                        type: 'get_volume_profile',
+                        rectangle_id: result.id,
+                        symbol: window.symbolSelect ? window.symbolSelect.value : window.activeSymbol,
+                        resolution: window.resolutionSelect ? window.resolutionSelect.value : '1h'
+                    };
+                    try {
+                        window.combinedWebSocket.send(JSON.stringify(volumeProfileRequest));
+                    } catch (error) {
+                        console.error('📊 Failed to send volume profile request:', error);
+                        console.error('📊 WebSocket state at error:', window.combinedWebSocket ? window.combinedWebSocket.readyState : 'undefined');
+                    }
+                } else {
+                    const wsState = window.combinedWebSocket ? window.combinedWebSocket.readyState : 'undefined';
+                    console.warn('⚠️ WebSocket not available/ready for volume profile calculation request. WebSocket state:', wsState);
+                    console.warn('⚠️ window.combinedWebSocket:', window.combinedWebSocket);
+                }
+            }
+
             return result.id;
         } catch (error) {
-            console.error('Error in handleNewShapeSave:', error);
             alert(`Failed to save drawing: ${error.message}`);
             loadDrawingsAndRedraw(symbol); // Assumes loadDrawingsAndRedraw is global
             return null;
@@ -49,66 +69,25 @@ async function handleNewShapeSave(shapeObject) {
 }
 
 function initializePlotlyEventHandlers(gd) {
-    console.log('[DEBUG] initializePlotlyEventHandlers called with gd:', gd);
 
-    // Test if Plotly events are working
-    try {
-        if (typeof console !== 'undefined' && console.log) {
-            console.log('[DEBUG] Plotly event handlers initialized');
-            console.log('[DEBUG] Chart object:', gd);
-            console.log('[DEBUG] Chart has _ev:', !!gd._ev);
-        }
-    } catch (e) {
-        alert('[DEBUG] Plotly event handlers initialized');
-    }
 
     // Add test event listeners to verify event system is working
     gd.on('plotly_click', function() {
-        console.log('[DEBUG] plotly_click event received - event system is working');
     });
 
     // Add keyboard shortcut for testing (press 'T' to trigger test event)
     document.addEventListener('keydown', function(event) {
-        if (event.key === 't' || event.key === 'T') {
-            try {
-                if (typeof console !== 'undefined' && console.log) {
-                    console.log('[DEBUG] Test key pressed - manually triggering plotly_relayout simulation');
-                } else {
-                    alert('[DEBUG] Test key pressed - manually triggering plotly_relayout simulation');
-                }
-            } catch (e) {
-                alert('[DEBUG] Test key pressed - manually triggering plotly_relayout simulation');
-            }
-
-            // Simulate a relayout event
-            const testEventData = {
-                'xaxis.range[0]': new Date(Date.now() - 24 * 60 * 60 * 1000), // 24 hours ago
-                'xaxis.range[1]': new Date()
-            };
-
-            try {
-                gd.emit('plotly_relayout', testEventData);
-                if (typeof console !== 'undefined' && console.log) {
-                    console.log('[DEBUG] Test event emitted successfully');
-                }
-            } catch (e) {
-                alert('[DEBUG] Failed to emit test event: ' + e.message);
-            }
-        }
 
         // Add keyboard shortcut for testing YouTube modal (press 'Y' to test modal)
         if (event.key === 'y' || event.key === 'Y') {
-            console.log('[DEBUG] YouTube modal test key pressed - testing modal functionality');
             try {
                 if (window.youtubeMarkersManager && window.youtubeMarkersManager.showTranscriptModal) {
-                    console.log('[DEBUG] YouTube manager available, testing modal with sample data');
                     window.youtubeMarkersManager.showTranscriptModal(
                         'Test Video Title',
                         'This is a test transcript content for debugging purposes.',
                         'dQw4w9WgXcQ',
                         '2024-01-15'
                     );
-                    console.log('[DEBUG] YouTube modal test completed');
                 } else {
                     console.warn('[DEBUG] YouTube markers manager not available for testing');
                 }
@@ -127,14 +106,11 @@ function initializePlotlyEventHandlers(gd) {
     // Track drag state
     gd.addEventListener('mousedown', function() {
         isDragging = true;
-        console.log('ISDRAGGING TRUE');
     });
     
     gd.addEventListener('mouseup', function() {
         isDragging = false;
-        console.log('ISDRAGGING false');
         if (shapeWasMoved) {
-            console.log('Detected shape movement - switching to edit mode');
             currentDragMode = gd.layout.dragmode;
             Plotly.relayout(gd, 'dragmode', 'drawline');
             shapeWasMoved = false;
@@ -151,8 +127,6 @@ function initializePlotlyEventHandlers(gd) {
     */
     
     gd.on('plotly_shapedrawn', async function(eventShapeData) {
-        console.log('[DEBUG] plotly_shapedrawn FIRED. Shape from event:', JSON.parse(JSON.stringify(eventShapeData)));
-        console.log('[DEBUG] Current layout shapes:', gd.layout.shapes);
 
         // The shape drawn is usually the last one added to gd.layout.shapes
         // and it won't have an id yet.
@@ -161,7 +135,6 @@ function initializePlotlyEventHandlers(gd) {
 
         if (currentLayoutShapes.length > 0) {
             const lastShapeInLayout = currentLayoutShapes[currentLayoutShapes.length - 1];
-            console.log('[DEBUG] Last shape in layout:', lastShapeInLayout);
 
             // Basic check: if it's a line, has no id, and isn't already being processed.
             // A more robust match would compare coordinates if Plotly guarantees eventShapeData matches.
@@ -170,21 +143,10 @@ function initializePlotlyEventHandlers(gd) {
                 !lastShapeInLayout.isSystemShape && // Should not be needed for user-drawn shapes
                 !lastShapeInLayout._savingInProgress) {
                 newlyAddedShapeInLayout = lastShapeInLayout;
-                console.log('[DEBUG] Found matching shape to process:', newlyAddedShapeInLayout);
-            } else {
-                console.log('[DEBUG] Shape does not match criteria:', {
-                    typeMatch: lastShapeInLayout.type === eventShapeData.type,
-                    hasId: !!lastShapeInLayout.id,
-                    isSystemShape: lastShapeInLayout.isSystemShape,
-                    savingInProgress: lastShapeInLayout._savingInProgress
-                });
             }
-        } else {
-            console.log('[DEBUG] No shapes in layout');
         }
 
         if (newlyAddedShapeInLayout) {
-            console.log('[plotly_shapedrawn] Identified new shape in layout to process:', newlyAddedShapeInLayout);
             newlyAddedShapeInLayout._savingInProgress = true; // Set flag on the actual layout shape
 
             // Ensure the layout shape has editable and layer properties consistent with eventShapeData or defaults
@@ -207,9 +169,7 @@ function initializePlotlyEventHandlers(gd) {
             }
 
             // Pass the layout shape to handleNewShapeSave, as it has resolved xref/yref
-            console.log('[DEBUG] Calling handleNewShapeSave with shape:', newlyAddedShapeInLayout);
             const backendId = await handleNewShapeSave(newlyAddedShapeInLayout);
-            console.log('[DEBUG] handleNewShapeSave returned:', backendId);
 
             if (backendId) {
                 newlyAddedShapeInLayout.id = backendId;
@@ -217,7 +177,6 @@ function initializePlotlyEventHandlers(gd) {
                 window.activeShapeForPotentialDeletion = { id: backendId, index: currentLayoutShapes.indexOf(newlyAddedShapeInLayout), shape: newlyAddedShapeInLayout };
                 updateSelectedShapeInfoPanel(window.activeShapeForPotentialDeletion);
                 await updateShapeVisuals();
-                console.log(`[plotly_shapedrawn] Shape processed and updated in layout with id: ${backendId}`);
             } else {
                 console.warn('[plotly_shapedrawn] handleNewShapeSave did not return a backendId. Removing shape from layout to prevent duplicates.');
                 const indexToRemove = currentLayoutShapes.indexOf(newlyAddedShapeInLayout);
@@ -251,7 +210,6 @@ function initializePlotlyEventHandlers(gd) {
 
         // Only set dragging flag for actual shape interactions, NOT dragmode changes
         if (hasShapeChanges && !isDragModeChange) {
-            console.log('[DRAGGING] Shape dragging detected - switching to drawline mode');
             window.isDraggingShape = true;
 
             // Store current mode before switching
@@ -260,14 +218,11 @@ function initializePlotlyEventHandlers(gd) {
             // Switch to drawline mode when dragging shapes
             if (gd.layout.dragmode !== 'drawline') {
                 Plotly.relayout(gd, { dragmode: 'drawline' });
-                console.log('[DRAGGING] Switched to drawline mode for shape editing');
             }
 
             // 🚨 Live data is always enabled now - no need to disable during dragging
-            console.log('[DRAGGING] Live data remains enabled during shape dragging');
         } else if (isDragModeChange) {
             // Handle dragmode changes separately - don't set dragging flag
-            console.log('[DRAGMODE] Dragmode changed to:', eventData.dragmode);
             // Allow line coloring in draw mode by not setting isDraggingShape
         } else {
             // For axis range changes or unknown events, don't set dragging flag
@@ -278,28 +233,12 @@ function initializePlotlyEventHandlers(gd) {
 
     // Handle Plotly click events for better coordinate handling
     gd.on('plotly_click', function(plotlyEventData) {
-        console.log('[DEBUG] PLOTLY_CLICK EVENT FIRED! Event data:', plotlyEventData);
-        console.log('[DEBUG] Event points:', plotlyEventData.points);
-        console.log('[DEBUG] Chart data traces:', gd.data ? gd.data.length : 'no data');
 
         // Check if YouTube markers are loaded
         const youtubeTraces = gd.data ? gd.data.filter(trace => trace.name === 'YouTube Videos') : [];
-        console.log('[DEBUG] YouTube traces found:', youtubeTraces.length);
-        if (youtubeTraces.length > 0) {
-            console.log('[DEBUG] YouTube trace details:', {
-                name: youtubeTraces[0].name,
-                type: youtubeTraces[0].type,
-                mode: youtubeTraces[0].mode,
-                x_length: youtubeTraces[0].x ? youtubeTraces[0].x.length : 0,
-                y_length: youtubeTraces[0].y ? youtubeTraces[0].y.length : 0,
-                marker: youtubeTraces[0].marker
-            });
-        }
 
         // Add manual click test for debugging
-        console.log('[DEBUG] Manual click test - checking if we can trigger YouTube modal');
         if (youtubeTraces.length > 0 && window.youtubeMarkersManager && window.youtubeMarkersManager.showTranscriptModal) {
-            console.log('[DEBUG] YouTube manager available, testing modal with first marker');
             try {
                 const firstTrace = youtubeTraces[0];
                 if (firstTrace.x && firstTrace.x.length > 0) {
@@ -308,9 +247,7 @@ function initializePlotlyEventHandlers(gd) {
                     const testVideoId = firstTrace.video_ids ? firstTrace.video_ids[0] : '';
                     const testPublishedDate = firstTrace.customdata ? firstTrace.customdata[0] : '';
 
-                    console.log('[DEBUG] Testing modal with:', { testTitle, testTranscript, testVideoId, testPublishedDate });
                     window.youtubeMarkersManager.showTranscriptModal(testTitle, testTranscript, testVideoId, testPublishedDate);
-                    console.log('[DEBUG] Modal test completed successfully');
                 }
             } catch (error) {
                 console.error('[DEBUG] Modal test failed:', error);
@@ -320,11 +257,9 @@ function initializePlotlyEventHandlers(gd) {
         // Plotly provides better coordinate handling
         if (plotlyEventData.points && plotlyEventData.points.length > 0) {
             const point = plotlyEventData.points[0];
-            console.log('[DEBUG] Plotly click point:', point);
 
             // Check if this is a YouTube marker click first
             if (point.fullData && point.fullData.name === 'YouTube Videos') {
-                console.log('[DEBUG] YouTube marker (diamond) clicked - opening video description dialog');
 
                 // Get YouTube marker data and open the modal
                 const pointIndex = point.pointIndex;
@@ -349,7 +284,6 @@ function initializePlotlyEventHandlers(gd) {
 
             // Check if this is a YouTube marker from the shape selection system
             if (point.marker && point.marker.symbol === 'diamond' && point.marker.color === 'red') {
-                console.log('[DEBUG] Red diamond marker clicked - treating as YouTube marker');
 
                 // Try to get YouTube data from the point
                 const pointIndex = point.pointIndex;
@@ -377,17 +311,14 @@ function initializePlotlyEventHandlers(gd) {
 
             // Handle regular drawing shapes
             const currentShapes = gd.layout.shapes || [];
-            console.log(`[DEBUG] Checking ${currentShapes.length} shapes for click proximity`);
 
             for (let i = 0; i < currentShapes.length; i++) {
                 const shape = currentShapes[i];
-                if (shape.type === 'line' && shape.id && !shape.isSystemShape) {
-                    console.log(`[DEBUG] Found clickable shape ${i}: ID=${shape.id}, x0=${shape.x0}, y0=${shape.y0}, x1=${shape.x1}, y1=${shape.y1}`);
+                if ((shape.type === 'line' || shape.type === 'rect') && shape.id && !shape.isSystemShape) {
 
-                    // For now, let's just assume any line shape that exists is clickable
+                    // For now, let's just assume any line or rect shape that exists is clickable
                     // This is a simplified approach to test if the event handling works
                     const clickedShapeId = shape.id;
-                    console.log(`[DEBUG] Clicked on shape ID: ${clickedShapeId}`);
 
                     // Update UI for click (selection) - handled by handleShapeClick in chartInteractions.js
                     // findAndupdateSelectedShapeInfoPanel(clickedShapeId); // Removed to avoid conflict
@@ -404,26 +335,6 @@ function initializePlotlyEventHandlers(gd) {
 
 
     gd.on('plotly_relayout', async function(eventData) {
-        // Check if we should ignore relayout events (during price line updates)
-        if (window.ignoreRelayoutEvents) {
-            try {
-                if (typeof console !== 'undefined' && console.log) {
-                    console.log('[DEBUG] Ignoring plotly_relayout event during price line update');
-                }
-            } catch (e) {
-                // Ignore console errors in headless environments
-            }
-            return;
-        }
-
-        // Safe console logging for Puppeteer compatibility
-        try {
-            if (typeof console !== 'undefined' && console.log) {
-                // console.log('[DEBUG] plotly_relayout event fired with data:', eventData);
-            }
-        } catch (e) {
-            // alert('[DEBUG] plotly_relayout event fired');
-        }
 
         // 🚨 PANNING DETECTION 🚨 - Check for ANY range changes
         const hasXRangeChange = eventData['xaxis.range[0]'] !== undefined || eventData['xaxis.range[1]'] !== undefined;
@@ -450,32 +361,15 @@ function initializePlotlyEventHandlers(gd) {
                 // To get UTC timestamp from local time, we need to subtract this offset
                 const timezoneOffsetMs = minDate.getTimezoneOffset() * 60 * 1000;
                 xMinTimestamp = Math.floor((minDate.getTime() - timezoneOffsetMs) / 1000);
-                console.log('[TIMESTAMP DEBUG] xMin conversion:', {
-                    xMin: xMin,
-                    minDate: minDate.toISOString(),
-                    timezoneOffsetMs: timezoneOffsetMs,
-                    timezoneOffsetMinutes: minDate.getTimezoneOffset(),
-                    xMinTimestamp: xMinTimestamp,
-                    xMinTimestampDate: new Date(xMinTimestamp * 1000).toISOString()
-                });
             }
 
             if (xMax) {
                 const maxDate = new Date(xMax);
                 const timezoneOffsetMs = maxDate.getTimezoneOffset() * 60 * 1000;
                 xMaxTimestamp = Math.floor((maxDate.getTime() - timezoneOffsetMs) / 1000);
-                console.log('[TIMESTAMP DEBUG] xMax conversion:', {
-                    xMax: xMax,
-                    maxDate: maxDate.toISOString(),
-                    timezoneOffsetMs: timezoneOffsetMs,
-                    timezoneOffsetMinutes: maxDate.getTimezoneOffset(),
-                    xMaxTimestamp: xMaxTimestamp,
-                    xMaxTimestampDate: new Date(xMaxTimestamp * 1000).toISOString()
-                });
             }
 
             /*
-            console.log('🚨 CHART RANGE CHANGE DETECTED 🚨', {
                 xRangeChanged: hasXRangeChange,
                 yRangeChanged: hasYRangeChange,
                 autorange: hasAutorange,
@@ -500,11 +394,9 @@ function initializePlotlyEventHandlers(gd) {
                     rangeHours: (xMaxTimestamp - xMinTimestamp) / 3600
                 };
 
-                console.log('📊 CLIENT X-AXIS RANGE (for server comparison):', clientRange);
 
                 // Store for comparison with server response
                 window.lastClientRange = clientRange;
-                console.log('💾 Stored client range for server comparison. Look for 📊 SERVER RECEIVED RANGE in server logs.');
             }
 
 
@@ -525,25 +417,9 @@ function initializePlotlyEventHandlers(gd) {
             delay(3000).then(() => {
                 updatePanningStatus(false);
             });
-        } else {
-            // Log non-range events too for debugging
-            try {
-                if (typeof console !== 'undefined' && console.log) {
-                    console.log('[DEBUG] plotly_relayout event (non-range):', Object.keys(eventData));
-                }
-            } catch (e) {
-                // Ignore console errors
-            }
-        }
-
-        // Check if dragmode changed to 'drawline'
-        if (eventData['dragmode'] === 'drawline') {
-            // Live data remains enabled during drawline mode
-            console.log('Live data remains enabled during drawline mode activation.');
         }
 
         if(eventData.shape) {
-            console.log('Shape hovered:', eventData.shape);
             return;
         }
         if (originalRelayoutHandler) originalRelayoutHandler(eventData);
@@ -572,7 +448,6 @@ function initializePlotlyEventHandlers(gd) {
                 // --- Debounced save on drag end ---
                 clearTimeout(shapeDragEndTimer);
                 shapeDragEndTimer = delay(DEBOUNCE_DELAY).then(async () => {
-                    console.log(`[plotly_relayout] Drag end detected for shape ${interactedShape.id}, attempting to save.`);
 
                     // It's possible the shape was deleted or changed, so we get the latest version
                     const finalShapeState = gd.layout.shapes[interactedShapeIndex];
@@ -630,13 +505,11 @@ function initializePlotlyEventHandlers(gd) {
 
             // Skip system shapes that should be managed elsewhere, but allow buy signals through
             if (shapeInLayout.isSystemShape && !(isSystemBuySignal || isBuySignal)) {
-                console.log(`[plotly_relayout] Skipping system shape: ${shapeInLayout.name} (buy_signal: ${isBuySignal}, systemType: ${shapeInLayout.systemType}, isSystemShape: ${shapeInLayout.isSystemShape})`);
                 continue; // Skip this shape entirely
             }
 
             // Skip shapes that use 'paper' coordinates (grid lines, subplot separators, etc.)
             if (shapeInLayout.yref === 'paper' || shapeInLayout.xref === 'paper') {
-                console.log(`[plotly_relayout] Skipping paper-based shape: ${shapeInLayout.name} (xref: ${shapeInLayout.xref}, yref: ${shapeInLayout.yref})`);
                 continue; // Skip paper coordinate shapes
             }
 
@@ -660,7 +533,6 @@ function initializePlotlyEventHandlers(gd) {
                     isAlreadyProcessedDrawing: isAlreadyProcessedDrawing
                 });
                 shapeInLayout._savingInProgress = true; // Set flag on the layout shape
-                console.log(`[plotly_relayout] Fallback: Found new unsaved line (index ${i}), attempting to save:`, JSON.parse(JSON.stringify(shapeInLayout)));
                 
                 // Ensure shape has necessary properties before saving
                 shapeInLayout.editable = true;
@@ -691,7 +563,6 @@ function initializePlotlyEventHandlers(gd) {
                         // editable and layer already set
                         window.activeShapeForPotentialDeletion = { id: backendId, index: currentIndex, shape: window.gd.layout.shapes[currentIndex] };
                         updateSelectedShapeInfoPanel(window.activeShapeForPotentialDeletion);
-                        console.log(`[plotly_relayout] Fallback: New shape (index ${currentIndex}) saved with id: ${backendId}`);
                         newShapesProcessedInRelayout = true;
                     } else {
                           console.warn(`[plotly_relayout] Fallback: Shape was already processed, changed, or removed before id could be assigned by relayout.`);
@@ -717,24 +588,15 @@ function initializePlotlyEventHandlers(gd) {
         let yRangesChangedByEvent = false;
         let userModifiedRanges = false;
 
-        console.log('[DEBUG] Checking for axis range changes in eventData:', {
-            hasXRange0: !!eventData['xaxis.range[0]'],
-            hasXRange1: !!eventData['xaxis.range[1]'],
-            hasAutorange: eventData['xaxis.autorange'] === true,
-            eventDataKeys: Object.keys(eventData)
-        });
 
         if (eventData['xaxis.range[0]'] || eventData['xaxis.range[1]']) {
-            console.log('[DEBUG] X-axis range change detected');
             const currentLayoutShapes = gd.layout.shapes || [];
             const xRange = gd.layout.xaxis.range;
-            console.log('[DEBUG] Current xRange from layout:', xRange);
             if (xRange && xRange.length === 2) {
                 // Keep in milliseconds - Plotly already provides proper Date objects/timestamps
                 const minTimestamp = (xRange[0] instanceof Date) ? xRange[0].getTime() : new Date(xRange[0]).getTime();
                 const maxTimestamp = (xRange[1] instanceof Date) ? xRange[1].getTime() : new Date(xRange[1]).getTime();
 
-                console.log('[DEBUG] Calculated timestamps:', { minTimestamp, maxTimestamp });
 
                 // 🚨 OLD ALARM CHECK: Validate zoom/pan timestamps before saving
                 const minDate = new Date(minTimestamp);
@@ -777,13 +639,10 @@ function initializePlotlyEventHandlers(gd) {
             xRangesChangedByEvent = true;
             userModifiedRanges = true;
         }
-        console.log('[DEBUG] Updated currentXAxisRange (in milliseconds):', window.currentXAxisRange);
             } else {
-                console.log('[DEBUG] xRange is invalid or missing:', xRange);
             }
         } else if (eventData['xaxis.autorange'] === true) {
             if (window.currentXAxisRange !== null) {
-                console.log('[DEBUG] Autorange detected, clearing currentXAxisRange');
                 window.currentXAxisRange = null;
                 window.xAxisMinDisplay.textContent = 'Auto';
                 window.xAxisMaxDisplay.textContent = 'Auto';
@@ -811,13 +670,11 @@ function initializePlotlyEventHandlers(gd) {
                         window.xAxisMaxDisplay.textContent = `Invalid Date: ${maxTimestamp}`;
                     }
 
-                    console.log('[DEBUG] Autorange on first load, updating to actual range');
                     // Don't save settings for initial autorange
                     xRangesChangedByEvent = false;
                 }
             }
         } else {
-            console.log('[DEBUG] No axis range changes detected in this event');
         }
 
         if (eventData['yaxis.range[0]'] || eventData['yaxis.range[1]']) {
@@ -840,34 +697,27 @@ function initializePlotlyEventHandlers(gd) {
 
 // Function to debounced save settings for chart resize events
 function debouncedSaveSettingsForResize() {
-    console.log('[DEBOUNCE] Settings save triggered, scheduling debounced save (3 seconds minimum)');
     clearTimeout(settingsSaveTimer);
     settingsSaveTimer = setTimeout(() => {
-        console.log('[DEBOUNCE] Executing debounced settings save after chart resize timeout');
         saveSettings();
     }, SETTINGS_SAVE_DEBOUNCE_DELAY);
 }
 
         if (xRangesChangedByEvent && userModifiedRanges) {
-            console.log('[plotly_relayout] X-axis ranges changed by user. User modified:', userModifiedRanges, 'New X-Range:', window.currentXAxisRange, 'New Y-Range:', window.currentYAxisRange);
             debouncedSaveSettingsForResize(); // Debounced settings save for chart resize events
 
             // 🚨 CLEAR CHART DATA BEFORE REQUESTING NEW DATA 🚨
             // This prevents data overlapping when user pans/zooms to new time ranges
             if (window.gd) {
-                console.log('[plotly_relayout] Clearing chart data before requesting new time range data');
-                console.log('[CHART_UPDATE] plotly_relayout range change - clearing chart at', new Date().toISOString());
                 removeRealtimePriceLine(window.gd);
                 // Clear all chart data and reset to empty state
                 Plotly.react(window.gd, [], window.gd.layout || {});
-                console.log('[CHART_UPDATE] plotly_relayout range change - chart cleared, ready for new data');
             }
 
             // Debounce chart update if ranges were changed by user panning/zooming,
             // or if autorange occurred (which means we need to reload based on dropdowns)
             clearTimeout(window.fetchDataDebounceTimer); // fetchDataDebounceTimer from state.js
             window.fetchDataDebounceTimer = delay(DEBOUNCE_DELAY).then(() => {
-                console.log('[plotly_relayout] Debounced chart update due to axis range change.');
                 // Update combined WebSocket with new time range
                 const symbol = window.symbolSelect ? window.symbolSelect.value : null;
                 const resolution = window.resolutionSelect ? window.resolutionSelect.value : '1h';
@@ -880,7 +730,6 @@ function debouncedSaveSettingsForResize() {
                     // Check if we need to request more historical data
                     const needsMoreData = checkIfHistoricalDataNeeded(fromTsSeconds, toTsSeconds, resolution);
                     if (needsMoreData) {
-                        console.log('[plotly_relayout] Requesting additional historical data for new time range');
                         // Request historical data with expanded range to provide buffer
                         const bufferMultiplier = 2; // Request 2x the visible range for buffer
                         const fromMs = window.currentXAxisRange[0];
@@ -899,17 +748,12 @@ function debouncedSaveSettingsForResize() {
                         const wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
                         const wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
 
-                        console.log('[plotly_relayout] 🔍 TIMESTAMP CONVERSION DEBUG:');
-                        console.log('  window.currentXAxisRange:', window.currentXAxisRange);
-                        console.log('  wsFromTs (ISO):', wsFromTs);
-                        console.log('  wsToTs (ISO):', wsToTs);
 
                         // If WebSocket is open, send new config directly, otherwise establish new connection
                         if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
                             // Send config update directly without reconnecting
                             if (typeof sendCombinedConfig === 'function') {
                                 sendCombinedConfig();
-                                console.log('[plotly_relayout] Sent config update to existing WebSocket connection');
                             } else {
                                 console.warn('[plotly_relayout] sendCombinedConfig function not available, falling back to setupCombinedWebSocket');
                                 setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
@@ -923,7 +767,6 @@ function debouncedSaveSettingsForResize() {
                 }
             }); // FETCH_DEBOUNCE_DELAY from config.js
         } else if ((xRangesChangedByEvent || yRangesChangedByEvent) && !userModifiedRanges) {
-            console.log('[plotly_relayout] Ranges changed programmatically. User modified:', userModifiedRanges, 'New X-Range:', window.currentXAxisRange, 'New Y-Range:', window.currentYAxisRange);
             // Don't save settings for programmatic changes
         }
 
@@ -933,16 +776,13 @@ function debouncedSaveSettingsForResize() {
             // Restore previous drag mode
             if (gd.layout.dragmode !== previousDragMode) {
                 Plotly.relayout(gd, { dragmode: previousDragMode });
-                console.log(`[DRAGGING] Shape dragging completed - restored to ${previousDragMode} mode`);
             } else {
-                console.log('[DRAGGING] Shape dragging completed');
             }
 
             // Re-trigger hover detection after drag completion to restore line coloring
             delay(100).then(() => {
                 if (window.colorTheLine) {
                     window.colorTheLine();
-                    console.log('[DRAGGING] Re-triggered hover detection after drag completion');
                 }
             }); // Small delay to ensure relayout is complete
         }
@@ -961,7 +801,6 @@ function debouncedSaveSettingsForResize() {
         if (shapeIndex !== undefined && gd.layout.shapes && gd.layout.shapes[shapeIndex]) {
             const updatedShape = gd.layout.shapes[shapeIndex];
             if (updatedShape.id) {
-                console.log(`[plotly_shapeupdate] Detected update for shape ${updatedShape.id}, attempting to save.`);
                 const saveSuccess = await sendShapeUpdateToServer(updatedShape, window.symbolSelect.value);
                 if (!saveSuccess) {
                     loadDrawingsAndRedraw(window.symbolSelect.value);
@@ -988,11 +827,9 @@ function debouncedSaveSettingsForResize() {
         const removedShape = eventData.shape; // Hypothetical: eventData directly provides the removed shape object
         if (removedShape && removedShape.id) {
             const symbol = window.symbolSelect.value;
-            console.log(`[plotly_remove_shape] Attempting to delete shape ${removedShape.id} from backend.`);
             try {
                 const response = await fetch(`/delete_drawing/${symbol}/${removedShape.id}`, { method: 'DELETE' });
                 if (!response.ok) throw new Error(`Backend delete failed: ${response.status} ${await response.text()}`);
-                console.log(`Drawing ${removedShape.id} deleted from backend via plotly_remove_shape.`);
                 if (window.activeShapeForPotentialDeletion && window.activeShapeForPotentialDeletion.id === removedShape.id) {
                     window.activeShapeForPotentialDeletion = null;
                     updateSelectedShapeInfoPanel(null);
@@ -1036,7 +873,6 @@ function observeShapeDAttributeChanges(plotDivId) {
                 // Check if the 'd' attribute was the one that changed
                 if (mutation.type === 'attributes' && mutation.attributeName === 'd') {
                     const newDValue = mutation.target.getAttribute('d');
-                    console.log('Path d attribute changed:', newDValue);
                     // You can perform an action here, like updating a different element or triggering a function
                 }
             }
@@ -1077,7 +913,6 @@ function observeShapeDAttributeChanges(plotDivId) {
                 // Check if the 'd' attribute was the one that changed
                 if (mutation.type === 'attributes' && mutation.attributeName === 'd') {
                     const newDValue = mutation.target.getAttribute('d');
-                    console.log('Path d attribute changed:', newDValue);
                     // You can perform an action here, like updating a different element or triggering a function
                 }
             }
@@ -1090,34 +925,24 @@ function observeShapeDAttributeChanges(plotDivId) {
 
 // Function to check if we need more historical data for the current visible range
 function checkIfHistoricalDataNeeded(fromTs, toTs, resolution) {
-    console.log('[checkIfHistoricalDataNeeded] Called with:', { fromTs, toTs, resolution });
 
     // Get current chart data to see what time range we already have
     const gd = window.gd;
     if (!gd || !gd.data || gd.data.length === 0) {
-        console.log('[checkIfHistoricalDataNeeded] No chart data available, requesting historical data');
         return true; // No data at all, definitely need historical data
     }
 
     // Find the main price trace (candlestick)
     const priceTrace = gd.data.find(trace => trace.type === 'candlestick');
     if (!priceTrace || !priceTrace.x || priceTrace.x.length === 0) {
-        console.log('[checkIfHistoricalDataNeeded] No price data available, requesting historical data');
         return true;
     }
 
-    console.log('[checkIfHistoricalDataNeeded] Found price trace with', priceTrace.x.length, 'data points');
 
     // Get the time range of current data
     const currentDataMin = Math.min(...priceTrace.x.map(x => (x instanceof Date) ? x.getTime() : new Date(x).getTime())) / 1000;
     const currentDataMax = Math.max(...priceTrace.x.map(x => (x instanceof Date) ? x.getTime() : new Date(x).getTime())) / 1000;
 
-    console.log('[checkIfHistoricalDataNeeded] Current data time range:', {
-        currentDataMin: new Date(currentDataMin * 1000).toISOString(),
-        currentDataMax: new Date(currentDataMax * 1000).toISOString(),
-        requestedFrom: new Date(fromTs).toISOString(),
-        requestedTo: new Date(toTs).toISOString()
-    });
 
     // Check if the requested range extends beyond current data
     const rangeExtension = 0.1; // 10% buffer
@@ -1127,19 +952,11 @@ function checkIfHistoricalDataNeeded(fromTs, toTs, resolution) {
     const needsEarlierData = extendedFromTs < currentDataMin;
     const needsLaterData = extendedToTs > currentDataMax;
 
-    console.log('[checkIfHistoricalDataNeeded] Range analysis:', {
-        extendedFromTs: new Date(extendedFromTs).toISOString(),
-        extendedToTs: new Date(extendedToTs).toISOString(),
-        needsEarlierData,
-        needsLaterData
-    });
 
     if (needsEarlierData || needsLaterData) {
-        console.log('[checkIfHistoricalDataNeeded] Visible range extends beyond current data - requesting more data');
         return true;
     }
 
-    console.log('[checkIfHistoricalDataNeeded] Current data covers the visible range adequately');
     return false;
 }
 
@@ -1148,41 +965,7 @@ observeShapeDAttributeChanges('chart'); // Use your actual chart div ID
 
 // Global function to test panning detection
 window.testPanningDetection = function() {
-    // Safe console logging for Puppeteer compatibility
-    try {
-        if (typeof console !== 'undefined' && console.log) {
-            console.log('🧪 TESTING PANNING DETECTION 🧪');
-            console.log('Current chart state:', {
-                hasGd: !!window.gd,
-                layout: window.gd?.layout,
-                xaxisRange: window.gd?.layout?.xaxis?.range,
-                yaxisRange: window.gd?.layout?.yaxis?.range
-            });
-        }
-    } catch (e) {
-        // Fallback for environments where console is not available
-        alert('🧪 TESTING PANNING DETECTION 🧪\nConsole not available in this environment.');
-    }
 
-    // Listen for our custom pan event
-    document.addEventListener('chartPanned', function(event) {
-        try {
-            if (typeof console !== 'undefined' && console.log) {
-                console.log('🎯 CUSTOM PAN EVENT RECEIVED:', event.detail);
-            }
-        } catch (e) {
-            alert('🎯 CUSTOM PAN EVENT RECEIVED: ' + JSON.stringify(event.detail));
-        }
-    });
-
-    try {
-        if (typeof console !== 'undefined' && console.log) {
-            console.log('✅ Panning detection test setup complete. Try panning the chart now.');
-            console.log('Expected console output: "🚨 CHART PANNED/ZOOMED DETECTED 🚨"');
-        }
-    } catch (e) {
-        alert('✅ Panning detection test setup complete.\nTry panning the chart now.');
-    }
 
     // Also trigger a manual test event
     delay(1000).then(() => {
@@ -1193,11 +976,6 @@ window.testPanningDetection = function() {
                     'xaxis.range[1]': new Date()
                 };
                 window.gd.emit('plotly_relayout', testEventData);
-                if (typeof console !== 'undefined' && console.log) {
-                    console.log('🧪 MANUAL TEST EVENT TRIGGERED');
-                } else {
-                    alert('🧪 MANUAL TEST EVENT TRIGGERED');
-                }
             }
         } catch (e) {
             alert('🧪 Manual test event failed: ' + e.message);
@@ -1224,12 +1002,6 @@ function updatePanningStatus(isPanning = false) {
 
 // Add additional event listeners for debugging
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('📋 PANNING DETECTION SYSTEM INITIALIZED 📋');
-    console.log('Available test functions:');
-    console.log('- window.testPanningDetection() - Test panning detection');
-    console.log('- window.compareClientServerRanges() - Compare client and server timestamp ranges');
-    console.log('- Press "T" key - Manual test event trigger');
-    console.log('- Pan/zoom the chart - Should trigger automatic detection');
 
     // Initialize panning status
     updatePanningStatus(false);
@@ -1239,26 +1011,19 @@ document.addEventListener('DOMContentLoaded', function() {
 window.compareClientServerRanges = function() {
     try {
         if (typeof console !== 'undefined' && console.log) {
-            console.log('🔍 COMPARING CLIENT AND SERVER TIMESTAMP RANGES 🔍');
 
             if (!window.lastClientRange) {
-                console.log('❌ No client range stored. Pan the chart first to capture client range.');
                 return;
             }
 
-            console.log('📊 CLIENT RANGE (stored):', window.lastClientRange);
 
             // Try to get server range from WebSocket state if available
             if (window.ws && window.ws.readyState === WebSocket.OPEN) {
-                console.log('🔗 WebSocket is connected. Server range should be logged in server console.');
-                console.log('💡 Look for "📊 SERVER RECEIVED RANGE" in server logs for comparison.');
             } else {
-                console.log('⚠️ WebSocket not connected. Cannot get current server state.');
             }
 
             // Manual comparison if we have both ranges
             if (window.lastServerRange) {
-                console.log('📊 SERVER RANGE (stored):', window.lastServerRange);
 
                 const clientFrom = window.lastClientRange.xMinTimestamp;
                 const clientTo = window.lastClientRange.xMaxTimestamp;
@@ -1268,18 +1033,11 @@ window.compareClientServerRanges = function() {
                 const fromDiff = Math.abs(clientFrom - serverFrom);
                 const toDiff = Math.abs(clientTo - serverTo);
 
-                console.log('⚖️ COMPARISON RESULTS:');
-                console.log(`  From timestamp difference: ${fromDiff} seconds (${(fromDiff / 3600).toFixed(2)} hours)`);
-                console.log(`  To timestamp difference: ${toDiff} seconds (${(toDiff / 3600).toFixed(2)} hours)`);
 
                 if (fromDiff > 60 || toDiff > 60) {
-                    console.log('🚨 SIGNIFICANT DIFFERENCE DETECTED (> 1 minute)');
-                    console.log('  This could indicate a timestamp conversion issue.');
                 } else {
-                    console.log('✅ Ranges are within acceptable tolerance (< 1 minute)');
                 }
             } else {
-                console.log('❌ No server range stored. Check server logs for "📊 SERVER RECEIVED RANGE".');
             }
         } else {
             alert('🔍 COMPARING CLIENT AND SERVER TIMESTAMP RANGES 🔍\nConsole not available in this environment.');

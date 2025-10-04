@@ -49,7 +49,6 @@ async function sendShapeUpdateToServer(shapeToUpdate, symbol) {
         });
 
         if (!response.ok) throw new Error(`Failed to update drawing ${shapeToUpdate.id} on server: ${response.status} ${await response.text()}`);
-        console.log(`Drawing ${shapeToUpdate.id} updated successfully on server via sendShapeUpdateToServer.`);
         return true;
     } catch (error) {
         console.error(`Error in sendShapeUpdateToServer for drawing ${shapeToUpdate.id}:`, error);
@@ -84,8 +83,6 @@ function getPlotlyRefsFromSubplotName(subplotName) {
     if (parts.length >= 2) {
         const indicatorId = parts.slice(1).join('-');
         const indicator = window.activeIndicatorsState && window.activeIndicatorsState.find(ind => ind.id === indicatorId);
-        console.log(`[DEBUG getPlotlyRefsFromSubplotName] For indicatorId '${indicatorId}', found in activeIndicatorsState:`, indicator ? JSON.parse(JSON.stringify(indicator)) : 'NOT FOUND');
-        console.log(`[DEBUG getPlotlyRefsFromSubplotName] Current window.activeIndicatorsState:`, JSON.parse(JSON.stringify(window.activeIndicatorsState)));
 
         if (indicator && indicator.xAxisRef && indicator.yAxisRef) {
             return { xref: indicator.xAxisRef, yref: indicator.yAxisRef };

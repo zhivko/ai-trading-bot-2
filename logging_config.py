@@ -79,15 +79,13 @@ urllib3_logger.setLevel(logging.WARNING)
 ccxt_logger = logging.getLogger('ccxt')
 ccxt_logger.setLevel(logging.WARNING)
 
+# Configure httpcore loggers to WARNING level to reduce HTTP debug logs
+httpcore_connection_logger = logging.getLogger('httpcore.connection')
+httpcore_connection_logger.setLevel(logging.WARNING)
+httpcore_http11_logger = logging.getLogger('httpcore.http11')
+httpcore_http11_logger.setLevel(logging.WARNING)
+
 # Configure bybit_price_feed logger to INFO level for file output
 bybit_logger = logging.getLogger('bybit_price_feed')
 bybit_logger.setLevel(logging.INFO)
-
-# Create a specific handler for bybit_price_feed with INFO level
-bybit_file_handler = FlushingFileHandler(log_file_path, encoding="utf-8")
-bybit_file_handler.setLevel(logging.INFO)
-bybit_file_handler.setFormatter(formatter)
-
-# Add the handler to the bybit logger
-bybit_logger.addHandler(bybit_file_handler)
-bybit_logger.propagate = False  # Prevent duplicate logs
+bybit_logger.propagate = True  # Allow logs to propagate to root logger's file handler

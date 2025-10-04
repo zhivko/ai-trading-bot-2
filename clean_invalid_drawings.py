@@ -1,64 +1,125 @@
+#!/usr/bin/env python3
+"""
+Script to clean up drawings with invalid resolutions from Redis.
+
+This script scans all drawing data in Redis and removes any drawings that have
+resolutions not present in SUPPORTED_RESOLUTIONS (like '1' instead of '1m').
+"""
+
 import asyncio
 import json
 from redis_utils import get_redis_connection
-from config import SUPPORTED_SYMBOLS
+from config import SUPPORTED_SYMBOLS, SUPPORTED_RESOLUTIONS
+from logging_config import logger
 
-async def clean_drawings_with_zero_timestamps():
-    """Remove drawings that have start_time=0 and end_time=0 from Redis."""
-    try:
-        redis = await get_redis_connection()
-        print("Connected to Redis. Scanning for drawing keys...")
+async def clean_invalid_drawings():
+    """Clean up drawings with invalid resolutions."""
+    logger.info("Starting cleanup of drawings with invalid resolutions...")
 
-        all_keys_processed = 0
-        total_invalid_drawings_removed = 0
+    redis = await get_redis_connection()
+    total_drawings_processed = 0
+    total_invalid_drawings_removed = 0
+    total_keys_processed = 0
 
-        for symbol in SUPPORTED_SYMBOLS:
-            pattern = f"drawings:*:{symbol}"
-            print(f"Scanning pattern: {pattern}")
+    # Process each supported symbol
+    for symbol in SUPPORTED_SYMBOLS:
+        logger.info(f"Processing drawings for symbol: {symbol}")
 
-            async for key in redis.scan_iter(match=pattern):
-                all_keys_processed += 1
-                user_email = key.split(":", 2)[1]  # Extract email from drawings:email:symbol
+        # Find all drawing keys for this symbol
+        pattern = f"drawings:*:{symbol}"
+        drawing_keys = []
 
-                # Get current drawings list
-                drawings_json = await redis.get(key)
-                if not drawings_json:
+        # Use scan_iter to get all matching keys
+        async for key in redis.scan_iter(match=pattern):
+            drawing_keys.append(key)
+            total_keys_processed += 1
+
+        logger.info(f"Found {len(drawing_keys)} drawing keys for {symbol}")
+
+        for key in drawing_keys:
+            try:
+                # Parse user email from key: drawings:{email}:{symbol}
+                key_parts = key.split(':')
+                if len(key_parts) != 3:
+                    logger.warning(f"Skipping malformed drawing key: {key}")
                     continue
 
-                try:
-                    drawings = json.loads(drawings_json)
-                except json.JSONDecodeError:
-                    print(f"Invalid JSON in key {key}, skipping")
+                user_email = key_parts[1]
+
+                # Get the drawing data
+                drawing_data_str = await redis.get(key)
+                if not drawing_data_str:
+                    logger.warning(f"No data found for key: {key}")
                     continue
 
-                # Filter out invalid drawings (start_time=0 and end_time=0)
-                original_count = len(drawings)
-                valid_drawings = [
-                    d for d in drawings
-                    if not (d.get('start_time') == 0 and d.get('end_time') == 0)
-                ]
-                invalid_removed = original_count - len(valid_drawings)
+                user_drawings = json.loads(drawing_data_str)
+                if not isinstance(user_drawings, list):
+                    logger.warning(f"Drawing data for {key} is not a list, skipping")
+                    continue
 
-                if invalid_removed > 0:
-                    print(f"Key {key}: Removed {invalid_removed} invalid drawings (start_time=0, end_time=0)")
+                original_count = len(user_drawings)
+                filtered_drawings = []
+                invalid_count = 0
 
-                    # Update or delete the key
-                    if valid_drawings:
-                        await redis.set(key, json.dumps(valid_drawings))
-                        print("Updated key {} with {} remaining drawings".format(key, len(valid_drawings)))
-                    else:
+                # Filter out drawings with invalid resolutions
+                for drawing in user_drawings:
+                    if not isinstance(drawing, dict):
+                        logger.warning(f"Invalid drawing format in {key}, skipping")
+                        continue
+
+                    resolution = drawing.get('resolution')
+                    drawing_id = drawing.get('id', 'unknown')
+
+                    total_drawings_processed += 1
+
+                    if resolution not in SUPPORTED_RESOLUTIONS:
+                        logger.info(f"Removing drawing {drawing_id} with invalid resolution '{resolution}' for {user_email}:{symbol}")
+                        logger.info(f"Supported resolutions: {SUPPORTED_RESOLUTIONS}")
+                        invalid_count += 1
+                        continue
+
+                    # Keep valid drawings
+                    filtered_drawings.append(drawing)
+
+                # If we removed any invalid drawings, update Redis
+                if invalid_count > 0:
+                    if not filtered_drawings:
+                        # No drawings left, delete the key entirely
                         await redis.delete(key)
-                        print(f"All drawings were invalid, deleted key {key}")
+                        logger.info(f"Deleted empty drawing key {key} after removing {invalid_count} invalid drawings")
+                    else:
+                        # Update with filtered drawings
+                        await redis.set(key, json.dumps(filtered_drawings))
+                        logger.info(f"Updated {key}: kept {len(filtered_drawings)} drawings, removed {invalid_count} invalid ones")
 
-                    total_invalid_drawings_removed += invalid_removed
+                    total_invalid_drawings_removed += invalid_count
 
-        print("\nCleanup complete!")
-        print("Keys processed: {}".format(all_keys_processed))
-        print("Total invalid drawings removed: {}".format(total_invalid_drawings_removed))
+            except Exception as e:
+                logger.error(f"Error processing key {key}: {e}")
+                continue
+
+    logger.info("Cleanup completed!")
+    logger.info(f"Summary:")
+    logger.info(f"  - Keys processed: {total_keys_processed}")
+    logger.info(f"  - Drawings processed: {total_drawings_processed}")
+    logger.info(f"  - Invalid drawings removed: {total_invalid_drawings_removed}")
+
+    return total_invalid_drawings_removed
+
+async def main():
+    """Main function."""
+    try:
+        removed_count = await clean_invalid_drawings()
+        print(f"\nCleanup completed! Removed {removed_count} drawings with invalid resolutions.")
+
+        if removed_count > 0:
+            print("\nNote: You may need to restart any running email alert services for the changes to take effect.")
+        else:
+            print("\nNo invalid drawings found - all drawings have valid resolutions.")
 
     except Exception as e:
-        print("Error during cleanup: {}".format(e))
-        raise
+        logger.error(f"Cleanup failed: {e}")
+        print(f"Error during cleanup: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(clean_drawings_with_zero_timestamps())
+    asyncio.run(main())

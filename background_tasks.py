@@ -8,7 +8,8 @@ from redis_utils import (
     get_cached_klines, cache_klines, get_cached_open_interest,
     cache_open_interest, publish_resolution_kline, detect_gaps_in_cached_data, fill_data_gaps,
     get_cached_trades, cache_trades, publish_trade_bar, detect_gaps_in_trade_data,
-    fill_trade_data_gaps, fetch_trades_from_ccxt, aggregate_trades_to_bars,
+    fill_trade_data_gaps, fetch_trades_from_ccxt, aggregate_trades_to_bars, cache_individual_trades,
+    get_individual_trades, aggregate_trades_from_redis,
     get_redis_connection
 )
 from redis_utils import fetch_klines_from_bybit
@@ -197,7 +198,7 @@ async def fetch_and_aggregate_trades():
                 total_exchanges_processed += 1
                 symbols_in_exchange = 0
 
-                logger.info(f"📊 PROCESSING {exchange_name} ({exchange_id})")
+                # logger.info(f"📊 PROCESSING {exchange_name} ({exchange_id})")
 
                 # Get last fetch time for this exchange
                 last_fetch = last_fetch_times.get(exchange_id)
@@ -229,24 +230,88 @@ async def fetch_and_aggregate_trades():
                         end_dt = datetime.fromtimestamp(end_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
                         logger.debug(f"📈 FETCHING TRADES: {internal_symbol} ({exchange_symbol}) on {exchange_name} from {start_dt} to {end_dt}")
 
-                        # Fetch recent trades from this exchange
-                        trade_bars = await fetch_trades_from_ccxt(exchange_id, internal_symbol, start_ts, end_ts)
+                        # First, fetch individual trades from exchange and persist to Redis
+                        import ccxt.async_support as ccxt
+                        exchange_class = getattr(ccxt, exchange_id)
+                        ccxt_exchange = exchange_class({
+                            'enableRateLimit': True,
+                            'rateLimit': 1000,
+                        })
 
-                        if trade_bars:
-                            # Cache the aggregated trade bars
-                            await cache_trades(internal_symbol, exchange_id, trade_bars)
+                        # Get symbol mapping
+                        ccxt_symbol = exchange_symbol
 
-                            # Publish latest bar if it's recent enough (within last 2 minutes)
-                            current_ts = int(current_time_utc.timestamp())
-                            for bar in trade_bars:
-                                if current_ts - bar['time'] <= 120:  # Within last 2 minutes
-                                    await publish_trade_bar(internal_symbol, exchange_id, bar)
-                                    total_bars_aggregated += 1
-                                    # logger.debug(f"📡 PUBLISHED trade bar for {internal_symbol} on {exchange_id} at {bar['time']}")
+                        # Fetch trades without aggregation
+                        all_trades = []
+                        current_fetch_ts = start_ts
+                        limit = 1000
 
-                            logger.debug(f"✅ CACHED {len(trade_bars)} trade bars for {internal_symbol} on {exchange_name}")
+                        while current_fetch_ts < end_ts:
+                            try:
+                                if not all_trades:
+                                    trades_batch = await ccxt_exchange.fetch_trades(ccxt_symbol, limit=limit)
+                                else:
+                                    since = int(current_fetch_ts * 1000)
+                                    trades_batch = await ccxt_exchange.fetch_trades(ccxt_symbol, since=since, limit=limit)
+
+                                if not trades_batch:
+                                    break
+
+                                # Convert timestamps to seconds and filter
+                                filtered_batch = []
+                                for t in trades_batch:
+                                    trade_seconds = int(t['timestamp'] / 1000)
+                                    if start_ts <= trade_seconds <= end_ts:
+                                        trade_copy = t.copy()
+                                        trade_copy['timestamp'] = trade_seconds
+                                        filtered_batch.append(trade_copy)
+
+                                all_trades.extend(filtered_batch)
+
+                                if trades_batch:
+                                    last_trade_ts = int(trades_batch[-1]['timestamp'] / 1000)
+                                    if last_trade_ts <= current_fetch_ts:
+                                        break
+                                    current_fetch_ts = last_trade_ts + 1
+                                    if len(trades_batch) < limit:
+                                        break
+
+                                # Prevent memory issues
+                                if len(all_trades) > 10000:
+                                    all_trades = all_trades[-10000:]
+                                    break
+
+                            except Exception as e:
+                                logger.error(f"❌ Error fetching trades batch from {exchange_id}: {e}")
+                                break
+
+                        await ccxt_exchange.close()
+
+                        if all_trades:
+                            # Persist individual trades to Redis
+                            await cache_individual_trades(all_trades, exchange_name, internal_symbol)
+                            logger.debug(f"✅ PERSISTED {len(all_trades)} individual trades for {internal_symbol} on {exchange_name}")
+
+                            # Now aggregate from Redis instead of from the fetched data
+                            trade_bars = await aggregate_trades_from_redis(exchange_name, internal_symbol, start_ts, end_ts, 60)
+
+                            if trade_bars:
+                                # Cache the aggregated trade bars
+                                await cache_trades(internal_symbol, exchange_id, trade_bars)
+
+                                # Publish latest bar if it's recent enough (within last 2 minutes)
+                                current_ts = int(current_time_utc.timestamp())
+                                for bar in trade_bars:
+                                    if current_ts - bar['time'] <= 120:  # Within last 2 minutes
+                                        await publish_trade_bar(internal_symbol, exchange_id, bar)
+                                        total_bars_aggregated += 1
+                                        # logger.debug(f"📡 PUBLISHED trade bar for {internal_symbol} on {exchange_id} at {bar['time']}")
+
+                                logger.debug(f"✅ AGGREGATED {len(trade_bars)} trade bars for {internal_symbol} on {exchange_name}")
+                            else:
+                                logger.debug(f"⚠️ No trade bars aggregated for {internal_symbol} on {exchange_name}")
                         else:
-                            logger.debug(f"⚠️ No trade bars received for {internal_symbol} on {exchange_name}")
+                            logger.debug(f"⚠️ No individual trades fetched for {internal_symbol} on {exchange_name}")
 
                     except Exception as e:
                         logger.error(f"❌ Error processing {internal_symbol} on {exchange_id}: {e}")

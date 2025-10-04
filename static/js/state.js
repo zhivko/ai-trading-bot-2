@@ -48,10 +48,7 @@ function selectShape(shapeId, multiSelect = false) {
         }
     }
 
-    console.log('Shape selection updated:', {
-        selected: Array.from(selectedShapeIds),
-        lastSelected: lastSelectedShapeId
-    });
+
 }
 
 function deselectShape(shapeId) {
@@ -81,7 +78,6 @@ function deselectAllShapes() {
     selectedShapeIds.clear();
     lastSelectedShapeId = null;
     window.activeShapeForPotentialDeletion = null;
-    console.log('All shapes deselected');
 }
 
 function isShapeSelected(shapeId) {
@@ -129,7 +125,6 @@ Visual Feedback:
 Selected shapes can be edited and deleted as a group.
     `.trim();
 
-    console.log(helpText);
     alert(helpText);
 }
 

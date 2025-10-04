@@ -1,0 +1,8 @@
+# Python Environment
+Always activate the virtual environment before running Python scripts: `.\.venv\Scripts\activate`
+Assume that we are running Flask server with reload=True so all changed python files are automatically reloaded in running flask app.
+
+# Code Style
+Use 4 spaces for indentation in Python files
+Prefer f-strings over .format() for string formatting
+

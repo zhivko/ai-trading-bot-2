@@ -37,8 +37,20 @@ async def fetch_positions_from_trading_service(email: str, symbol: str = None) -
                 if data.get("status") == "success":
                     positions = data.get("positions", [])
                     if symbol:
-                        # Filter positions by trade symbol
-                        positions = [p for p in positions if p.get('symbol') == symbol]
+                        # Filter positions by trade symbol (normalize both symbols by removing dashes)
+                        # logger.debug(f"DEBUG positions filter: filtering {len(positions)} positions for symbol '{symbol}'")
+                        for p in positions:
+                            p_symbol = p.get('symbol')
+                            if p_symbol:
+                                # Normalize by removing dashes for comparison
+                                normalized_p_symbol = str(p_symbol).replace('-', '')
+                                normalized_symbol = str(symbol).replace('-', '')
+                                matches = normalized_p_symbol == normalized_symbol
+                            else:
+                                matches = False
+                            # logger.debug(f"  Position symbol: '{p_symbol}' (normalized: '{normalized_p_symbol}'), matches '{symbol}' (normalized: '{normalized_symbol}'): {matches}")
+                        positions = [p for p in positions if p.get('symbol') and str(p.get('symbol')).replace('-', '') == str(symbol).replace('-', '')]
+                        # logger.info(f"DEBUG positions filter: after filtering, {len(positions)} positions remain for symbol '{symbol}'")
                     return positions
                 else:
                     logger.warning(f"Trading service returned error: {data}")
@@ -105,21 +117,17 @@ def calculate_volume_profile(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
                 price = trade.get('vwap', trade.get('close', 0))
                 # For volume profile, use total volume for this time period
                 quantity = trade.get('vol', trade.get('volume', 0))
-                # Estimate buy/sell from buyer_count/seller_count if available
-                buyer_count = trade.get('buyer_count', 0)
-                seller_count = trade.get('seller_count', 0)
-                # We'll attribute volume proportionally to buy/sell based on counts
-                if buyer_count + seller_count > 0:
-                    buy_ratio = buyer_count / (buyer_count + seller_count)
-                    buy_volume = quantity * buy_ratio
-                    sell_volume = quantity * (1 - buy_ratio)
-                else:
-                    # If no count data, assume all is sell volume (neutral assumption)
-                    buy_volume = 0
-                    sell_volume = quantity
                 timestamp = trade.get('time', 0)
+
+                # Fix: Always create both buy and sell trades from k-line data
+                # Split volume 50/50 for buy and sell when buyer_count/seller_count not available
+                # This ensures both buy and sell bars appear even when data is limited
+
+                buy_volume = quantity * 0.5  # 50% buy
+                sell_volume = quantity * 0.5  # 50% sell
+
                 # Create artificial trades representing buy and sell activity
-                # This creates volume profile entries for this price level
+                # Always create both buy and sell entries to show both bars
                 if buy_volume > 0:
                     trade_data = {
                         "price": float(price),
@@ -179,6 +187,163 @@ def calculate_volume_profile(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
         "total_trades": len(trades),
         "price_levels": len(volume_profile)
     }
+
+
+async def calculate_trading_sessions(symbol: str, from_ts: int = None, to_ts: int = None) -> List[Dict[str, Any]]:
+    """
+    Generate standardized trading sessions based on GMT time zones for crypto trading.
+    Returns predefined sessions: Asian, European, American, and Weekend sessions.
+    Sessions are filtered and clipped to the requested time range.
+    """
+    try:
+        logger.info(f"Generating GMT-based trading sessions for {symbol} from {from_ts} to {to_ts}")
+
+        # Default to last 7 days if no time range provided
+        if from_ts is None:
+            from_ts = int(time.time()) - (7 * 24 * 60 * 60)  # 7 days ago
+        if to_ts is None:
+            to_ts = int(time.time())
+
+        sessions = []
+
+        # Generate sessions for the entire requested time range
+        # We'll create multiple days worth of sessions and then filter/intersect with the requested range
+
+        # Calculate the start and end dates (in UTC)
+        start_date = time.gmtime(from_ts)
+        end_date = time.gmtime(to_ts)
+
+        # Get the range in days
+        days_range = int((to_ts - from_ts) / (24 * 60 * 60)) + 2  # Add buffer
+
+        # Generate sessions for each day in the range
+        for day_offset in range(days_range):
+            session_day = from_ts + (day_offset * 24 * 60 * 60)
+            session_date = time.gmtime(session_day)
+            weekday = session_date.tm_wday  # 0=Monday, 6=Sunday
+
+            # Helper function to create GMT timestamp for a given hour on the session day
+            def create_gmt_timestamp(hour: int) -> int:
+                return int(time.mktime(time.struct_time((
+                    session_date.tm_year, session_date.tm_mon, session_date.tm_mday,
+                    hour, 0, 0,  # hour, minute, second
+                    session_date.tm_wday, session_date.tm_yday, session_date.tm_isdst
+                ))))
+
+            # 1. ASIAN SESSION: 23:00 GMT to 08:00 GMT (next day)
+            asian_start = create_gmt_timestamp(23)  # 23:00 GMT today
+            asian_end = create_gmt_timestamp(8) + (24 * 60 * 60)  # 08:00 GMT next day
+
+            if weekday < 5:  # Monday to Friday only
+                sessions.append({
+                    "symbol": symbol,
+                    "start_time": asian_start,
+                    "end_time": asian_end,
+                    "type": "market_session",
+                    "activity_type": "asian",
+                    "session_name": "Asian Session",
+                    "description": "Asian trading hours (Tokyo/Singapore markets)",
+                    "volatility": "moderate",
+                    "characteristics": "moderate activity, lower volatility",
+                    "gmt_range": "23:00 - 08:00 GMT",
+                    "local_description": "late evening to early morning in Western time zones"
+                })
+
+            # 2. EUROPEAN SESSION: 08:00 GMT to 17:00 GMT
+            european_start = create_gmt_timestamp(8)
+            european_end = create_gmt_timestamp(17)
+
+            if weekday < 5:  # Monday to Friday only
+                sessions.append({
+                    "symbol": symbol,
+                    "start_time": european_start,
+                    "end_time": european_end,
+                    "type": "market_session",
+                    "activity_type": "european",
+                    "session_name": "European Session",
+                    "description": "European trading hours (London/Frankfurt markets)",
+                    "volatility": "high",
+                    "characteristics": "high activity and liquidity",
+                    "gmt_range": "08:00 - 17:00 GMT",
+                    "local_description": "European financial center opening hours"
+                })
+
+            # 3. AMERICAN SESSION: 13:00 GMT to 22:00 GMT
+            american_start = create_gmt_timestamp(13)
+            american_end = create_gmt_timestamp(22)
+
+            if weekday < 5:  # Monday to Friday only
+                sessions.append({
+                    "symbol": symbol,
+                    "start_time": american_start,
+                    "end_time": american_end,
+                    "type": "market_session",
+                    "activity_type": "american",
+                    "session_name": "American Session",
+                    "description": "American trading hours (New York market)",
+                    "volatility": "very_high",
+                    "characteristics": "high liquidity and volatility",
+                    "gmt_range": "13:00 - 22:00 GMT",
+                    "local_description": "North American financial center trading hours"
+                })
+
+            # 4. WEEKEND SESSION: Friday 23:00 GMT to Sunday 22:00 GMT
+            if weekday == 4:  # Friday
+                weekend_start = create_gmt_timestamp(23)  # Friday 23:00 GMT
+                weekend_end = create_gmt_timestamp(22) + (2 * 24 * 60 * 60)  # Sunday 22:00 GMT
+
+                sessions.append({
+                    "symbol": symbol,
+                    "start_time": weekend_start,
+                    "end_time": weekend_end,
+                    "type": "market_session",
+                    "activity_type": "weekend",
+                    "session_name": "Weekend Session",
+                    "description": "Weekend trading (reduced institutional participation)",
+                    "volatility": "high",
+                    "characteristics": "reduced liquidity, increased volatility",
+                    "gmt_range": "Fri 23:00 - Sun 22:00 GMT",
+                    "local_description": "24/7 crypto markets with lower volume"
+                })
+
+        # Filter sessions to the requested time range and clip them if necessary
+        filtered_sessions = []
+        for session in sessions:
+            session_start = session['start_time']
+            session_end = session['end_time']
+
+            # Check if session overlaps with requested time range
+            if session_start <= to_ts and session_end >= from_ts:
+                # Clip session to the requested time range
+                clipped_start = max(session_start, from_ts)
+                clipped_end = min(session_end, to_ts)
+
+                if clipped_end > clipped_start:
+                    clipped_session = session.copy()
+                    clipped_session['start_time'] = clipped_start
+                    clipped_session['end_time'] = clipped_end
+                    clipped_session['duration_minutes'] = int((clipped_end - clipped_start) / 60)
+
+                    # Add clipping information for debugging
+                    if clipped_start != session_start or clipped_end != session_end:
+                        clipped_session['clipped'] = True
+                        clipped_session['original_start'] = session_start
+                        clipped_session['original_end'] = session_end
+
+                    filtered_sessions.append(clipped_session)
+
+                    logger.debug(f"Added {session['activity_type']} session: {time.strftime('%Y-%m-%d %H:%M GMT', time.gmtime(clipped_start))} to {time.strftime('%Y-%m-%d %H:%M GMT', time.gmtime(clipped_end))}")
+
+        logger.info(f"Generated {len(filtered_sessions)} GMT-based trading sessions within time range")
+
+        # Sort sessions chronologically
+        filtered_sessions.sort(key=lambda x: x['start_time'])
+
+        return filtered_sessions
+
+    except Exception as e:
+        logger.error(f"Error generating GMT-based trading sessions for {symbol}: {e}")
+        return []
 
 
 def _add_trade_to_volume_map(trade_data: Dict[str, Any], volume_map: Dict[float, Dict[str, Any]], bin_size: float = 5.0) -> None:
@@ -897,7 +1062,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
 
                     drawings = await get_drawings(active_symbol, None, client_state["resolution"], email)
 
-                    # Send drawings message
+            # Send drawings message
                     await send_to_client({
                         "type": "drawings",
                         "symbol": active_symbol,
@@ -905,7 +1070,29 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                         "drawings": drawings,
                         "timestamp": int(time.time())
                     })
-                    logger.info(f"✅ Sent {len(drawings)} drawings for {active_symbol}")
+                    # logger.info(f"✅ Sent {len(drawings)} drawings for {active_symbol}")
+
+                    # Send trading session data based on active positions and recent activity
+                    # Only send if time range is less than 1 week (7 days) to avoid performance issues with large charts
+                    try:
+                        if client_state["from_ts"] and client_state["to_ts"]:
+                            time_range_duration_seconds = client_state["to_ts"] - client_state["from_ts"]
+                            time_range_duration_days = time_range_duration_seconds / (24 * 60 * 60)
+
+                            if time_range_duration_days < 7:  # Less than 1 week
+                                trading_sessions = await calculate_trading_sessions(active_symbol, client_state["from_ts"], client_state["to_ts"])
+                                if trading_sessions and len(trading_sessions) > 0:
+                                    await send_to_client({
+                                        "type": "trading_sessions",
+                                        "symbol": active_symbol,
+                                        "data": trading_sessions,  # Frontend expects message.data
+                                        "timestamp": int(time.time())
+                                    })
+                                    logger.info(f"✅ Sent {len(trading_sessions)} trading sessions for {active_symbol} (time range: {time_range_duration_days:.1f} days)")
+                            else:
+                                logger.info(f"📊 Time range too large ({time_range_duration_days:.1f} days), skipping trading sessions to avoid performance issues with large charts")
+                    except Exception as session_e:
+                        logger.warning(f"Failed to send trading sessions: {session_e}")
 
                     # Calculate and send volume profile for rectangle drawings within the time range
                     try:
@@ -1082,7 +1269,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                                     await send_to_client(live_data)
                                     client_state["last_sent_timestamp"] = current_time
                                     client_state["last_sent_live_price"] = live_price
-                                    logger.debug(f"📤 Sent live price update for {active_symbol}: {live_price} (changed from {client_state.get('last_sent_live_price')})")
+                                    # logger.debug(f"📤 Sent live price update for {active_symbol}: {live_price} (changed from {client_state.get('last_sent_live_price')})")
                         except Exception as e:
                             logger.error(f"Failed to get live price from Redis for {active_symbol}: {e}")
 
@@ -1222,6 +1409,83 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                     else:
                         logger.warning(f"Invalid symbol change request: {new_symbol}")
                         await websocket.send_json({"type": "error", "message": f"Invalid symbol: {new_symbol}"})
+
+                elif message_type == "get_volume_profile":
+                    # Handle volume profile calculation request from client
+                    rectangle_id = message.get("rectangle_id")
+                    rectangle_symbol = message.get("symbol", active_symbol)
+                    resolution = message.get("resolution", client_state.get("resolution", "1h"))
+
+                    logger.info(f"Processing get_volume_profile request for rectangle {rectangle_id}, symbol {rectangle_symbol}")
+
+                    try:
+                        # Get rectangle data from database
+                        email = None
+                        if hasattr(websocket, 'scope') and 'session' in websocket.scope:
+                            email = websocket.scope['session'].get('email')
+
+                        # Get drawing data for the rectangle
+                        rectangle_drawings = await get_drawings(rectangle_symbol, rectangle_id, resolution, email)
+
+                        if not rectangle_drawings or len(rectangle_drawings) == 0:
+                            logger.warning(f"No rectangle data found for id {rectangle_id}")
+                            continue
+
+                        rect_drawing = rectangle_drawings[0]  # Should be only one
+                        start_time = rect_drawing.get("start_time")
+                        end_time = rect_drawing.get("end_time")
+                        start_price = rect_drawing.get("start_price")
+                        end_price = rect_drawing.get("end_price")
+
+                        if not all([start_time, end_time, start_price is not None, end_price is not None]):
+                            logger.warning(f"Incomplete rectangle data for drawing {rectangle_id}")
+                            continue
+
+                        price_min = min(float(start_price), float(end_price))
+                        price_max = max(float(start_price), float(end_price))
+
+                        # Fetch klines for this rectangle's time range
+                        rect_klines = await get_cached_klines(rectangle_symbol, resolution, start_time, end_time)
+                        logger.debug(f"Fetched {len(rect_klines)} klines for rectangle {rectangle_id} time range")
+
+                        if not rect_klines:
+                            logger.warning(f"No klines available for rectangle {rectangle_id}")
+                            continue
+
+                        # Filter klines that intersect with the rectangle's price range
+                        filtered_klines = [
+                            k for k in rect_klines
+                            if k.get('high', 0) >= price_min and k.get('low', 0) <= price_max
+                        ]
+                        logger.debug(f"Filtered to {len(filtered_klines)} klines within price range [{price_min}, {price_max}] for rectangle {rectangle_id}")
+
+                        if not filtered_klines:
+                            logger.warning(f"No klines within price range for rectangle {rectangle_id}")
+                            continue
+
+                        # Calculate volume profile for the filtered data
+                        volume_profile_data = calculate_volume_profile(filtered_klines)
+                        logger.info(f"Calculated volume profile for rectangle {rectangle_id} with {len(volume_profile_data.get('volume_profile', []))} price levels")
+
+                        # Send volume profile data for this rectangle
+                        await send_to_client({
+                            "type": "volume_profile",
+                            "symbol": rectangle_symbol,
+                            "rectangle_id": rectangle_id,
+                            "rectangle": {
+                                "start_time": start_time,
+                                "end_time": end_time,
+                                "start_price": start_price,
+                                "end_price": end_price
+                            },
+                            "data": volume_profile_data,
+                            "timestamp": int(time.time())
+                        })
+                        logger.debug(f"Sent volume profile for rectangle {rectangle_id}")
+
+                    except Exception as e:
+                        logger.error(f"Failed to process get_volume_profile request for rectangle {rectangle_id}: {e}")
+                        continue
 
             except asyncio.TimeoutError:
                 # No message within timeout, just continue

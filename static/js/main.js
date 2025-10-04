@@ -104,7 +104,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const newTimeRangeSeconds = MAX_BARS * resolutionSeconds;
         const newFromTs = toTs - (newTimeRangeSeconds * 1000); // Convert back to milliseconds
 
-        console.log(`Adjusting time range: original bars=${bars}, new bars=${MAX_BARS}, from ${new Date(fromTs).toISOString()} to ${new Date(newFromTs).toISOString()}`);
 
         return { fromTs: newFromTs, toTs, bars: MAX_BARS };
     }
@@ -127,17 +126,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (window.currentXAxisRange && window.currentXAxisRange.length === 2) {
             wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
             wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
-            console.log(`🔧 TIMESTAMP SYNC: Using saved X-axis range for consistency:`, {
-                savedRange: window.currentXAxisRange,
-                wsFromTs: wsFromTs,
-                wsToTs: wsToTs
-            });
+
         }
 
         return { fromTs: wsFromTs, toTs: wsToTs };
     };
 
-    console.log('[DEBUG] Starting Plotly chart initialization');
 
     // Initialize Plotly chart (empty initially)
     const initialLayout = {
@@ -153,25 +147,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         },
         showlegend: false
     }; // Basic layout - full layout configuration handled in combinedData.js
-    console.log('[DEBUG] Initial layout:', initialLayout);
 
     Plotly.newPlot('chart', [], initialLayout, config).then(function(gd) { // layout & config from config.js
-        console.log('[DEBUG] Plotly.newPlot completed successfully, gd:', gd);
         window.gd = gd; // Make Plotly graph div object global
 
 
         // Ensure dragmode is set to 'pan' for panning detection
-        console.log('[DEBUG] Setting initial dragmode to pan for panning detection');
         Plotly.relayout(gd, { dragmode: 'pan' }).then(() => {
-            console.log('[DEBUG] Dragmode set to pan successfully');
         }).catch(err => {
             console.error('[DEBUG] Failed to set dragmode:', err);
         });
 
-        console.log('[DEBUG] About to call initializePlotlyEventHandlers');
         // Initialize Plotly specific event handlers after chart is ready
         initializePlotlyEventHandlers(gd); // From plotlyEventHandlers.js
-        console.log('[DEBUG] initializePlotlyEventHandlers completed');
 
         // Ensure mobile hover is disabled after chart creation
         disableMobileHover(gd);
@@ -180,12 +168,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Enable mobile pinch zoom features
         enableMobilePinchZoom(gd);
 
-        console.log('[DEBUG] Chart initialization completed');
 
         // Initialize trade history after chart is ready
-        console.log('[DEBUG] About to call initializeTradeHistory');
         initializeTradeHistory();
-        console.log('[DEBUG] initializeTradeHistory completed');
 
     }).catch(err => {
         console.error('[DEBUG] Plotly initialization error:', err);
@@ -203,39 +188,31 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Skip if this is the same symbol as currently loaded
         if (selectedSymbol === currentUrlSymbol) {
-            console.log(`[main.js] Symbol ${selectedSymbol} is already loaded, skipping change`);
             setLastSelectedSymbol(selectedSymbol);
             await loadSettings(selectedSymbol);
             return;
         }
 
         if (window.isProgrammaticallySettingSymbol) {
-            console.log("Symbol change was triggered programmatically. Skipping saveSettings() and loadSettings().");
             return;
         }
 
-        console.log(`[main.js] Symbol changed from ${currentUrlSymbol} to ${selectedSymbol}. Performing seamless switch.`);
 
         // Clear the entire chart before switching symbols
         if (window.gd) {
-            console.log("[main.js] Clearing chart data for symbol switch");
-            console.log("[CHART_UPDATE] main.js symbol switch - clearing chart at", new Date().toISOString());
             removeRealtimePriceLine(window.gd);
             // Clear all chart data and reset to empty state
             Plotly.react(window.gd, [], window.gd.layout || {});
-            console.log("[CHART_UPDATE] main.js symbol switch - chart cleared, ready for new data");
         }
 
         // Close existing WebSocket connection
         if (window.combinedWebSocket) {
-            console.log("[main.js] Closing existing WebSocket connection for symbol switch");
             closeCombinedWebSocket("Symbol changed - switching to new symbol");
         }
 
         // Update URL without full page reload for better UX
         const newUrl = `/${selectedSymbol}`;
         window.history.pushState({ symbol: selectedSymbol }, '', newUrl);
-        console.log(`[main.js] Updated URL to: ${newUrl} (no page reload)`);
 
         // Clear any pending timeouts
         if (window.historicalDataTimeout) {
@@ -260,12 +237,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         setLastSelectedSymbol(selectedSymbol);
 
         // Load settings for the new symbol SYNCHRONOUSLY
-        console.log(`[main.js] Loading settings for ${selectedSymbol}...`);
         await loadSettings(selectedSymbol);
-        console.log(`[main.js] Settings loaded successfully for ${selectedSymbol}`);
 
         // Establish new WebSocket connection for the new symbol AFTER settings are loaded
-        console.log(`[main.js] Establishing new WebSocket connection for ${selectedSymbol}`);
 
         // Calculate time range for new symbol
         // Use current time for range calculations
@@ -273,47 +247,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         const fromTs = Math.floor((currentTime - 30 * 86400 * 1000) / 1000); // 30 days before current time
         const toTs = Math.floor((currentTime + 30 * 86400 * 1000) / 1000); // 30 days after current time
 
-        console.log('[TIMESTAMP DEBUG] Initial time range calculation (using current time):', {
-            currentTime: currentTime,
-            currentDate: new Date(currentTime).toISOString(),
-            fromTs: fromTs,
-            toTs: toTs,
-            fromTsDate: new Date(fromTs * 1000).toISOString(),
-            toTsDate: new Date(toTs * 1000).toISOString(),
-            timezoneOffset: new Date().getTimezoneOffset(),
-            timezoneOffsetMinutes: new Date().getTimezoneOffset()
-        });
+
 
         // Now get the indicator values AFTER settings are loaded
         const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
         const resolution = window.resolutionSelect.value;
-        console.log(`[main.js] WebSocket setup - indicators: ${activeIndicators}, resolution: ${resolution}`);
 
         // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use the same timestamp source for both settings and WebSocket
         // If we have saved X-axis range from settings, use it for WebSocket too
         let wsFromTs = fromTs;
         let wsToTs = toTs;
 
-        console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange before WebSocket setup`);
-        console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange:`, window.currentXAxisRange);
-        console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange type:`, typeof window.currentXAxisRange);
-        console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange length:`, window.currentXAxisRange ? window.currentXAxisRange.length : 'undefined');
 
         if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
             // Convert saved milliseconds to ISO timestamp strings for WebSocket
             wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
             wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
-            console.log(`[main.js] ✅ TIMESTAMP SYNC: Using saved X-axis range for WebSocket:`, {
-                savedRange: window.currentXAxisRange,
-                wsFromTs: wsFromTs,
-                wsToTs: wsToTs
-            });
-        } else {
-            console.log(`[main.js] ⚠️ TIMESTAMP SYNC: No valid currentXAxisRange found, using calculated time range for WebSocket:`, {
-                wsFromTs: wsFromTs,
-                wsToTs: wsToTs,
-                currentXAxisRangeStatus: window.currentXAxisRange ? 'exists but invalid' : 'null/undefined'
-            });
         }
 
         setupCombinedWebSocket(selectedSymbol, activeIndicators, resolution, wsFromTs, wsToTs);
@@ -322,17 +271,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.resolutionSelect.addEventListener('change', () => {
         // Check if this change was triggered programmatically (from settings load)
         if (window.isProgrammaticallySettingResolution) {
-            console.log("[main.js] Resolution change was triggered programmatically (from settings load). Skipping user modification flag.");
             // Still need to update WebSocket for new data stream
         } else {
             // Mark that user has modified resolution
             window.hasUserModifiedResolution = true;
-            console.log("[main.js] User manually changed resolution. Marking as modified.");
             // Note: Resolution settings are saved in applyAutoscale() when axis ranges change
         }
 
         const newResolution = window.resolutionSelect.value;
-        console.log(`[main.js] Resolution changed to ${newResolution}`);
 
         // Get current time range or use default
         let currentFromTs, currentToTs;
@@ -351,7 +297,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const timeRangeSeconds = (currentToTs - currentFromTs) / 1000;
         const estimatedBars = calculateBars(timeRangeSeconds, newResolution);
 
-        console.log(`[main.js] Estimated bars with new resolution ${newResolution}: ${estimatedBars}`);
 
         // Adjust time range if bars exceed limit
         let adjustedFromTs = currentFromTs;
@@ -361,7 +306,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             const adjusted = adjustTimeRangeForMaxBars(currentFromTs, currentToTs, newResolution);
             adjustedFromTs = adjusted.fromTs;
             adjustedToTs = adjusted.toTs;
-            console.log(`[main.js] Adjusted time range for resolution change: bars limited to ${MAX_BARS}`);
         }
 
         // Update current axis range
@@ -374,23 +318,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.yAxisMaxDisplay.textContent = 'Auto';
         window.activeShapeForPotentialDeletion = null;
         updateSelectedShapeInfoPanel(null);
-        console.log("[main.js] Resolution changed. Clearing ranges, deselecting shape. Triggering chart update.");
 
         // Clear the entire chart before changing resolution
         if (window.gd) {
-            console.log("[main.js] Clearing chart data for resolution change");
-            console.log("[CHART_UPDATE] main.js resolution change - clearing chart at", new Date().toISOString());
             removeRealtimePriceLine(window.gd);
             // Clear all chart data and reset to empty state
             Plotly.react(window.gd, [], window.gd.layout || {});
-            console.log("[CHART_UPDATE] main.js resolution change - chart cleared, ready for new data");
         }
 
         // Update WebSocket with new resolution and adjusted time range
         const symbol = window.symbolSelect.value;
         const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
         if (symbol && newResolution) {
-            console.log(`[main.js] Resolution changed to ${newResolution}, updating WebSocket config with adjusted time range`);
             updateCombinedResolution(newResolution);
 
             // Convert to seconds for WebSocket
@@ -411,16 +350,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.rangeSelect.addEventListener('change', () => {
         // Check if this change was triggered programmatically (from settings load)
         if (window.isProgrammaticallySettingRange) {
-            console.log("[main.js] Range change was triggered programmatically (from settings load). Skipping user modification flag.");
             // Still need to update WebSocket for new data stream
         } else {
             // Mark that user has modified range
-            console.log("[main.js] User manually changed range. Marking as modified.");
             // Note: Range settings are saved in applyAutoscale() when axis ranges change
         }
 
         const rangeDropdownValue = window.rangeSelect.value;
-        console.log(`[main.js] Range changed to ${rangeDropdownValue}`);
 
         // Use current time as base for range calculations (not hardcoded 2022)
         const currentTime = new Date().getTime(); // Keep in milliseconds
@@ -447,7 +383,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const timeRangeSeconds = (requestedToTs - requestedFromTs) / 1000;
         const estimatedBars = calculateBars(timeRangeSeconds, currentResolution);
 
-        console.log(`[main.js] Estimated bars for range ${rangeDropdownValue} with resolution ${currentResolution}: ${estimatedBars}`);
 
         // Adjust time range if bars exceed limit
         let finalFromTs = requestedFromTs;
@@ -457,7 +392,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             const adjusted = adjustTimeRangeForMaxBars(requestedFromTs, requestedToTs, currentResolution);
             finalFromTs = adjusted.fromTs;
             finalToTs = adjusted.toTs;
-            console.log(`[main.js] Adjusted time range for range change: bars limited to ${MAX_BARS}`);
         }
 
         window.currentXAxisRange = [finalFromTs, finalToTs]; // Keep in milliseconds
@@ -470,16 +404,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.activeShapeForPotentialDeletion = null;
         updateSelectedShapeInfoPanel(null);
         if (window.cancelRequests) window.cancelRequests("Range change initiated by user");
-        console.log("[main.js] Range changed by user. Calculating and setting new x-axis range, triggering chart update.");
 
         // Clear the entire chart before changing range
         if (window.gd) {
-            console.log("[main.js] Clearing chart data for range change");
-            console.log("[CHART_UPDATE] main.js range change - clearing chart at", new Date().toISOString());
             removeRealtimePriceLine(window.gd);
             // Clear all chart data and reset to empty state
             Plotly.react(window.gd, [], window.gd.layout || {});
-            console.log("[CHART_UPDATE] main.js range change - chart cleared, ready for new data");
         }
 
         // Update WebSocket with new time range (don't close/reopen, just send new config)
@@ -487,7 +417,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const resolution = window.resolutionSelect.value;
         const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
         if (symbol && resolution) {
-            console.log(`[main.js] Time range changed to ${rangeDropdownValue}, updating WebSocket config with adjusted time range`);
 
             // Convert to seconds for WebSocket
             const wsFromTs = Math.floor(finalFromTs / 1000);
@@ -515,17 +444,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             const symbol = window.symbolSelect.value;
             const resolution = window.resolutionSelect.value;
             const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
-            console.log('main.js: Indicator checkbox change - activeIndicators:', activeIndicators);
 
             if (symbol && resolution) {
                 // CRITICAL FIX: Always update chart layout when indicators change
                 // This ensures subplots are created/destroyed immediately when indicators are selected/deselected
                 if (window.gd) {
-                    console.log('main.js: Updating chart layout for indicator change:', activeIndicators);
                     const layout = createLayoutForIndicators(activeIndicators);
-                    console.log('main.js: Created layout with activeIndicators:', activeIndicators);
                     Plotly.relayout(window.gd, layout);
-                    console.log('main.js: Chart layout updated for indicator change');
                 }
 
                 // Update indicators and send new config if WebSocket is connected
@@ -539,18 +464,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                     let wsToTs = new Date(currentTime + 30 * 86400 * 1000).toISOString(); // 30 days after current time
 
                     // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use saved X-axis range if available
-                    console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for indicator change WebSocket`);
-                    console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange:`, window.currentXAxisRange);
                     if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
                         wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
                         wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
-                        console.log(`[main.js] ✅ TIMESTAMP SYNC: Using saved X-axis range for indicator change WebSocket:`, {
-                            savedRange: window.currentXAxisRange,
-                            wsFromTs: wsFromTs,
-                            wsToTs: wsToTs
-                        });
-                    } else {
-                        console.log(`[main.js] ⚠️ TIMESTAMP SYNC: No valid currentXAxisRange for indicator change, using calculated range`);
                     }
 
                     setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
@@ -575,18 +491,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             let wsToTs = new Date(currentTime + 30 * 86400 * 1000).toISOString(); // 30 days after current time
 
             // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use saved X-axis range if available
-            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for agent trades WebSocket`);
-            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange:`, window.currentXAxisRange);
             if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
                 wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
                 wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
-                console.log(`[main.js] ✅ TIMESTAMP SYNC: Using saved X-axis range for agent trades WebSocket:`, {
-                    savedRange: window.currentXAxisRange,
-                    wsFromTs: wsFromTs,
-                    wsToTs: wsToTs
-                });
-            } else {
-                console.log(`[main.js] ⚠️ TIMESTAMP SYNC: No valid currentXAxisRange for agent trades, using default range`);
             }
 
             setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
@@ -617,12 +524,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const errorBody = await response.text().catch(() => "Could not read error body");
                     throw new Error(`Failed to delete drawing from backend: ${response.status} - ${errorBody}`);
                 }
-                console.log(`Drawing ${drawingId} deleted successfully from backend.`);
 
                 // Remove the shape from the chart
                 if (window.gd && window.gd.layout && window.gd.layout.shapes) {
                     const shapes = window.gd.layout.shapes.filter(shape => shape.id !== drawingId);
                     Plotly.relayout(window.gd, { shapes: shapes });
+                }
+
+                // Remove associated volume profile traces for rectangles
+                if (window.gd && window.gd.data) {
+                    const filteredData = window.gd.data.filter(trace =>
+                        !trace.name || !trace.name.startsWith(`VP-${drawingId}`)
+                    );
+                    if (filteredData.length !== window.gd.data.length) {
+                        window.gd.data = filteredData;
+                        Plotly.react(window.gd, window.gd.data, window.gd.layout);
+                    }
                 }
 
                 // Clear the active shape state
@@ -672,7 +589,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const errorBody = await response.text().catch(() => "Could not read error body");
                     throw new Error(`Failed to delete all drawings from backend: ${response.status} - ${errorBody}`);
                 }
-                console.log(`All drawings for ${symbol} deleted successfully from backend.`);
                 if (window.gd && window.gd.layout) {
                     window.gd.layout.shapes = [];
                     Plotly.relayout(window.gd, { shapes: [] });
@@ -728,20 +644,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize other features
     initializeReplayControls(); // From replay.js
     initializeAIFeatures();   // From aiFeatures.js
-    initializeLogStream(); // Initialize log streaming
+    // initializeLogStream(); // Log streaming disabled
 
     // Check for symbol from template FIRST (highest priority)
     let initialSymbol = null;
     if (window.initialSymbol && window.initialSymbol !== 'BTCUSDT') {
         initialSymbol = window.initialSymbol;
-        console.log(`[main.js] Symbol from template/server: ${initialSymbol}`);
         window.symbolSelect.value = initialSymbol;
     } else {
         // Check for requested symbol from URL path (second priority)
         const urlPath = window.location.pathname;
         if (urlPath && urlPath !== '/' && urlPath.length > 1) {
             initialSymbol = urlPath.substring(1).toUpperCase();
-            console.log(`[main.js] Requested symbol from URL: ${initialSymbol}`);
             window.symbolSelect.value = initialSymbol;
         } else {
             // Load last selected symbol if no URL symbol (lowest priority)
@@ -749,7 +663,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (lastSelectedSymbol) {
                 initialSymbol = lastSelectedSymbol;
                 window.symbolSelect.value = lastSelectedSymbol;
-                console.log(`[main.js] Loaded last selected symbol: ${lastSelectedSymbol}`);
             }
         }
     }
@@ -763,7 +676,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Use initial symbol if available, otherwise use dropdown value
     const symbolToLoad = initialSymbol || window.symbolSelect.value;
     if (symbolToLoad) {
-        console.log(`[main.js] Loading settings for symbol: ${symbolToLoad}`);
         await loadSettings(symbolToLoad);
     } else {
         console.warn(`[main.js] No symbol available for settings loading, using defaults`);
@@ -772,28 +684,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Now that dropdowns are populated (and symbolSelect.value should be set by populate or default),
     // initialize chart interactions and then load settings.
     if (window.gd) {
-        console.log('[DEBUG] About to call initializeChartInteractions');
         initializeChartInteractions(); // From chartInteractions.js, ensure gd is available
-        console.log('[DEBUG] initializeChartInteractions completed');
     } else {
-        console.log('[DEBUG] window.gd not available, skipping initializeChartInteractions');
     }
 
     // Initialize combined WebSocket after settings are loaded
     const selectedSymbol = window.symbolSelect.value;
     const selectedResolution = window.resolutionSelect.value;
-    console.log(`[main.js] Initializing combined WebSocket with symbol: ${selectedSymbol}, resolution: ${selectedResolution}`);
 
     if (selectedSymbol && selectedResolution) {
         const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
-        console.log(`[main.js] Active indicators:`, activeIndicators);
 
         // Initialize chart subplots layout before WebSocket messages arrive
         if (activeIndicators.length > 0 && window.gd) {
-            console.log('[main.js] Setting up chart subplots layout before WebSocket initialization');
             const layout = createLayoutForIndicators(activeIndicators);
             Plotly.relayout(window.gd, layout);
-            console.log('[main.js] Chart subplots layout initialized');
         }
 
         // Use saved X-axis range if available, otherwise use default (30 days ago to now)
@@ -802,13 +707,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Convert milliseconds to ISO timestamp strings
             fromTs = new Date(window.currentXAxisRange[0]).toISOString();
             toTs = new Date(window.currentXAxisRange[1]).toISOString();
-            console.log(`[main.js] Using saved X-axis range: from ${fromTs} to ${toTs}`);
         } else {
             // Use current time for range calculations
             const currentTime = new Date().getTime();
             fromTs = new Date(currentTime - 30 * 86400 * 1000).toISOString(); // 30 days before current time
             toTs = new Date(currentTime + 30 * 86400 * 1000).toISOString(); // 30 days after current time
-            console.log(`[main.js] Using default current time range: from ${fromTs} to ${toTs}`);
         }
 
         setupCombinedWebSocket(selectedSymbol, activeIndicators, selectedResolution, fromTs, toTs);
@@ -820,9 +723,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     /*
     setTimeout(() => {
         if (window.gd) {
-            console.log('[DEBUG] Forcing final dragmode to pan');
             Plotly.relayout(window.gd, { dragmode: 'pan' }).then(() => {
-                console.log('[DEBUG] Final dragmode set to pan successfully');
             }).catch(err => {
                 console.error('[DEBUG] Failed to set final dragmode:', err);
             });
@@ -832,11 +733,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Handle browser back/forward navigation
     window.addEventListener('popstate', (event) => {
-        console.log('[main.js] Browser navigation detected, updating chart for new symbol');
         const newSymbol = window.location.pathname.substring(1).toUpperCase();
 
         if (newSymbol && newSymbol !== window.symbolSelect.value) {
-            console.log(`[main.js] Updating symbol from ${window.symbolSelect.value} to ${newSymbol} due to navigation`);
 
             // Update dropdown without triggering change event
             window.isProgrammaticallySettingSymbol = true;
@@ -882,18 +781,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             let wsToTs = new Date(currentTime + 30 * 86400 * 1000).toISOString();
 
             // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use saved X-axis range if available
-            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: Checking currentXAxisRange for browser navigation WebSocket`);
-            console.log(`[main.js] 🔍 DEBUG TIMESTAMP SYNC: window.currentXAxisRange:`, window.currentXAxisRange);
             if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
                 wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
                 wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
-                console.log(`[main.js] ✅ TIMESTAMP SYNC: Using saved X-axis range for browser navigation WebSocket:`, {
-                    savedRange: window.currentXAxisRange,
-                    wsFromTs: wsFromTs,
-                    wsToTs: wsToTs
-                });
-            } else {
-                console.log(`[main.js] ⚠️ TIMESTAMP SYNC: No valid currentXAxisRange for browser navigation, using calculated range`);
             }
 
             delay(200).then(() => {
@@ -930,9 +820,6 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
     if (!plotlyGraphObj.data || !plotlyGraphObj.layout || !plotlyGraphObj._fullLayout) {
         console.warn("Autoscale: Plotly graph object not fully initialized (missing data, layout, or _fullLayout). Proceeding anyway to keep button functional.");
         // Add more detailed logging for debugging this state:
-        console.log("Debug Autoscale: plotlyGraphObj.data:", plotlyGraphObj.data);
-        console.log("Debug Autoscale: plotlyGraphObj.layout:", plotlyGraphObj.layout);
-        console.log("Debug Autoscale: plotlyGraphObj._fullLayout:", plotlyGraphObj._fullLayout);
         // Continue execution instead of returning to keep button functional
     }
 
@@ -942,7 +829,6 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
 
    // --- X-AXIS AUTOSCALE DISABLED ---
    // Autoscale no longer modifies xaxis min and max values
-   console.log("Autoscale: X-axis autoscale disabled - not modifying xaxis range");
 // --- Y-AXES AUTOSCALE ---
 // Collect y values for primary y-axis (y) from visible traces
 let yMin = Infinity, yMax = -Infinity;
@@ -953,23 +839,18 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
  let indicatorYMax = -Infinity;
  let indicatorYDataFound = false;
 
- console.log("Autoscale: Examining traces for y-axis range...");
 
    // Get current X-axis range to filter visible data points
    const currentXAxisRange = inputLayout.xaxis && inputLayout.xaxis.range;
    let xMinVisible = null;
    let xMaxVisible = null;
 
-   console.log("Autoscale: inputLayout.xaxis:", inputLayout.xaxis);
-   console.log("Autoscale: currentXAxisRange:", currentXAxisRange);
 
    if (currentXAxisRange && currentXAxisRange.length === 2) {
        // Plotly stores timestamps as milliseconds since epoch
        xMinVisible = typeof currentXAxisRange[0] === 'number' ? currentXAxisRange[0] : new Date(currentXAxisRange[0]).getTime();
        xMaxVisible = typeof currentXAxisRange[1] === 'number' ? currentXAxisRange[1] : new Date(currentXAxisRange[1]).getTime();
-       console.log(`Autoscale: Filtering data to visible X-axis range: ${xMinVisible} to ${xMaxVisible} (${new Date(xMinVisible).toISOString()} to ${new Date(xMaxVisible).toISOString()})`);
    } else {
-       console.log("Autoscale: No X-axis range found, using all data points");
    }
 
    fullData.forEach(trace => {
@@ -992,15 +873,12 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
                                 if (yVal < yMin) yMin = yVal;
                                 if (yVal > yMax) yMax = yVal;
                                 yDataFound = true;
-                                //console.log(`Autoscale: Found visible price yVal=${yVal} at index ${index}`);
                             }
                         }
                     });
                 } else {
-
-                   if (trace.name)
-                    {
-                       console.warn(`Autoscale: OHLC value is not an array in candlestick trace`, trace.name)
+                    if (trace.name) {
+                        console.warn(`Autoscale: OHLC value is not an array in candlestick trace`, trace.name);
                     }
                 }
             });
@@ -1024,8 +902,6 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
         }
    });
 
-    console.log(`Autoscale: Price yDataFound=${yDataFound}, yMin=${yMin}, yMax=${yMax}`);
-    console.log(`Autoscale: Indicator yDataFound=${indicatorYDataFound}, indicatorYMin=${indicatorYMin}, indicatorYMax=${indicatorYMax}`);
 
     // Combine the Y-axis ranges
     let priceChartYMin = Infinity;
@@ -1059,10 +935,9 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
         layoutUpdate['yaxis.autorange'] = false;
     } else {
         // If no data is found, force a default range. This prevents errors.
-        layoutUpdate['yaxis.range[0]'] = 0
-        layoutUpdate['yaxis.range[1]'] = 100
+        layoutUpdate['yaxis.range[0]'] = 0;
+        layoutUpdate['yaxis.range[1]'] = 100;
         layoutUpdate['yaxis.autorange'] = true;
-        console.log("Autoscale: No price chart Y-axis data found. Setting yaxis.autorange to true.");
     }
 
 
@@ -1076,7 +951,6 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
 
 
     if (Object.keys(layoutUpdate).length > 0) {
-        console.log("Autoscale: Applying layoutUpdate:", JSON.stringify(layoutUpdate, null, 2));
         try {
             Plotly.relayout(plotlyGraphObj, layoutUpdate);
 
@@ -1095,7 +969,6 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
                     window.yAxisMaxDisplay.textContent = (priceChartYMax + yPadding).toFixed(2);
                 }
 
-                console.log("Autoscale: Updated currentYAxisRange:", window.currentYAxisRange);
             }
 
             // Save the new ranges to Redis
@@ -1177,10 +1050,6 @@ async function populateShapePropertiesDialog(activeShape) {
     const emailSent = document.getElementById('email-sent');
     const emailDateDisplay = document.getElementById('email-date-display');
 
-    console.log('DEBUG: DOM elements found:');
-    console.log('  startPrice element:', startPrice);
-    console.log('  endPrice element:', endPrice);
-    console.log('  buyOnCross element:', buyOnCross);
 
     // Load current Y values from the shape properties endpoint
     if (startPrice && endPrice) {
@@ -1202,27 +1071,19 @@ async function populateShapePropertiesDialog(activeShape) {
         if (response.ok && result.status === 'success') {
             const properties = result.properties || {};
 
-            console.log('DEBUG: Full properties response:', properties);
-            console.log('DEBUG: start_price in properties:', properties.start_price);
-            console.log('DEBUG: end_price in properties:', properties.end_price);
-            console.log('DEBUG: resolution in properties:', properties.resolution);
 
             // Populate Y values
             if (startPrice) {
                 if (properties.start_price !== undefined) {
                     startPrice.value = properties.start_price;
-                    console.log('DEBUG: Set startPrice to:', properties.start_price);
                 } else {
-                    console.log('DEBUG: start_price not found in properties');
                 }
             }
 
             if (endPrice) {
                 if (properties.end_price !== undefined) {
                     endPrice.value = properties.end_price;
-                    console.log('DEBUG: Set endPrice to:', properties.end_price);
                 } else {
-                    console.log('DEBUG: end_price not found in properties');
                 }
             }
 
@@ -1261,13 +1122,9 @@ async function populateShapePropertiesDialog(activeShape) {
             // Populate resolution
             if (document.getElementById('shape-resolution')) {
                 document.getElementById('shape-resolution').value = properties.resolution || '';
-                console.log('DEBUG: Set shape-resolution to:', properties.resolution);
             }
 
-            console.log('Loaded existing shape properties:', properties);
         } else {
-            console.log('No existing properties found for shape, using defaults');
-            console.log('Response status:', response.status, 'Result:', result);
         }
     } catch (error) {
         console.error('Error fetching shape properties:', error);
@@ -1356,12 +1213,6 @@ async function saveShapeProperties() {
         const result = await response.json();
 
         if (response.ok && result.status === 'success') {
-            console.log('Shape properties saved successfully:', {
-                shapeId: drawingId,
-                symbol,
-                properties
-            });
-
             // If Y values were provided, update the shape coordinates
             if (startPrice !== undefined || endPrice !== undefined) {
                 await updateShapeYValues(symbol, drawingId, startPrice, endPrice);
@@ -1428,7 +1279,6 @@ async function updateShapeYValues(symbol, drawingId, startPrice, endPrice) {
                 });
 
                 if (updateResponse.ok) {
-                    console.log('Shape Y values updated successfully');
                 } else {
                     console.error('Failed to update shape Y values');
                 }
@@ -1490,7 +1340,6 @@ function initializeLogStream() {
         // The browser will automatically attempt to reconnect.
     };
 
-    console.log("Log stream initialized.");
 }
 
 // Custom Toolbar Functionality
@@ -1501,7 +1350,6 @@ document.addEventListener('DOMContentLoaded', function() {
         panBtn.addEventListener('click', function() {
             if (window.gd) {
                 Plotly.relayout(window.gd, { dragmode: 'pan' });
-                console.log('Switched to pan mode');
 
                 // Update button states
                 updateToolbarButtonStates('pan');
@@ -1515,7 +1363,6 @@ document.addEventListener('DOMContentLoaded', function() {
         drawlineBtn.addEventListener('click', function() {
             if (window.gd) {
                 Plotly.relayout(window.gd, { dragmode: 'drawline' });
-                console.log('Switched to drawline mode');
 
                 // Update button states
                 updateToolbarButtonStates('drawline');
@@ -1529,7 +1376,6 @@ document.addEventListener('DOMContentLoaded', function() {
         drawrectBtn.addEventListener('click', function() {
             if (window.gd) {
                 Plotly.relayout(window.gd, { dragmode: 'drawrect' });
-                console.log('Switched to drawrect mode');
 
                 // Update button states
                 updateToolbarButtonStates('drawrect');
@@ -1550,7 +1396,6 @@ document.addEventListener('DOMContentLoaded', function() {
                         height: 800,
                         filename: `chart-${window.symbolSelect ? window.symbolSelect.value : 'trading'}-${new Date().toISOString().split('T')[0]}`
                     });
-                    console.log('Screenshot downloaded');
                 } catch (error) {
                     console.error('Screenshot failed:', error);
                     alert('Screenshot failed. Please try again.');
@@ -1565,7 +1410,6 @@ document.addEventListener('DOMContentLoaded', function() {
         autoscaleBtn.addEventListener('click', function() {
             if (window.gd && typeof applyAutoscale === 'function') {
                 applyAutoscale(window.gd);
-                console.log('Auto scale applied');
             }
         });
     }

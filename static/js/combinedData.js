@@ -1,5 +1,7 @@
 // Combined data WebSocket handler for historical OHLC + indicators + live data
 
+// WebSocket connection object - made global for inter-module access
+window.combinedWebSocket = null;
 let combinedWebSocket = null;
 let combinedSymbol = '';
 let combinedIndicators = [];
@@ -13,8 +15,10 @@ let storedCTOTraces = null;
 // Store buy signals by timestamp for enhanced hover info on candlesticks
 let buySignalsByTimestamp = {};
 
+// Global traces array for chart management
+let globalTraces = [];
+
 function handleVolumeProfileMessage(message) {
-    console.log(`💹 Combined WebSocket: Received volume profile for ${message.symbol || 'unknown'} - ${message.data ? message.data.volume_profile?.length || 0 : 0} price levels`);
 
     // Validate message format
     if (!message.data || !message.data.volume_profile || !Array.isArray(message.data.volume_profile)) {
@@ -24,12 +28,9 @@ function handleVolumeProfileMessage(message) {
 
     // Process empty volume profile arrays - this might indicate clearing/resetting
     if (message.data.volume_profile.length === 0) {
-        console.log(`💹 Combined WebSocket: Processing empty volume profile array for ${message.symbol || 'unknown'} (total_trades: ${message.data.total_trades || 0}, price_levels: ${message.data.price_levels || 0})`);
-
         // Still call the update function with empty array to allow clearing logic in tradeHistory.js
         if (window.updateVolumeProfileFromWebSocket) {
             window.updateVolumeProfileFromWebSocket(message.data.volume_profile, message.symbol, message.rectangle_id);
-            console.log(`💹 Combined WebSocket: Called updateVolumeProfileFromWebSocket with empty array (potential clear operation for ${message.symbol || 'unknown'})`);
         } else {
             console.warn('💹 Combined WebSocket: updateVolumeProfileFromWebSocket function not available from tradeHistory.js');
         }
@@ -42,7 +43,6 @@ function handleVolumeProfileMessage(message) {
 
 // Render volume profile bars within a rectangle's bounds
 function renderVolumeProfileWithinRectangle(volumeProfileData, symbol, rectangleId) {
-    console.log(`🚑 Combined WebSocket: Rendering volume profile within rectangle ${rectangleId} for ${symbol}`);
 
     if (!volumeProfileData || !Array.isArray(volumeProfileData) || volumeProfileData.length === 0) {
         console.warn(`🚑 Combined WebSocket: No volume profile data to render for ${symbol}`);
@@ -64,22 +64,35 @@ function renderVolumeProfileWithinRectangle(volumeProfileData, symbol, rectangle
 
     if (!targetRectangle) {
         console.warn(`🚑 Combined WebSocket: Rectangle with ID "${rectangleId}" not found in chart shapes`);
-        console.log(`🚑 Available shapes:`, gd.layout.shapes.map(s => ({ id: s.id, type: s.type })));
         return;
     }
 
-    console.log(`🚑 Found rectangle ${rectangleId} for volume profile rendering:`, {
-        x0: targetRectangle.x0,
-        x1: targetRectangle.x1,
-        y0: targetRectangle.y0,
-        y1: targetRectangle.y1,
-        type: targetRectangle.type
-    });
+
 
     // Extract rectangle bounds (time and price ranges)
     const timeRange = [
-        targetRectangle.x0 instanceof Date ? targetRectangle.x0.getTime() / 1000 : targetRectangle.x0,
-        targetRectangle.x1 instanceof Date ? targetRectangle.x1.getTime() / 1000 : targetRectangle.x1
+        (() => {
+            if (targetRectangle.x0 instanceof Date) {
+                return targetRectangle.x0.getTime() / 1000;
+            } else if (typeof targetRectangle.x0 === 'string') {
+                // Handle ISO date strings
+                return new Date(targetRectangle.x0).getTime() / 1000;
+            } else {
+                // Assume it's already a timestamp in seconds
+                return targetRectangle.x0;
+            }
+        })(),
+        (() => {
+            if (targetRectangle.x1 instanceof Date) {
+                return targetRectangle.x1.getTime() / 1000;
+            } else if (typeof targetRectangle.x1 === 'string') {
+                // Handle ISO date strings
+                return new Date(targetRectangle.x1).getTime() / 1000;
+            } else {
+                // Assume it's already a timestamp in seconds
+                return targetRectangle.x1;
+            }
+        })()
     ];
 
     const priceRange = [
@@ -87,7 +100,24 @@ function renderVolumeProfileWithinRectangle(volumeProfileData, symbol, rectangle
         Math.max(targetRectangle.y0, targetRectangle.y1)
     ];
 
-    console.log(`🚑 Rectangle bounds: time [${new Date(timeRange[0] * 1000).toISOString()} to ${new Date(timeRange[1] * 1000).toISOString()}], price [${priceRange[0]} to ${priceRange[1]}]`);
+    // Safely format time range for logging
+    const formatTimeForLog = (timestamp) => {
+        try {
+            // Check if timestamp is valid (not NaN, not null, reasonable range)
+            if (typeof timestamp !== 'number' || isNaN(timestamp) || timestamp <= 0 || timestamp > 2147483647) {
+                return `INVALID(${timestamp})`;
+            }
+            const date = new Date(timestamp * 1000);
+            // Additional check for invalid Date object
+            if (isNaN(date.getTime())) {
+                return `INVALID_DATE(${timestamp})`;
+            }
+            return date.toISOString();
+        } catch (e) {
+            return `ERROR(${timestamp}, ${e.message})`;
+        }
+    };
+
 
     // Create volume profile bars positioned within the rectangle
     const volumeProfileTraces = createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRange, rectangleId, symbol);
@@ -105,20 +135,327 @@ function renderVolumeProfileWithinRectangle(volumeProfileData, symbol, rectangle
     // Add new volume profile traces
     filteredData.push(...volumeProfileTraces);
 
-    console.log(`🚑 Combined WebSocket: Adding ${volumeProfileTraces.length} volume profile traces for rectangle ${rectangleId}`);
-    Plotly.react(gd, filteredData, gd.layout);
-    console.log(`🚑 Combined WebSocket: Successfully rendered volume profile within rectangle ${rectangleId} for ${symbol}`);
+
+    // Debug: Check data before Plotly.react
+
+    // Update the chart with new volume profile traces
+    Plotly.react(gd, filteredData, gd.layout).then(() => {
+
+        // Verify traces are in chart after update
+        if (window.gd && window.gd.data) {
+            const vpTraces = window.gd.data.filter(t => t.name && t.name.includes(`VP-${rectangleId}`));
+            vpTraces.forEach((trace, index) => {
+            });
+        }
+    }).catch((error) => {
+        console.error(`🚑 Combined WebSocket: Error rendering volume profile:`, error);
+    });
+}
+
+function handleTradingSessionsMessage(message) {
+
+    if (!message.data || !Array.isArray(message.data)) {
+        console.warn('📈 Combined WebSocket: Invalid trading sessions data format');
+        return;
+    }
+
+    if (message.data.length === 0) {
+        return;
+    }
+
+
+    // Process and display trading sessions as visual elements on the chart
+    visualizeTradingSessions(message.data, message.symbol);
+
+}
+
+function visualizeTradingSessions(sessions, symbol) {
+
+    const gd = document.getElementById('chart');
+    if (!gd || !gd.layout) {
+        console.warn('📈 Chart not ready for trading sessions visualization');
+        return;
+    }
+
+    // Define color schemes for different session types
+    const sessionColors = {
+        asian: {
+            border: 'rgba(255, 165, 0, 0.9)',
+            emoji: '🌅',
+            description: 'Asian Session (Tokyo/Singapore)'
+        },
+        european: {
+            border: 'rgba(0, 128, 255, 0.9)',
+            emoji: '🇪🇺',
+            description: 'European Session (London/Frankfurt)'
+        },
+        american: {
+            border: 'rgba(255, 0, 0, 0.9)',
+            emoji: '🇺🇸',
+            description: 'American Session (New York)'
+        },
+        weekend: {
+            border: 'rgba(128, 128, 128, 0.9)',
+            emoji: '🎮',
+            description: 'Weekend Session (24/7 Trading)'
+        }
+    };
+
+            // Collect session labels for X-axis
+            const sessionLabels = [];
+
+            // Update X-axis tick format for better time display
+            if (!gd.layout.xaxis) {
+                gd.layout.xaxis = {};
+            }
+
+            // Use a more complete tick format that includes date
+            const updatedTickFormat = gd.layout.xaxis.tickformat || '%Y-%m-%d %H:%M';
+
+            sessions.forEach((session, index) => {
+        try {
+            // Validate session data
+            if (!session.start_time || !session.end_time || !session.activity_type) {
+                console.warn(`📈 Skipping session ${index} - missing required fields (start_time, end_time, activity_type)`);
+                return;
+            }
+
+            const startTime = new Date(session.start_time * 1000);
+            const endTime = new Date(session.end_time * 1000);
+            const sessionType = session.activity_type.toLowerCase();
+
+            // Validate dates
+            if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+                console.warn(`📈 Skipping session ${index} - invalid timestamps:`, session.start_time, session.end_time);
+                return;
+            }
+
+            // Skip sessions that are too short (less than 5 minutes)
+            const sessionDurationHours = (endTime - startTime) / (1000 * 60 * 60);
+            if (sessionDurationHours < (5/60)) { // Less than 5 minutes
+                return;
+            }
+
+            // Get color scheme for this session type
+            const colorScheme = sessionColors[sessionType] || {
+                border: 'rgba(128, 128, 128, 0.9)',
+                emoji: '❓',
+                description: 'Unknown Session'
+            };
+
+            // Add session label to X-axis
+            sessionLabels.push({
+                time: startTime.getTime(),
+                label: `${colorScheme.emoji} ${sessionType.toUpperCase()}`,
+                color: colorScheme.border
+            });
+
+        } catch (error) {
+            console.error(`📈 Error processing trading session ${index}:`, error, session);
+        }
+    });
+
+    // Update X-axis with session labels
+    if (!gd.layout.xaxis) {
+        gd.layout.xaxis = {};
+    }
+
+    // Custom tick formatting to show session labels
+    const currentTickFormat = updatedTickFormat;
+    const currentTickMode = gd.layout.xaxis.tickmode || 'auto';
+
+    // Create enhanced X-axis configuration
+    const xAxisConfig = {
+        ...gd.layout.xaxis,
+        tickmode: currentTickMode,
+        tickformat: currentTickFormat,
+        // Add session labels as annotations positioned on the X-axis
+        layer: 'above'
+    };
+
+    // Ensure shapes array exists
+    if (!gd.layout.shapes) {
+        gd.layout.shapes = [];
+    }
+
+    // Ensure annotations array exists
+    if (!gd.layout.annotations) {
+        gd.layout.annotations = [];
+    }
+
+    // Remove existing trading session shapes to avoid duplicates
+    gd.layout.shapes = gd.layout.shapes.filter(shape =>
+        !shape.name || !shape.name.startsWith('trading_session_')
+    );
+
+    // Remove existing trading session annotations to avoid duplicates
+    gd.layout.annotations = gd.layout.annotations.filter(annotation =>
+        !annotation.name || !annotation.name.startsWith('session_label_')
+    );
+
+    let asianSessionCount = 0;
+    let europeanSessionCount = 0;
+    let americanSessionCount = 0;
+    let weekendSessionCount = 0;
+
+    sessions.forEach((session, index) => {
+        try {
+            // Validate session data
+            if (!session.start_time || !session.end_time || !session.activity_type) {
+                console.warn(`📈 Skipping session ${index} - missing required fields (start_time, end_time, activity_type)`);
+                return;
+            }
+
+            const startTime = new Date(session.start_time * 1000);
+            const endTime = new Date(session.end_time * 1000);
+            const sessionType = session.activity_type.toLowerCase();
+
+            // Validate dates
+            if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+                console.warn(`📈 Skipping session ${index} - invalid timestamps:`, session.start_time, session.end_time);
+                return;
+            }
+
+            // Skip sessions that are too short (less than 5 minutes)
+            const sessionDurationHours = (endTime - startTime) / (1000 * 60 * 60);
+            if (sessionDurationHours < (5/60)) { // Less than 5 minutes
+                return;
+            }
+
+            // Get color scheme for this session type
+            const colorScheme = sessionColors[sessionType] || {
+                background: 'rgba(128, 128, 128, 0.12)',
+                border: 'rgba(128, 128, 128, 0.5)',
+                emoji: '❓',
+                description: 'Unknown Session'
+            };
+
+            // Position shapes to fill gaps between sessions - CALCULATE CONTINUOUS COVERAGE
+            let sessionName = session.session_name || sessionType.toUpperCase();
+            let y0, y1, yLabelPos;
+
+            // All session types now use the same height level to fill gaps
+            // This ensures no gaps between consecutive sessions
+            // Use thicker bars with negative paper coordinates
+            y0 = -0.25;  // Session background rectangle bottom (taller)
+            y1 = -0.12;  // Session background rectangle top
+            yLabelPos = -0.175;  // Label position in center of session
+
+            // Create single session background rectangle - FIXED TO NOT BE MOVABLE
+            const sessionShape = {
+                name: `trading_session_${sessionType}_${index}`,
+                type: 'rect',
+                xref: 'x',
+                yref: 'paper',
+                x0: startTime,
+                x1: endTime,
+                y0: y0,
+                y1: y1,
+                fillcolor: colorScheme.background,
+                line: {
+                    color: colorScheme.border,
+                    width: 1,
+                    dash: 'solid'
+                },
+                layer: 'below', // Background layer
+                visible: true,
+                editable: false, // EXPLICITLY NON-MOVABLE
+                hovertemplate: `
+                    <b>${colorScheme.emoji} ${sessionName}</b><br>
+                    <b>Description:</b> ${colorScheme.description}<br>
+                    <b>Symbol:</b> ${symbol}<br>
+                    <b>Time (GMT):</b> ${startTime.toLocaleString()} - ${endTime.toLocaleString()}<br>
+                    <b>Duration:</b> ${sessionDurationHours.toFixed(2)} hours<br>
+                    <b>GMT Range:</b> ${session.gmt_range || 'N/A'}<br>
+                    <b>Volatility:</b> ${session.volatility || 'N/A'}<br>
+                    <b>Characteristics:</b> ${session.characteristics || 'N/A'}<br>
+                    <b>Local Time:</b> ${session.local_description || 'N/A'}<br>
+                    <extra></extra>
+                `
+            };
+
+            gd.layout.shapes.push(sessionShape);
+
+            // Create FIXED POSITION session label annotation with emoji + name
+            if (!gd.layout.annotations) {
+                gd.layout.annotations = [];
+            }
+
+            // Position annotation in center of each session bar with emoji + name
+            const annotation = {
+                name: `session_label_${sessionType}_${index}`,
+                x: startTime.getTime() + ((endTime.getTime() - startTime.getTime()) / 2), // Center of session
+                y: yLabelPos, // Position varies by session type, below x-axis
+                xref: 'x',
+                yref: 'paper',
+                text: `${colorScheme.emoji} ${sessionName}`,
+                showarrow: false,
+                xanchor: 'center',
+                yanchor: 'middle',
+                font: {
+                    family: 'Arial, sans-serif',
+                    size: 9, // Smaller for below-chart positioning
+                    color: colorScheme.border, // Use session color for visibility
+                    weight: 'bold'
+                },
+                bgcolor: 'rgba(255, 255, 255, 0.95)', // Light background for contrast against dark bars
+                bordercolor: colorScheme.border,
+                borderwidth: 1,
+                borderpad: 2,
+                hovertext: `${colorScheme.emoji} ${sessionName}
+Time: ${startTime.toLocaleString()} - ${endTime.toLocaleString()}
+GMT: ${session.gmt_range || 'N/A'}
+Volume: ${session.volatility || 'N/A'}
+${session.characteristics || ''}`,
+                hoverlabel: {
+                    bgcolor: 'rgba(0, 0, 0, 0.9)',
+                    bordercolor: colorScheme.border,
+                    font: { color: 'white', size: 11 }
+                }
+            };
+
+            gd.layout.annotations.push(annotation);
+
+            // Count sessions by type for logging
+            switch (sessionType) {
+                case 'asian':
+                    asianSessionCount++;
+                    break;
+                case 'european':
+                    europeanSessionCount++;
+                    break;
+                case 'american':
+                    americanSessionCount++;
+                    break;
+                case 'weekend':
+                    weekendSessionCount++;
+                    break;
+                default:
+            }
+
+        } catch (error) {
+            console.error(`📈 Error processing trading session ${index}:`, error, session);
+        }
+    });
+
+    // Update the chart with session labels on X-axis
+    try {
+        Plotly.relayout(gd, {
+            xaxis: xAxisConfig,
+            annotations: gd.layout.annotations
+        });
+
+    } catch (error) {
+        console.error('📈 Error updating chart with session labels:', error);
+    }
 }
 
 function handleTradeHistoryMessage(message) {
-    console.log(`💹 Combined WebSocket: Received trade history for ${message.symbol || 'unknown'}`);
 
     // Handle other trade history message types if needed
-    console.log('💹 Combined WebSocket: Trade history message received (general handler)');
 }
 
 function handleShapeVolumeProfilesMessage(message) {
-    console.log(`💹 Combined WebSocket: Received shape volume profiles for ${message.symbol || 'unknown'}`);
 
     if (!message.data || typeof message.data !== 'object') {
         console.warn('💹 Combined WebSocket: Invalid shape volume profiles data format');
@@ -127,11 +464,9 @@ function handleShapeVolumeProfilesMessage(message) {
 
     const drawingIds = Object.keys(message.data);
     if (drawingIds.length === 0) {
-        console.log('💹 Combined WebSocket: No shape volume profiles to process');
         return;
     }
 
-    console.log(`💹 Combined WebSocket: Processing volume profiles for ${drawingIds.length} shape(s):`, drawingIds);
 
     // Check if chart is ready
     if (!window.gd || !window.gd.layout) {
@@ -159,13 +494,7 @@ function handleShapeVolumeProfilesMessage(message) {
 
     drawingIds.forEach((drawingId, index) => {
         const shapeData = message.data[drawingId];
-        console.log(`🔹 Processing shape ${drawingId}:`, {
-            shape_type: shapeData.shape_type,
-            trade_count: shapeData.trade_count,
-            time_range: shapeData.time_range,
-            price_range: shapeData.price_range,
-            volume_profile_points: shapeData.volume_profile?.volume_profile?.length || 0
-        });
+
 
         if (!shapeData.volume_profile || !shapeData.volume_profile.volume_profile ||
             !Array.isArray(shapeData.volume_profile.volume_profile)) {
@@ -191,7 +520,6 @@ function handleShapeVolumeProfilesMessage(message) {
 
         if (shapeTraces && shapeTraces.length > 0) {
             shapeVolumeTraces.push(...shapeTraces);
-            console.log(`   Created ${shapeTraces.length} volume bar traces for shape ${drawingId}`);
         } else {
             console.warn(`   Failed to create volume bars for shape ${drawingId}`);
         }
@@ -201,19 +529,14 @@ function handleShapeVolumeProfilesMessage(message) {
     if (shapeVolumeTraces.length > 0) {
         filteredData.push(...shapeVolumeTraces);
 
-        console.log(`💹 Combined WebSocket: Adding ${shapeVolumeTraces.length} shape volume profile traces to chart`);
         Plotly.react(window.gd, filteredData, window.gd.layout);
-        console.log(`💹 Combined WebSocket: Successfully updated chart with shape volume profiles`);
     } else {
-        console.log(`💹 Combined WebSocket: No shape volume profile traces to add`);
     }
 
-console.log(`💹 Combined WebSocket: Successfully processed shape volume profiles for ${drawingIds.length} shape(s)`);
 }
 
 // Create horizontal volume profile bars for a rectangle
 function createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRange, rectangleId, symbol) {
-    console.log(`🚑 Creating rectangle volume profile bars for ${symbol} - Rectangle ${rectangleId}`);
 
     if (!volumeProfileData || !Array.isArray(volumeProfileData) || volumeProfileData.length === 0) {
         console.warn(`🚑 No volume profile data for rectangle ${rectangleId}`);
@@ -243,15 +566,72 @@ function createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRan
     const endDate = new Date(endTime * 1000);
     const timeSpan = endDate - startDate;
 
-    console.log(`🚑 Rectangle ${rectangleId} time span: ${timeSpan}ms (${(timeSpan / (1000 * 60 * 60)).toFixed(2)} hours)`);
+
+    // DEBUG: Log rectangle bounds and volume data before filtering
+
+    if (volumeProfileData.length > 0) {
+        // Sample first 5 and last 5 levels
+        const sampleLevels = volumeProfileData.slice(0, 5);
+        if (volumeProfileData.length > 10) {
+            sampleLevels.push('...', `... (${volumeProfileData.length - 10} more levels) ...`);
+            sampleLevels.push(...volumeProfileData.slice(-5));
+        }
+
+        sampleLevels.forEach((level, index) => {
+            if (level !== '...') {
+                const price = typeof level.price === 'string' ? parseFloat(level.price) : level.price;
+            } else {
+            }
+        });
+
+        // Get price statistics
+        const prices = volumeProfileData.map(level => typeof level.price === 'string' ? parseFloat(level.price) : level.price);
+        const validPrices = prices.filter(p => !isNaN(p));
+        if (validPrices.length > 0) {
+            const minPrice = Math.min(...validPrices);
+            const maxPrice = Math.max(...validPrices);
+            const avgPrice = validPrices.reduce((a, b) => a + b, 0) / validPrices.length;
+        }
+    }
 
     // Filter volume profile data to be within the rectangle's price range
+    let filteredCount = 0;
+    let keptCount = 0;
+    let errorCount = 0;
     const relevantVolumeData = volumeProfileData.filter(level => {
+        // Handle invalid level data
+        if (!level || typeof level.price === 'undefined' || level.price === null) {
+            errorCount++;
+            return false;
+        }
+
         const price = typeof level.price === 'string' ? parseFloat(level.price) : level.price;
-        return price >= lowPrice && price <= highPrice;
+
+        // Check for NaN result from parsing
+        if (isNaN(price)) {
+            errorCount++;
+            return false;
+        }
+
+        const isInRange = price >= lowPrice && price <= highPrice;
+
+        if (isInRange) {
+            keptCount++;
+        } else {
+            filteredCount++;
+        }
+
+        return isInRange;
     });
 
-    console.log(`🚑 Rectangle ${rectangleId} filtered ${relevantVolumeData.length} volume levels from ${volumeProfileData.length} total (price range: ${lowPrice}-${highPrice})`);
+
+    if (relevantVolumeData.length > 0) {
+        const keptPrices = relevantVolumeData.map(level => typeof level.price === 'string' ? parseFloat(level.price) : level.price);
+        const minKept = Math.min(...keptPrices);
+        const maxKept = Math.max(...keptPrices);
+    } else {
+    }
+
 
     if (relevantVolumeData.length === 0) {
         console.warn(`🚑 No volume data within rectangle ${rectangleId} price range`);
@@ -270,128 +650,143 @@ function createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRan
         return null;
     }
 
-    console.log(`🚑 Rectangle ${rectangleId} max volume: ${maxVolumeInRectangle}`);
+    // Calculate bar thickness based on bar count and price range
+    // More bars = thinner bars to prevent overlap, fewer bars = thicker bars for visibility
+    const barCount = relevantVolumeData.length;
+    const priceRangeSpan = highPrice - lowPrice;
+    const barThickness = Math.min(priceRangeSpan * 0.1, priceRangeSpan / (barCount + 1));
 
     // Create traces for the volume profile bars
     const traces = [];
-    const timeCenter = new Date((startTime + endTime) / 2 * 1000);
 
-    // Sort by price for visual consistency
-    relevantVolumeData.sort((a, b) => a.price - b.price);
+    // Validate and create timestamp objects with error handling
+    let rectangleStartTime = null;
+    let timeCenter = null;
 
-    relevantVolumeData.forEach((level, index) => {
-        const price = typeof level.price === 'string' ? parseFloat(level.price) : level.price;
-        const totalVol = level.totalVolume || 0;
-        const buyVol = level.buyVolume || 0;
-        const sellVol = level.sellVolume || 0;
+    try {
+        if (isNaN(startTime) || startTime <= 0) {
+            console.warn(`🚑 Invalid startTime: ${startTime}`);
+            return null;
+        }
+        if (isNaN(endTime) || endTime <= 0 || endTime <= startTime) {
+            console.warn(`🚑 Invalid endTime: ${endTime}, startTime: ${startTime}`);
+            return null;
+        }
 
-        // Offset vertically by index to avoid overlapping on the same price level
-        const verticalOffset = (index - relevantVolumeData.length / 2) * 0.001;
-        const actualPrice = price + verticalOffset;
+        rectangleStartTime = new Date(startTime * 1000);
+        timeCenter = new Date((startTime + endTime) / 2 * 1000);
 
-        // Normalize bar length to full rectangle time span - no capping
-        const maxBarLengthMs = timeSpan; // Full rectangle width for maximum volume bars
+        if (isNaN(rectangleStartTime.getTime()) || isNaN(timeCenter.getTime())) {
+            console.warn(`🚑 Invalid timestamp conversion - startTime: ${startTime}, endTime: ${endTime}`);
+            return null;
+        }
 
-        // Create separate bars for buyers (right side) and sellers (left side)
+    } catch (error) {
+        console.error(`🚑 Error creating rectangle timestamps:`, error);
+        return null;
+    }
 
-        // BUY BAR - positioned to the RIGHT of center, within rectangle bounds
-        if (buyVol > 0) {
-            const buyBarLengthMs = (buyVol / maxVolumeInRectangle) * maxBarLengthMs;
-            const buyBarStartTime = timeCenter;
-            const buyBarEndTime = new Date(timeCenter.getTime() + buyBarLengthMs);
+        // Sort by price for visual consistency
+        relevantVolumeData.sort((a, b) => a.price - b.price);
 
-            // Ensure bar doesn't extend beyond rectangle bounds
-            const maxEndTime = new Date(Math.min(buyBarEndTime.getTime(), endDate.getTime()));
+        relevantVolumeData.forEach((level, index) => {
+            const price = typeof level.price === 'string' ? parseFloat(level.price) : level.price;
+            const totalVol = level.totalVolume || 0;
+            const buyVol = level.buyVolume || 0;
+            const sellVol = level.sellVolume || 0;
 
+            // Use the calculated bar thickness based on bar count and price range
+            const topPrice = barThickness;
+
+            // Calculate bar lengths based on volume (same as original scaling)
+            const maxBarLengthMs = timeSpan; // Full rectangle time span for maximum bar length
+            const buyBarLengthMs = buyVol > 0 ? (buyVol / maxVolumeInRectangle) * maxBarLengthMs : 0;
+            const sellBarLengthMs = sellVol > 0 ? (sellVol / maxVolumeInRectangle) * maxBarLengthMs : 0;
+
+            // BUY BAR - positioned above price, extends from left edge based on volume
+            if (buyVol > 0) {
+                const buyBarEndTime = new Date(rectangleStartTime.getTime() + buyBarLengthMs);
             const buyBarTrace = {
-                x: [buyBarStartTime, maxEndTime],
-                y: [actualPrice, actualPrice],
+                x: [rectangleStartTime, buyBarEndTime, buyBarEndTime, rectangleStartTime, rectangleStartTime], // Create closed rectangle
+                y: [price, price, price + topPrice, price + topPrice, price], // Create closed rectangle
                 type: 'scatter',
-                mode: 'lines',
-                name: `VP-${rectangleId} Buy: ${price.toFixed(2)}`,
+                fill: 'toself', // Fill the closed shape
+                    fillcolor: 'rgba(0, 255, 0, 0.1)', // Increased transparency
+                mode: 'lines', // Use only lines mode - no markers
                 line: {
-                    color: 'rgba(0, 255, 0, 0.9)',
-                    width: Math.max(2, Math.min(10, (buyVol / maxVolumeInRectangle) * 8))
+                    color: 'rgba(0, 255, 0, 1.0)', // Fully opaque
+                    width: 2 // Thicker line
                 },
-                hovertemplate:
-                    `<b>Rectangle Volume Profile - BUYERS</b><br>` +
-                    `Rectangle: ${rectangleId}<br>` +
-                    `Symbol: ${symbol}<br>` +
-                    `Price: $${price.toFixed(2)}<br>` +
-                    `Buy Volume: ${buyVol.toFixed(4)}<br>` +
-                    `Total Volume: ${totalVol.toFixed(4)}<br>` +
-                    `Time Range: ${startDate.toLocaleString()} - ${endDate.toLocaleString()}<br>` +
-                    `<extra></extra>`,
-                xaxis: 'x',
-                yaxis: 'y',
-                showlegend: false,
-                hoverlabel: {
-                    bgcolor: 'rgba(0, 0, 0, 0.8)',
-                    bordercolor: 'rgba(0, 255, 0, 0.9)',
-                    font: { color: 'white', size: 12 }
-                }
-            };
+                    name: `VP-${rectangleId} Buy: ${price.toFixed(2)}`,
+                    hovertemplate:
+                        `<b>Rectangle Volume Profile - BUYERS</b><br>` +
+                        `Rectangle: ${rectangleId}<br>` +
+                        `Symbol: ${symbol}<br>` +
+                        `Price: $${price.toFixed(2)}<br>` +
+                        `Buy Volume: ${buyVol.toFixed(4)}<br>` +
+                        `Total Volume: ${totalVol.toFixed(4)}<br>` +
+                        `Time Range: ${startDate.toLocaleString()} - ${endDate.toLocaleString()}<br>` +
+                        `Bar Position: ${rectangleStartTime.toISOString()} to ${buyBarEndTime.toISOString()}<br>` +
+                        `<extra></extra>`,
+                    xaxis: 'x',
+                    yaxis: 'y',
+                    showlegend: false,
+                    hoverlabel: {
+                        bgcolor: 'rgba(0, 0, 0, 0.8)',
+                        bordercolor: 'rgba(0, 255, 0, 1.0)',
+                        font: { color: 'white', size: 12 }
+                    }
+                };
 
-            traces.push(buyBarTrace);
-        }
+                traces.push(buyBarTrace);
+            }
 
-        // SELL BAR - positioned to the LEFT of center, within rectangle bounds
-        if (sellVol > 0) {
-            const sellBarLengthMs = (sellVol / maxVolumeInRectangle) * maxBarLengthMs;
-            const sellBarStartTime = new Date(timeCenter.getTime() - sellBarLengthMs);
-            const sellBarEndTime = timeCenter;
+            // SELL BAR - positioned below price, extends from left edge based on volume
+            if (sellVol > 0) {
+                const sellBarEndTime = new Date(rectangleStartTime.getTime() + sellBarLengthMs);
+                const sellBarTrace = {
+                    x: [rectangleStartTime, sellBarEndTime, sellBarEndTime, rectangleStartTime, rectangleStartTime], // Create closed rectangle
+                    y: [price, price, price - topPrice, price - topPrice, price], // Create closed rectangle
+                    type: 'scatter',
+                    fill: 'toself', // Fill the closed shape
+                    fillcolor: 'rgba(255, 0, 0, 0.1)', // Increased transparency
+                    mode: 'lines',
+                    line: {
+                        color: 'rgba(255, 0, 0, 0.9)',
+                        width: 1
+                    },
+                    name: `VP-${rectangleId} Sell: ${price.toFixed(2)}`,
+                    hovertemplate:
+                        `<b>Rectangle Volume Profile - SELLERS</b><br>` +
+                        `Rectangle: ${rectangleId}<br>` +
+                        `Symbol: ${symbol}<br>` +
+                        `Price: $${price.toFixed(2)}<br>` +
+                        `Sell Volume: ${sellVol.toFixed(4)}<br>` +
+                        `Total Volume: ${totalVol.toFixed(4)}<br>` +
+                        `Time Range: ${startDate.toLocaleString()} - ${endDate.toLocaleString()}<br>` +
+                        `<extra></extra>`,
+                    xaxis: 'x',
+                    yaxis: 'y',
+                    showlegend: false,
+                    hoverlabel: {
+                        bgcolor: 'rgba(0, 0, 0, 0.8)',
+                        bordercolor: 'rgba(255, 0, 0, 0.9)',
+                        font: { color: 'white', size: 12 }
+                    }
+                };
 
-            // Allow bar to extend beyond rectangle bounds for maximum visibility
-            const minStartTime = sellBarStartTime;
+                traces.push(sellBarTrace);
+            }
 
-            const sellBarTrace = {
-                x: [minStartTime, sellBarEndTime],
-                y: [actualPrice, actualPrice],
-                type: 'scatter',
-                mode: 'lines',
-                name: `VP-${rectangleId} Sell: ${price.toFixed(2)}`,
-                line: {
-                    color: 'rgba(255, 0, 0, 0.9)',
-                    width: Math.max(2, Math.min(10, (sellVol / maxVolumeInRectangle) * 8))
-                },
-                hovertemplate:
-                    `<b>Rectangle Volume Profile - SELLERS</b><br>` +
-                    `Rectangle: ${rectangleId}<br>` +
-                    `Symbol: ${symbol}<br>` +
-                    `Price: $${price.toFixed(2)}<br>` +
-                    `Sell Volume: ${sellVol.toFixed(4)}<br>` +
-                    `Total Volume: ${totalVol.toFixed(4)}<br>` +
-                    `Time Range: ${startDate.toLocaleString()} - ${endDate.toLocaleString()}<br>` +
-                    `<extra></extra>`,
-                xaxis: 'x',
-                yaxis: 'y',
-                showlegend: false,
-                hoverlabel: {
-                    bgcolor: 'rgba(0, 0, 0, 0.8)',
-                    bordercolor: 'rgba(255, 0, 0, 0.9)',
-                    font: { color: 'white', size: 12 }
-                }
-            };
+        });
 
-            traces.push(sellBarTrace);
-        }
-
-        console.log(`🚑 Created bars for rectangle ${rectangleId}, price ${price.toFixed(2)}: Buy=${buyVol.toFixed(4)}, Sell=${sellVol.toFixed(4)}`);
-    });
-
-    console.log(`🚑 Created ${traces.length} volume bar traces for rectangle ${rectangleId}`);
 
     return traces;
 }
 
 // Create horizontal volume profile bars for a shape
 function createShapeVolumeProfileBars(volumeData, timeRange, priceRange, drawingId, shapeType, shapeColor) {
-    console.log(`📊 Creating volume profile bars for shape ${drawingId} (${shapeType}):`, {
-        volumePoints: volumeData.length,
-        timeRange,
-        priceRange,
-        color: shapeColor
-    });
+
 
     if (!volumeData || !Array.isArray(volumeData) || volumeData.length === 0) {
         console.warn(`No volume data for shape ${drawingId}`);
@@ -422,7 +817,6 @@ function createShapeVolumeProfileBars(volumeData, timeRange, priceRange, drawing
     const endDate = new Date(endTime * 1000);
     const timeSpan = endDate - startDate;
 
-    console.log(`📊 Shape ${drawingId} time span: ${timeSpan}ms (${(timeSpan / (1000 * 60 * 60)).toFixed(2)} hours)`);
 
     // Filter volume data to be within the shape's price range
     const relevantVolumeData = volumeData.filter(level => {
@@ -430,7 +824,6 @@ function createShapeVolumeProfileBars(volumeData, timeRange, priceRange, drawing
         return price >= lowPrice && price <= highPrice;
     });
 
-    console.log(`📊 Shape ${drawingId} filtered ${relevantVolumeData.length} volume levels from ${volumeData.length} total (price range: ${lowPrice}-${highPrice})`);
 
     if (relevantVolumeData.length === 0) {
         console.warn(`No volume data within shape ${drawingId} price range`);
@@ -449,7 +842,6 @@ function createShapeVolumeProfileBars(volumeData, timeRange, priceRange, drawing
         return null;
     }
 
-    console.log(`📊 Shape ${drawingId} max volume: ${maxVolumeInShape}`);
 
     // Create traces for the volume profile bars
     const traces = [];
@@ -548,10 +940,8 @@ function createShapeVolumeProfileBars(volumeData, timeRange, priceRange, drawing
             traces.push(sellBarTrace);
         }
 
-        console.log(`📊 Created bars for shape ${drawingId}, price ${price.toFixed(2)}: Buy=${buyVol.toFixed(4)}, Sell=${sellVol.toFixed(4)}`);
     });
 
-    console.log(`📊 Created ${traces.length} volume bar traces for shape ${drawingId}`);
 
     // Shape labels removed as requested
 
@@ -565,12 +955,6 @@ function initializeDefaultTimestamps() {
         const currentTime = new Date().getTime();
         combinedFromTs = Math.floor((currentTime - 30 * 86400 * 1000) / 1000); // 30 days ago in seconds
         combinedToTs = Math.floor(currentTime / 1000); // Now in seconds
-        console.log('🔧 Initialized default timestamps:', {
-            combinedFromTs: combinedFromTs,
-            combinedToTs: combinedToTs,
-            fromDate: new Date(combinedFromTs * 1000).toISOString(),
-            toDate: new Date(combinedToTs * 1000).toISOString()
-        });
     }
 }
 
@@ -580,6 +964,10 @@ let isProcessingMessage = false;
 let chartUpdateLock = false;
 let chartUpdateDebounceTimer = null;
 const CHART_UPDATE_DEBOUNCE_DELAY = 100; // ms
+
+// Live data queuing for performance
+let queuedLiveUpdate = null;
+let liveUpdateTimeout = null;
 
 // WebSocket connection management
 let websocketSetupDebounceTimer = null;
@@ -604,7 +992,6 @@ function logWebSocketEvent(event, details = {}) {
     if (websocketLogs.length > MAX_WEBSOCKET_LOGS) {
         websocketLogs.shift();
     }
-    console.log(`🔌 WS[${websocketConnectionId}]: ${event}`, details);
 }
 
 // Historical data processing - direct handling without accumulation
@@ -674,16 +1061,28 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
             return;
         }
 
+        // Calculate a small offset for positioning the label above the line
+        // Use 10% of the current y-axis span for consistent positioning
+        let labelOffset = 0;
+        if (window.gd && window.gd.layout && window.gd.layout.yaxis && window.gd.layout.yaxis.range) {
+            const yRange = window.gd.layout.yaxis.range;
+            const ySpan = yRange[1] - yRange[0];
+            labelOffset = 0.1 * ySpan; // 10% of y-axis span
+        } else {
+            // Fallback if y-axis range is not available
+            labelOffset = 0.005 * price;
+        }
+
         const annotationDefinition = {
             name: REALTIME_PRICE_TEXT_ANNOTATION_NAME, // From config.js
             text: price.toFixed(2), // Format the price, adjust precision as needed
-            xref: 'paper',   // Relative to the entire plotting area
-            yref: yref,      // Use the same y-axis reference as the line
-            x: 1,         // Position more inside the chart area (95% from left)
-            y: price,        // Y position is the price itself
+            xref: 'paper',  // Relative to the entire plotting area
+            yref: yref + labelOffset,     // Use the same y-axis reference as the line
+            x: 1,           // Position more inside the chart area (95% from left)
+            y: price,       // Position above the price line
             showarrow: false,
             xanchor: 'right', // Anchor the text from its right side
-            yanchor: 'middle',// Vertically center the text at the y-coordinate (price)
+            yanchor: 'bottom', // Anchor the text from its bottom (places it above the line)
             font: {
                 family: 'Arial, sans-serif',
                 size: 24, // Increased font size for better visibility
@@ -709,9 +1108,6 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
        annotations.push(annotationDefinition);
        // Update the layout with the modified annotations
        gd.layout.annotations = annotations;
-       console.log('💰 LIVE PRICE: Added annotation:', annotationDefinition);
-        // console.log('[PriceLine] updateOrAddRealtimePriceLine - Pushed annotation:', JSON.parse(JSON.stringify(annotationDefinition)));
-        // console.log('[PriceLine] updateOrAddRealtimePriceLine - gd.layout.annotations after push:', JSON.parse(JSON.stringify(gd.layout.annotations)));
 
 
         gd.layout.shapes = shapes;
@@ -722,8 +1118,8 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
         // console.error("[PriceLine] Error during shape modification:", e);
     }
 
+    /*
     if (doRelayout) {
-        // console.log('[PriceLine] updateOrAddRealtimePriceLine - Calling Plotly.relayout with full layout object due to doRelayout=true. Annotations:', JSON.parse(JSON.stringify(gd.layout.annotations)));
         Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations }).then(() => {
             // Clear the flag after Plotly operation completes
             window.ignoreRelayoutEvents = false;
@@ -733,7 +1129,6 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
         });
     } else {
         // For live price updates, use Plotly.update to refresh shapes/annotations without triggering relayout events
-        // console.log('[PriceLine] updateOrAddRealtimePriceLine - Calling Plotly.update to refresh shapes/annotations without relayout');
         Plotly.update(gd, {}, { shapes: gd.layout.shapes, annotations: gd.layout.annotations }).then(() => {
             // Clear the flag after Plotly operation completes
             window.ignoreRelayoutEvents = false;
@@ -742,6 +1137,7 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
             window.ignoreRelayoutEvents = false;
         });
     }
+    */
 }
 
 function removeRealtimePriceLine(gd, doRelayout = false) {
@@ -771,18 +1167,15 @@ function removeRealtimePriceLine(gd, doRelayout = false) {
     }
 
     if (gd.layout.annotations.length > 0) {
-       // console.log('[PriceLine] removeRealtimePriceLine - Before removing annotation:', JSON.parse(JSON.stringify(gd.layout.annotations)));
         const initialAnnotationLength = gd.layout.annotations.length;
         gd.layout.annotations = gd.layout.annotations.filter(ann => ann.name !== REALTIME_PRICE_TEXT_ANNOTATION_NAME);
         annotationsChanged = gd.layout.annotations.length < initialAnnotationLength;
-        // console.log('[PriceLine] removeRealtimePriceLine - After removing annotation:', JSON.parse(JSON.stringify(gd.layout.annotations)), 'Annotations changed:', annotationsChanged);
     }
 
     gd.layout.shapes = gd.layout.shapes.filter(shape => shape.name !== REALTIME_PRICE_LINE_NAME && shape.name !== CROSSHAIR_VLINE_NAME);
     const removed = gd.layout.shapes.length < initialLength;
 
     if ((removed || annotationsChanged) && doRelayout) {
-        // console.log('[PriceLine] removeRealtimePriceLine - Calling Plotly.relayout due to removed shape/annotation and doRelayout=true. Annotations:', JSON.parse(JSON.stringify(gd.layout.annotations)));
         Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations });
     }
     return removed;
@@ -803,6 +1196,54 @@ function enqueueMessage(message) {
         const timestamp = message.data && message.data.time ? message.data.time : Date.now();
         const price = message.data && message.data.ohlc ? message.data.ohlc.close : 'unknown';
         messageId = `${message.type}_${message.symbol || 'unknown'}_${timestamp}_${price}`;
+    } else if (message.type === 'historical') {
+        // For historical data, include symbol and time range
+        const symbol = message.symbol || 'unknown';
+        const fromTs = message.data && message.data[0] ? message.data[0].time : 'unknown';
+        const toTs = message.data && message.data.length > 0 ? message.data[message.data.length - 1].time : 'unknown';
+        messageId = `${message.type}_${symbol}_${fromTs}_${toTs}`;
+    } else if (message.type === 'volume_profile') {
+        // For volume profile messages, include rectangle ID
+        messageId = `${message.type}_${message.symbol || 'unknown'}_${message.rectangle_id || 'unknown'}`;
+    } else if (message.type === 'shape_volume_profiles') {
+        // For shape volume profiles, include drawing IDs
+        const drawingIds = message.data ? Object.keys(message.data).join('_') : 'unknown';
+        messageId = `${message.type}_${message.symbol || 'unknown'}_${drawingIds}`;
+    } else if (message.type === 'trading_sessions') {
+        // For trading sessions, include date and session count
+        const sessionCount = message.data && Array.isArray(message.data) ? message.data.length : 'unknown';
+        const date = message.data && message.data[0] && message.data[0].start_time ?
+            new Date(message.data[0].start_time * 1000).toDateString() : 'unknown';
+        messageId = `${message.type}_${message.symbol || 'unknown'}_${date}_${sessionCount}`;
+    } else if (message.type === 'positions_update') {
+        // For position updates, include timestamp and position count
+        const timestamp = message.timestamp || Date.now();
+        const positionCount = message.positions && Array.isArray(message.positions) ? message.positions.length : 'unknown';
+        messageId = `${message.type}_${message.symbol || 'unknown'}_${timestamp}_${positionCount}`;
+    } else if (message.type === 'drawings') {
+        // For drawings data, include drawing count
+        const drawingCount = message.data && Array.isArray(message.data) ? message.data.length :
+                            message.drawings && message.drawings.length || 'unknown';
+        messageId = `${message.type}_${message.symbol || 'unknown'}_${drawingCount}`;
+    } else if (message.type === 'buy_signals') {
+        // For buy signals, include signal count and timestamp range
+        const signalCount = message.data && Array.isArray(message.data) ? message.data.length : 'unknown';
+        const firstSignal = message.data && message.data[0] ? message.data[0].timestamp : 'unknown';
+        messageId = `${message.type}_${message.symbol || 'unknown'}_${signalCount}_${firstSignal}`;
+    } else if (message.type === 'history_update') {
+        // For history updates, include data point count
+        const pointCount = message.data && Array.isArray(message.data) ? message.data.length : 'unknown';
+        messageId = `${message.type}_${message.symbol || 'unknown'}_${pointCount}`;
+    } else if (message.type === 'youtube_videos') {
+        // For YouTube videos, include video count
+        const videoCount = message.data && Array.isArray(message.data) ? message.data.length : 'unknown';
+        messageId = `${message.type}_${message.symbol || 'unknown'}_${videoCount}`;
+    } else if (message.type === 'trade_history') {
+        // For trade history, include trade count and timestamp range
+        const tradeCount = message.data && Array.isArray(message.data) ? message.data.length : 'unknown';
+        const latestTrade = message.data && message.data.length > 0 ?
+            message.data[message.data.length - 1].timestamp : 'unknown';
+        messageId = `${message.type}_${message.symbol || 'unknown'}_${tradeCount}_${latestTrade}`;
     } else {
         // For other message types, use the original method
         messageId = `${message.type}_${message.symbol || 'unknown'}_${JSON.stringify(message.data || {}).slice(0, 100)}`;
@@ -810,7 +1251,6 @@ function enqueueMessage(message) {
 
     // Check for duplicate messages
     if (processedMessageIds.has(messageId)) {
-        console.log(`🚫 Duplicate message detected and skipped: ${message.type} (${messageId})`);
         return;
     }
 
@@ -845,7 +1285,6 @@ function enqueueMessage(message) {
                 );
 
                 if (isDuplicateRange) {
-                    console.log(`🚫 Duplicate timestamp range detected and skipped: safe timestamp logging`);
                     return;
                 }
 
@@ -868,7 +1307,6 @@ function enqueueMessage(message) {
     }
 
     messageQueue.push(message);
-    console.log(`📨 Message queued. Queue length: ${messageQueue.length}, Type: ${message.type}`);
     processMessageQueue();
 }
 
@@ -880,7 +1318,6 @@ function processMessageQueue() {
     isProcessingMessage = true;
     const message = messageQueue.shift();
 
-    console.log(`🔄 Processing message: ${message.type} (${messageQueue.length} remaining in queue)`);
 
     try {
         // Validate message type exists
@@ -910,11 +1347,9 @@ function processMessageQueue() {
                 safeLogMessage += ` (${message.data.length} points, timestamp conversion skipped)`;
             }
         }
-        console.log(`🔄 ${safeLogMessage}`);
 
         // Process message based on type
         function handleYouTubeVideos(message) {
-            console.log('🎥 Combined WebSocket: Received YouTube videos for', message.symbol);
 
             if (!message.data || !Array.isArray(message.data)) {
                 console.warn('🎥 Combined WebSocket: Invalid YouTube videos data format');
@@ -922,14 +1357,12 @@ function processMessageQueue() {
             }
 
             if (message.data.length === 0) {
-                console.log('🎥 Combined WebSocket: No YouTube videos to display');
                 return;
             }
 
             // Process and display YouTube videos as markers on the chart
             addYouTubeVideosToChart(message.data, message.symbol);
 
-            console.log('🎥 Combined WebSocket: Successfully processed', message.data.length, 'YouTube videos for', message.symbol);
         }
 
         switch (message.type) {
@@ -966,11 +1399,15 @@ function processMessageQueue() {
             case 'trade_history':
                 handleTradeHistoryMessage(message);
                 break;
+            case 'trading_sessions':
+                handleTradingSessionsMessage(message);
+                break;
+            case 'ready':
+                break;
             default:
                 console.warn('⚠️ Unknown message type:', message.type);
         }
 
-        console.log('✅ Message processing completed for type:', message.type);
     } catch (e) {
         console.error('❌ Combined WebSocket: Error processing queued message:', e.message);
         console.error('❌ Stack trace:', e.stack);
@@ -991,13 +1428,11 @@ function acquireChartUpdateLock() {
         return false;
     }
     chartUpdateLock = true;
-    console.log('🔒 Chart update lock acquired');
     return true;
 }
 
 function releaseChartUpdateLock() {
     chartUpdateLock = false;
-    console.log('🔓 Chart update lock released');
 }
 
 function isChartUpdateLocked() {
@@ -1022,7 +1457,6 @@ function debouncedChartUpdate(updateFunction, ...args) {
 }
 
 function handleRealtimeKlineForCombined(dataPoint) {
-    console.log('🔴 Combined WebSocket: handleRealtimeKlineForCombined called with data:', dataPoint);
 
     if (!dataPoint) {
         console.warn('🔴 Combined WebSocket: No data point provided to handleRealtimeKlineForCombined');
@@ -1031,7 +1465,6 @@ function handleRealtimeKlineForCombined(dataPoint) {
 
     // Check if currently dragging a shape - skip live price updates during dragging
     if (window.isDraggingShape) {
-        console.log('🔴 Combined WebSocket: Skipping live data update during shape dragging');
         return;
     }
 
@@ -1101,12 +1534,7 @@ function handleRealtimeKlineForCombined(dataPoint) {
         return;
     }
 
-    console.log('🔴 Combined WebSocket: Drawing live price line for EXISTING candle:', {
-        livePrice,
-        candleStartTimeMs,
-        candleEndTimeMs,
-        resolution: combinedResolution
-    });
+
 
     // Draw the live price line
     updateOrAddRealtimePriceLine(gd, livePrice, candleStartTimeMs, candleEndTimeMs, true);
@@ -1263,7 +1691,7 @@ function _setupCombinedWebSocketInternal(symbol, indicators = [], resolution = '
         requestedSymbol: symbol
     });
 
-    combinedWebSocket = new WebSocket(streamUrl);
+    combinedWebSocket = window.combinedWebSocket = new WebSocket(streamUrl);
 
     combinedWebSocket.onopen = () => {
         logWebSocketEvent('connection_opened', {
@@ -1310,7 +1738,6 @@ function _setupCombinedWebSocketInternal(symbol, indicators = [], resolution = '
 }
 
 function setupWebSocketMessageHandler() {
-    console.log('🔧 DEBUG: setupWebSocketMessageHandler called');
 
     if (!combinedWebSocket) {
         console.warn('Combined WebSocket: Cannot setup message handler - WebSocket not initialized');
@@ -1322,14 +1749,12 @@ function setupWebSocketMessageHandler() {
         return;
     }
 
-    console.log('✅ Combined WebSocket: Setting up message handler for WebSocket in OPEN state');
 
     combinedWebSocket.onmessage = (event) => {
         try {
-            console.log('📨 Combined WebSocket: Message received, length:', event.data.length);
 
             const message = JSON.parse(event.data);
-            console.log('📨 Combined WebSocket: Parsed message type:', message.type);
+            // console.log('Received message:', message);
 
             // Enqueue message for sequential processing
             enqueueMessage(message);
@@ -1339,8 +1764,6 @@ function setupWebSocketMessageHandler() {
         }
     };
 
-    console.log('✅ Combined WebSocket: Message handler successfully set up and attached to WebSocket');
-    console.log('🎨 DRAWINGS: WebSocket message handler set up after subplots initialization');
 }
 
 function sendCombinedConfig(oldResolution = null) {
@@ -1359,32 +1782,13 @@ function sendCombinedConfig(oldResolution = null) {
         old_resolution: oldResolution  // Include old resolution for change detection
     };
 
-    console.log('Combined WebSocket: Sending config:', config);
-    console.log('Combined WebSocket: WebSocket readyState:', combinedWebSocket.readyState);
-    console.log('Combined WebSocket: Config timestamps - from_ts:', combinedFromTs, 'to_ts:', combinedToTs);
-    console.log('[TIMESTAMP DEBUG] combinedData.js - WebSocket config timestamps:');
-    console.log('  combinedFromTs:', combinedFromTs, '(ISO timestamp string)');
-    console.log('  combinedToTs:', combinedToTs, '(ISO timestamp string)');
-    console.log('  from_ts in config:', config.from_ts);
-    console.log('  to_ts in config:', config.to_ts);
 
     // Detailed timestamp logging for server comparison
     const fromDate = new Date(combinedFromTs);
     const toDate = new Date(combinedToTs);
     const rangeMs = toDate.getTime() - fromDate.getTime();
     const rangeHours = rangeMs / (1000 * 60 * 60);
-    /* console.log('📤 CLIENT SENDING TO SERVER:', {
-        symbol: combinedSymbol,
-        fromTs: combinedFromTs,
-        toTs: combinedToTs,
-        from_ts: combinedFromTs,
-        to_ts: combinedToTs,
-        fromDate: fromDate.toISOString(),
-        toDate: toDate.toISOString(),
-        rangeMs,
-        rangeHours: rangeHours.toFixed(1)
-    });
-    */
+
 
     // Store server range for comparison with client range
     window.lastServerRange = {
@@ -1397,11 +1801,9 @@ function sendCombinedConfig(oldResolution = null) {
         rangeHours: rangeHours.toFixed(1),
         timestamp: new Date().toISOString()
     };
-    console.log('💾 Stored server range for client comparison. Use window.compareClientServerRanges() to compare.');
 
     try {
         combinedWebSocket.send(JSON.stringify(config));
-        console.log('Combined WebSocket: Config sent successfully');
     } catch (error) {
         console.error('Combined WebSocket: Error sending config:', error);
     }
@@ -1493,8 +1895,6 @@ function validateIndicatorData(data, indicatorName) {
     });
 
     // LOGGING: Show data range breakdown with safe date formatting
-    console.log(`📊 VALIDATION ANALYSIS: ${indicatorName}`);
-    console.log(`  Total data points: ${data.length}`);
 
     if (!fromTsValid || !toTsValid) {
         console.warn(`⚠️ VALIDATION WARNING: ${indicatorName} - Invalid time range values (fromTs: ${combinedFromTs}, toTs: ${combinedToTs}), using fallback range determination`);
@@ -1508,7 +1908,6 @@ function validateIndicatorData(data, indicatorName) {
             lookbackDateStr = 'date_conversion_error';
         }
     }
-    console.log(`  Lookback period (${lookbackDateStr} before): ${lookbackPoints} points, ${lookbackNulls} nulls ${(lookbackPoints > 0 ? (lookbackNulls / lookbackPoints * 100).toFixed(1) : 0)}%`);
 
     let userRangeStartStr = 'invalid';
     let userRangeEndStr = 'invalid';
@@ -1526,7 +1925,6 @@ function validateIndicatorData(data, indicatorName) {
             userRangeEndStr = 'date_conversion_error';
         }
     }
-    console.log(`  User requested range (${userRangeStartStr} to ${userRangeEndStr}): ${userRangePoints} points, ${userRangeNulls} nulls ${(userRangePoints > 0 ? (userRangeNulls / userRangePoints * 100).toFixed(1) : 0)}%`);
 
     // CRITICAL FIX: Accept nulls from indicator warmup periods at the start of data series
     // Only reject if there are nulls in the middle of the completed data (real gaps)
@@ -1619,8 +2017,6 @@ function validateIndicatorData(data, indicatorName) {
         }
 
         // Accept nulls if they're concentrated in warmup period (normal behavior)
-        console.log(`✅ ${indicatorName} - Accepted ${nullsInWarmupPeriod} warmup-period nulls, ${nullsAfterWarmupPeriod} unexpected nulls. Indicators are properly aligned.`);
-        console.log(`   First valid point: index ${firstValidPointIndex}/${totalPointsInRange}, Last null point: index ${lastNullPointIndex}/${totalPointsInRange}`);
     }
 
     // If time range is completely corrupted, we have no way to know what's the "last bar"
@@ -1632,16 +2028,13 @@ function validateIndicatorData(data, indicatorName) {
 
     // WARNING: Log lookback (warmup) nulls (this is expected and acceptable)
     if (lookbackNulls > 0) {
-        console.log(`✅ VALIDATION PASSED: ${indicatorName} - ${lookbackNulls} null values in lookback period (expected), 0 null values in requested time range (${userRangePoints} valid data points)`);
     } else {
-        console.log(`✅ VALIDATION PASSED: ${indicatorName} - All ${userRangePoints} data points in requested range are valid`);
     }
 
     return true;
 }
 
 function handleHistoricalData(message) {
-    console.log(`📊 Combined WebSocket: Received historical data for ${message.symbol}, ${message.data.length} points`);
 
     if (!message.data || !Array.isArray(message.data) || message.data.length === 0) {
         console.warn('Combined WebSocket: Invalid or empty historical data');
@@ -1662,7 +2055,6 @@ function handleHistoricalData(message) {
     // Check if chart is ready
     const chartElement = document.getElementById('chart');
     if (!chartElement || !window.gd || !window.gd._fullLayout) {
-        console.log('📊 Combined WebSocket: Chart not ready, skipping update');
         return;
     }
 
@@ -1760,30 +2152,26 @@ function handleHistoricalData(message) {
             });
         });
 
-        console.log(`📊 Found ${existingData.length} existing data points in chart with indicators extracted`);
     }
 
     // Merge new data with existing data, preserving indicators where possible
     const mergedData = mergeDataPointsWithIndicators(existingData, message.data);
 
-    console.log(`📊 Merged ${existingData.length} existing + ${message.data.length} new = ${mergedData.length} total points`);
 
     // Update chart with merged data
     updateChartWithHistoricalData(mergedData, message.symbol);
 
-    console.log(`📊 Combined WebSocket: Chart updated with ${mergedData.length} merged data points`);
+
+
 }
 
 function mergeDataPoints(existingData, newData) {
-    console.log(`🔄 MERGE DEBUG: mergeDataPoints called with ${existingData?.length || 0} existing + ${newData?.length || 0} new points`);
 
     if (!existingData || existingData.length === 0) {
-        console.log('🔄 MERGE DEBUG: No existing data, returning sorted new data');
         return newData.sort((a, b) => a.time - b.time);
     }
 
     if (!newData || newData.length === 0) {
-        console.log('🔄 MERGE DEBUG: No new data, returning existing data');
         return existingData;
     }
 
@@ -1791,12 +2179,9 @@ function mergeDataPoints(existingData, newData) {
     const existingTimestamps = existingData.map(p => p.time).sort((a, b) => a - b);
     const newTimestamps = newData.map(p => p.time).sort((a, b) => a - b);
 
-    console.log(`🔄 MERGE DEBUG: Existing data range: ${new Date(existingTimestamps[0] * 1000).toISOString()} to ${new Date(existingTimestamps[existingTimestamps.length - 1] * 1000).toISOString()}`);
-    console.log(`🔄 MERGE DEBUG: New data range: ${new Date(newTimestamps[0] * 1000).toISOString()} to ${new Date(newTimestamps[newTimestamps.length - 1] * 1000).toISOString()}`);
 
     // Combine all data points
     const combinedData = [...existingData, ...newData];
-    console.log(`🔄 MERGE DEBUG: Combined ${combinedData.length} total points`);
 
     // Sort by timestamp to ensure proper ordering
     const sortedData = combinedData.sort((a, b) => a.time - b.time);
@@ -1825,7 +2210,6 @@ function mergeDataPoints(existingData, newData) {
                         timestampStr = 'conversion_error';
                     }
                 }
-                console.log(`🔄 MERGE DEBUG: Replacing duplicate timestamp ${point.time} (${timestampStr})`);
                 mergedData[existingIndex] = point;
                 duplicatesFound++;
             }
@@ -1834,25 +2218,20 @@ function mergeDataPoints(existingData, newData) {
     }
 
     const duplicatesRemoved = combinedData.length - mergedData.length;
-    console.log(`🔄 MERGE DEBUG: Processing complete - ${duplicatesFound} duplicates replaced, ${overlapsFound} overlaps detected, ${duplicatesRemoved} total points removed, ${mergedData.length} unique points remaining`);
 
     if (duplicatesRemoved > 0) {
-        console.log(`🔄 Merged data: ${duplicatesRemoved} duplicates removed, ${mergedData.length} unique points`);
     }
 
     return mergedData;
 }
 
 function mergeDataPointsWithIndicators(existingData, newData) {
-    console.log(`🔄 MERGE DEBUG: mergeDataPointsWithIndicators called with ${existingData?.length || 0} existing + ${newData?.length || 0} new points`);
 
     if (!existingData || existingData.length === 0) {
-        console.log('🔄 MERGE DEBUG: No existing data, returning sorted new data');
         return newData.sort((a, b) => a.time - b.time);
     }
 
     if (!newData || newData.length === 0) {
-        console.log('🔄 MERGE DEBUG: No new data, returning existing data');
         return existingData;
     }
 
@@ -1860,7 +2239,6 @@ function mergeDataPointsWithIndicators(existingData, newData) {
     const existingWithIndicators = existingData.filter(p => Object.keys(p.indicators || {}).length > 0).length;
     const newWithIndicators = newData.filter(p => Object.keys(p.indicators || {}).length > 0).length;
 
-    console.log(`🔄 MERGE DEBUG: Indicator analysis - Existing: ${existingWithIndicators}/${existingData.length} with indicators, New: ${newWithIndicators}/${newData.length} with indicators`);
 
     // Create a map of existing data by timestamp for quick lookup
     const existingDataMap = new Map();
@@ -1891,7 +2269,6 @@ function mergeDataPointsWithIndicators(existingData, newData) {
                     timestampStr = 'conversion_error';
                 }
             }
-            console.log(`🔄 MERGE DEBUG: Timestamp ${newPoint.time} (${timestampStr}) - Existing indicators: ${hasExistingIndicators}, New indicators: ${hasNewIndicators}`);
 
             if (hasNewIndicators && !hasExistingIndicators) {
                 // New data has indicators, existing doesn't - use new data
@@ -1899,7 +2276,6 @@ function mergeDataPointsWithIndicators(existingData, newData) {
                 if (index !== -1) {
                     mergedData[index] = { ...newPoint };
                     replacedPoints++;
-                    console.log(`🔄 MERGE DEBUG: Replaced point with new indicator data`);
                 }
             } else if (hasNewIndicators && hasExistingIndicators) {
                 // Both have indicators - merge them
@@ -1907,7 +2283,6 @@ function mergeDataPointsWithIndicators(existingData, newData) {
                 if (index !== -1) {
                     const existingIndicatorKeys = Object.keys(existingPoint.indicators);
                     const newIndicatorKeys = Object.keys(newPoint.indicators);
-                    console.log(`🔄 MERGE DEBUG: Merging indicators - Existing: [${existingIndicatorKeys.join(', ')}], New: [${newIndicatorKeys.join(', ')}]`);
 
                     mergedData[index] = {
                         ...newPoint,
@@ -1916,7 +2291,6 @@ function mergeDataPointsWithIndicators(existingData, newData) {
                     mergedIndicators++;
                 }
             } else {
-                console.log(`🔄 MERGE DEBUG: Keeping existing data (no new indicators to merge)`);
             }
             // If existing has indicators but new doesn't, keep existing
         } else {
@@ -1929,20 +2303,14 @@ function mergeDataPointsWithIndicators(existingData, newData) {
     // Sort by timestamp to ensure proper ordering
     const sortedData = mergedData.sort((a, b) => a.time - b.time);
 
-    console.log(`🔄 MERGE DEBUG: Merge summary - ${replacedPoints} points replaced, ${addedPoints} points added, ${mergedIndicators} indicator merges, ${sortedData.length} total points`);
-    console.log(`🔄 Merged data with indicators: ${existingData.length} existing + ${newData.length} new = ${sortedData.length} total points`);
 
     return sortedData;
 }
 
 // Helper function to merge existing indicator traces with new data
 function mergeIndicatorData(existingTrace, newTrace) {
-    console.log(`🔄 MERGE INDICATOR DEBUG: Merging trace ${existingTrace.name || 'unnamed'}`);
-    console.log(`  Existing: ${existingTrace.x ? existingTrace.x.length : 0} points`);
-    console.log(`  New: ${newTrace.x ? newTrace.x.length : 0} points`);
 
     if (!existingTrace || !existingTrace.x || !newTrace || !newTrace.x) {
-        console.log(`🔄 MERGE INDICATOR DEBUG: Missing data, returning new trace`);
         return { x: newTrace.x || [], y: newTrace.y || [] };
     }
 
@@ -1965,7 +2333,6 @@ function mergeIndicatorData(existingTrace, newTrace) {
     const allTimestamps = new Set([...existingMap.keys(), ...newMap.keys()]);
     const sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
 
-    console.log(`🔄 MERGE INDICATOR DEBUG: ${allTimestamps.size} unique timestamps (${sortedTimestamps.length} sorted)`);
 
     // Merge data, preferring new values over existing
     const mergedX = [];
@@ -1981,13 +2348,10 @@ function mergeIndicatorData(existingTrace, newTrace) {
         }
     });
 
-    console.log(`🔄 MERGE INDICATOR DEBUG: Merged result: ${mergedX.length} points`);
     return { x: mergedX, y: mergedY };
 }
 
 function handleLiveData(message) {
-    console.log(`🔴 Combined WebSocket: Received live data for ${message.symbol}`);
-    console.log('🔴 Live data details:', message.data);
 
     if (!message.data) {
         console.warn('🔴 Combined WebSocket: Invalid live data format - no data field');
@@ -1996,9 +2360,6 @@ function handleLiveData(message) {
 
     // Check if chart is ready
     const gd = document.getElementById('chart');
-    console.log('🔴 DEBUG: Chart element exists for live data:', !!gd);
-    console.log('🔴 DEBUG: Window.gd exists for live data:', !!window.gd);
-    console.log('🔴 DEBUG: Window.gd.data exists for live data:', !!(window.gd && window.gd.data));
 
     // Process live data and update chart
     updateChartWithLiveData(message.data, message.symbol);
@@ -2008,7 +2369,6 @@ function handleLiveData(message) {
 }
 
 function handleLivePriceUpdate(message) {
-    console.log(`💰 Combined WebSocket: Received live price update for ${message.symbol}: ${message.price}`);
 
     if (!message.price || typeof message.price !== 'number') {
         console.warn('💰 Combined WebSocket: Invalid live price format');
@@ -2017,7 +2377,6 @@ function handleLivePriceUpdate(message) {
 
     // Check if currently dragging a shape - skip live price updates during dragging
     if (window.isDraggingShape) {
-        console.log('💰 Combined WebSocket: Skipping live price update during shape dragging');
         return;
     }
 
@@ -2033,18 +2392,13 @@ function handleLivePriceUpdate(message) {
     const candleStartTimeMs = currentTime * 1000;
     const candleEndTimeMs = candleStartTimeMs + (getTimeframeSecondsJS(combinedResolution) * 1000);
 
-    console.log('💰 Combined WebSocket: Drawing live price line for price update:', {
-        price: message.price,
-        timestamp: currentTime,
-        resolution: combinedResolution
-    });
+
 
     // Draw the live price line without triggering relayout to prevent unwanted plotly_relayout events
-    updateOrAddRealtimePriceLine(gd, message.price, candleStartTimeMs, candleEndTimeMs, false);
+    // updateOrAddRealtimePriceLine(gd, message.price, candleStartTimeMs, candleEndTimeMs, false);
 }
 
 function handleBuySignals(message) {
-    console.log(`💰 Combined WebSocket: Received buy signals for ${message.symbol}, ${message.data.length} signals`);
 
     if (!message.data || !Array.isArray(message.data)) {
         console.warn('Combined WebSocket: Invalid buy signals data format');
@@ -2052,7 +2406,6 @@ function handleBuySignals(message) {
     }
 
     if (message.data.length === 0) {
-        console.log('Combined WebSocket: No buy signals to process');
         return;
     }
 
@@ -2065,7 +2418,6 @@ function handleBuySignals(message) {
             deviation: signal.deviation,
             sma_trend_up: signal.sma_trend_up
         };
-        console.log(`💰 Stored buy signal for timestamp ${timestampKey}: RSI=${signal.rsi?.toFixed(2)}, Deviation=${signal.deviation?.toFixed(2)}`);
     });
 
     // Process and add buy signals to the chart
@@ -2073,7 +2425,6 @@ function handleBuySignals(message) {
 }
 
 function handleDrawingsData(message) {
-    console.log(`Combined WebSocket: Received drawings data for ${message.symbol || 'unknown'}`);
 
     // Handle both old and new message formats for compatibility
     let drawingsData = message.drawings || message.data;
@@ -2081,7 +2432,6 @@ function handleDrawingsData(message) {
     // If message.data is an object with drawings array, use that
     if (!drawingsData && message.data && Array.isArray(message.data.drawings)) {
         drawingsData = message.data.drawings;
-        console.log(`🎨 DRAWINGS: Using message.data.drawings array (${drawingsData.length} drawings)`);
     }
 
     // If drawingsData is still not found, check if the entire message.data is the drawings
@@ -2093,18 +2443,15 @@ function handleDrawingsData(message) {
     }
 
     if (drawingsData.length === 0) {
-        console.log('Combined WebSocket: No drawings to process');
         return;
     }
 
-    console.log('🎨 DRAWINGS: Processing', drawingsData.length, 'drawings');
 
     // Process and add drawings to the chart
     addDrawingsToChart(drawingsData, message.symbol || 'unknown');
 }
 
 function addPositionsToChart(positions, symbol) {
-    console.log(`💼 Combined WebSocket: Adding positions as visual elements on the chart for ${symbol}`);
 
     const chartElement = document.getElementById('chart');
     if (!chartElement || !window.gd) {
@@ -2211,7 +2558,6 @@ function addPositionsToChart(positions, symbol) {
 
             window.gd.layout.annotations.push(annotation);
 
-            console.log(`💼 Added position ${side} ${symbol} @ ${entryPrice} (P&L: $${unrealizedPnL.toFixed(2)}), Liq: ${liquidationPrice || 'N/A'}`);
         } catch (error) {
             console.error(`💼 Error processing position ${index}:`, error);
         }
@@ -2223,14 +2569,12 @@ function addPositionsToChart(positions, symbol) {
             shapes: window.gd.layout.shapes,
             annotations: window.gd.layout.annotations
         });
-        console.log(`💼 Successfully added positions to chart for ${symbol}`);
     } catch (error) {
         console.error('💼 Error updating chart with positions:', error);
     }
 }
 
 function handlePositionsUpdate(message) {
-    console.log(`💼 Combined WebSocket: Received positions update for ${message.symbol}`);
 
     if (!message.positions || !Array.isArray(message.positions)) {
         console.warn('💼 Combined WebSocket: Invalid positions data format');
@@ -2238,12 +2582,10 @@ function handlePositionsUpdate(message) {
     }
 
     if (message.positions.length === 0) {
-        console.log('💼 Combined WebSocket: No positions to display');
         return;
     }
 
     // Log position details
-    console.log('💼 Positions received:');
     message.positions.forEach((position, index) => {
         const entryPrice = parseFloat(position.entryPrice);
         const liquidationPrice = position.liquidation_price ? parseFloat(position.liquidation_price) : null;
@@ -2252,17 +2594,14 @@ function handlePositionsUpdate(message) {
         const size = parseFloat(position.size || 0);
         const unrealizedPnL = position.unrealized_pnl ? parseFloat(position.unrealized_pnl) : 0;
 
-        console.log(`  ${index + 1}. ${side} ${symbol}: ${size.toFixed(6)} @ $${entryPrice.toFixed(2)}, P&L: $${unrealizedPnL.toFixed(2)}, Liq: ${liquidationPrice ? '$' + liquidationPrice.toFixed(2) : 'N/A'}`);
     });
 
     // Process and display positions as visual elements on the chart
     addPositionsToChart(message.positions, message.symbol);
 
-    console.log(`💼 Combined WebSocket: Successfully processed ${message.positions.length} positions for ${message.symbol}`);
 }
 
 function handleHistoryUpdate(message) {
-    console.log(`📈 Combined WebSocket: Received smart history update for ${message.symbol}`);
 
     if (!message.data || !Array.isArray(message.data)) {
         console.warn('📈 Combined WebSocket: Invalid history update data format');
@@ -2270,7 +2609,6 @@ function handleHistoryUpdate(message) {
     }
 
     if (message.data.length === 0) {
-        console.log('📈 Combined WebSocket: No history data to process');
         return;
     }
 
@@ -2281,7 +2619,6 @@ function handleHistoryUpdate(message) {
         return;
     }
 
-    console.log(`📈 Processing ${message.data.length} history update data points`);
 
     // Process the new data points and update the chart
     // Use the same logic as handleHistoricalData but for smaller batches
@@ -2383,16 +2720,13 @@ function handleHistoryUpdate(message) {
     // Merge new data with existing data
     const mergedData = mergeDataPointsWithIndicators(existingData, newDataPoints);
 
-    console.log(`📈 Merged ${existingData.length} existing + ${newDataPoints.length} new = ${mergedData.length} total points`);
 
     // Update chart with merged data
     updateChartWithHistoricalData(mergedData, message.symbol);
 
-    console.log(`📈 Combined WebSocket: Chart updated with ${mergedData.length} merged data points from history update`);
 }
 
 function addBuySignalsToChart(buySignals, symbol) {
-    console.log(`💰 Combined WebSocket: Adding ${buySignals.length} buy signals to chart for ${symbol}`);
 
     const chartElement = document.getElementById('chart');
     if (!chartElement || !window.gd) {
@@ -2411,15 +2745,12 @@ function addBuySignalsToChart(buySignals, symbol) {
     // Process each buy signal
     buySignals.forEach((signal, index) => {
         try {
-            console.log(`💰 Combined WebSocket: Processing buy signal ${index + 1}/${buySignals.length}:`, signal);
 
             // Convert buy signal to Plotly shape format
             const shape = convertBuySignalToShape(signal, index);
-            console.log(`💰 Combined WebSocket: Converted to shape:`, shape);
 
             if (shape) {
                 window.gd.layout.shapes.push(shape);
-                console.log(`💰 Combined WebSocket: Added buy signal ${signal.timestamp}`);
             } else {
                 console.warn(`💰 Combined WebSocket: Could not convert buy signal to shape:`, signal);
             }
@@ -2428,7 +2759,6 @@ function addBuySignalsToChart(buySignals, symbol) {
         }
     });
 
-    console.log('💰 BUY SIGNALS: Final shapes count:', window.gd.layout.shapes.length);
 
     // Update the chart with new shapes - ensure shapes are preserved during chart updates
     try {
@@ -2441,7 +2771,6 @@ function addBuySignalsToChart(buySignals, symbol) {
         Plotly.relayout(chartElement, {
             shapes: window.gd.layout.shapes
         });
-        console.log(`💰 Combined WebSocket: Successfully updated chart with ${buySignals.length} buy signals`);
     } catch (error) {
         console.error('💰 Combined WebSocket: Error updating chart with buy signals:', error);
     }
@@ -2449,7 +2778,6 @@ function addBuySignalsToChart(buySignals, symbol) {
 
 function convertBuySignalToShape(signal, index) {
     try {
-        console.log('💰 BUY SIGNALS: Converting buy signal to shape:', signal);
 
         // Format timestamp for display
         const signalTime = new Date(signal.timestamp * 1000);
@@ -2512,11 +2840,9 @@ function convertBuySignalToShape(signal, index) {
 
         // Add click handler for buy signal shape
         shape.onclick = function() {
-            console.log('💰 BUY SIGNAL CLICKED:', shape.signalData);
             displayBuySignalDetails(shape.signalData);
         };
 
-        console.log('💰 BUY SIGNALS: Final buy signal shape created with hover text and click handler:', shape);
         return shape;
     } catch (error) {
         console.error('💰 BUY SIGNALS: Error converting buy signal to shape:', error, signal);
@@ -2525,7 +2851,6 @@ function convertBuySignalToShape(signal, index) {
 }
 
 function addDrawingsToChart(drawings, symbol) {
-    console.log(`Combined WebSocket: Adding ${drawings.length} drawings to chart for ${symbol}`);
 
     const chartElement = document.getElementById('chart');
     if (!chartElement || !window.gd) {
@@ -2538,16 +2863,13 @@ function addDrawingsToChart(drawings, symbol) {
         window.gd.layout.shapes = [];
     }
 
-    // console.log('🎨 DRAWINGS: Current shapes before adding:', window.gd.layout.shapes.length);
 
     // Process each drawing
     drawings.forEach((drawing, index) => {
         try {
-            // console.log(`Combined WebSocket: Processing drawing ${index + 1}/${drawings.length}:`, drawing);
 
             // Convert drawing data to Plotly shape format
             const shape = convertDrawingToShape(drawing);
-            // console.log(`Combined WebSocket: Converted to shape:`, shape);
 
             if (shape) {
                 // Check if shape already exists (by id)
@@ -2556,11 +2878,9 @@ function addDrawingsToChart(drawings, symbol) {
                 if (existingIndex !== -1) {
                     // Update existing shape
                     window.gd.layout.shapes[existingIndex] = shape;
-                    // console.log(`Combined WebSocket: Updated existing drawing ${drawing.id}`);
                 } else {
                     // Add new shape
                     window.gd.layout.shapes.push(shape);
-                    // console.log(`Combined WebSocket: Added new drawing ${drawing.id}`);
                 }
             } else {
                 // console.warn(`Combined WebSocket: Could not convert drawing to shape:`, drawing);
@@ -2570,7 +2890,6 @@ function addDrawingsToChart(drawings, symbol) {
         }
     });
 
-    // console.log('🎨 DRAWINGS: Final shapes count:', window.gd.layout.shapes.length);
 
     // Update the chart with new shapes - ensure shapes are preserved during chart updates
     try {
@@ -2583,15 +2902,12 @@ function addDrawingsToChart(drawings, symbol) {
         Plotly.relayout(chartElement, {
             shapes: window.gd.layout.shapes
         });
-        console.log(`Combined WebSocket: Successfully updated chart with ${drawings.length} drawings`);
-        console.log('🎨 DRAWINGS: Final shapes in layout:', window.gd.layout.shapes.length);
     } catch (error) {
         console.error('Combined WebSocket: Error updating chart with drawings:', error);
     }
 }
 
 function addYouTubeVideosAsMarkers(videos, symbol) {
-    console.log(`🎥 Combined WebSocket: Adding ${videos.length} YouTube videos as markers to chart for ${symbol}`);
 
     const chartElement = document.getElementById('chart');
     if (!chartElement || !window.gd) {
@@ -2610,12 +2926,6 @@ function addYouTubeVideosAsMarkers(videos, symbol) {
     // Process each YouTube video
     videos.forEach((video, index) => {
         try {
-            console.log(`🎥 Combined WebSocket: Processing YouTube video ${index + 1}/${videos.length}:`, {
-                id: video.id,
-                title: video.title,
-                channel: video.channel_title,
-                published: video.published_at
-            });
 
             // Parse the published timestamp
             let publishedTime;
@@ -2644,7 +2954,6 @@ function addYouTubeVideosAsMarkers(videos, symbol) {
             if (chartHeight === null || isNaN(chartHeight)) {
                 // Fallback: use a reasonable default
                 chartHeight = 100;
-                console.log('🎥 Combined WebSocket: Using fallback chart height for YouTube marker positioning');
             }
 
             // Add data point for this video
@@ -2670,7 +2979,6 @@ function addYouTubeVideosAsMarkers(videos, symbol) {
                 url: `https://www.youtube.com/watch?v=${video.id}`
             });
 
-            console.log(`🎥 Combined WebSocket: Added YouTube marker at ${publishedTime.toISOString()} (height: ${chartHeight})`);
 
         } catch (error) {
             console.error(`🎥 Combined WebSocket: Error processing YouTube video ${index}:`, error, video);
@@ -2709,7 +3017,6 @@ function addYouTubeVideosAsMarkers(videos, symbol) {
         yaxis: 'y'  // Place on main price chart
     };
 
-    console.log('🎥 YOUTUBE VIDEOS: Created YouTube marker trace with', x.length, 'videos');
 
     // Add click handler for YouTube videos (similar to youtubeMarkers.js)
     youtubeTrace.onclick = function(data) {
@@ -2719,7 +3026,6 @@ function addYouTubeVideosAsMarkers(videos, symbol) {
                 const url = point.customdata.url;
                 if (url) {
                     window.open(url, '_blank');
-                    console.log('🎥 Opened YouTube video:', url);
                 }
             }
         }
@@ -2733,16 +3039,13 @@ function addYouTubeVideosAsMarkers(videos, symbol) {
         if (existingTraceIndex !== -1) {
             // Replace existing trace
             window.gd.data[existingTraceIndex] = youtubeTrace;
-            console.log('🎥 Combined WebSocket: Updated existing YouTube Videos trace');
         } else {
             // Add new trace
             window.gd.data.push(youtubeTrace);
-            console.log('🎥 Combined WebSocket: Added new YouTube Videos trace');
         }
 
         // Update the chart
         Plotly.react(chartElement, window.gd.data, window.gd.layout);
-        console.log(`🎥 Combined WebSocket: Successfully added YouTube marker trace with ${videos.length} videos`);
 
     } catch (error) {
         console.error('🎥 Combined WebSocket: Error adding YouTube marker trace:', error);
@@ -2792,7 +3095,6 @@ function getYrefForSubplot(subplotName) {
 
     // Return the correct yref (y2, y3, y4, etc.)
     const yref = `y${indicatorIndex + 2}`;
-    console.log(`🎨 DRAWINGS: Mapped subplot ${subplotName} to yref ${yref} (indicator "${indicator}" at index ${indicatorIndex} in selected indicators: [${selectedIndicators.join(', ')}])`);
     return yref;
 }
 
@@ -2809,7 +3111,6 @@ function getSelectedIndicators() {
 
 function convertDrawingToShape(drawing) {
     try {
-        // console.log('🎨 DRAWINGS: Converting drawing to shape:', drawing);
 
         // Determine the correct yref based on subplot_name
         const yref = getYrefForSubplot(drawing.subplot_name);
@@ -2836,14 +3137,7 @@ function convertDrawingToShape(drawing) {
                 width: drawing.properties?.width || 2,
                 dash: drawing.properties?.dash || 'solid'
             };
-            console.log('🎨 DRAWINGS: Created line shape:', {
-                x0: shape.x0,
-                y0: shape.y0,
-                x1: shape.x1,
-                y1: shape.y1,
-                yref: shape.yref,
-                line: shape.line
-            });
+
         } else if (drawing.type === 'rect' || drawing.type === 'rectangle' || drawing.type === 'box') {
             // For rectangles, we need to determine min/max coordinates
             const x0 = new Date(Math.min(drawing.start_time, drawing.end_time) * 1000);
@@ -2861,7 +3155,6 @@ function convertDrawingToShape(drawing) {
                 width: drawing.properties?.width || 2
             };
             shape.fillcolor = drawing.properties?.fillcolor || 'rgba(255, 0, 0, 0.1)';
-            // console.log('🎨 DRAWINGS: Created rectangle shape:', {...shape, yref: shape.yref});
         } else if (drawing.type === 'horizontal_line' || drawing.type === 'hline') {
             shape.type = 'line';
             shape.x0 = 'x.min'; // Span entire x-axis
@@ -2875,7 +3168,6 @@ function convertDrawingToShape(drawing) {
                 dash: drawing.properties?.dash || 'dash'
             };
             /*
-            console.log('🎨 DRAWINGS: Created horizontal line shape:', {
                 ...shape,
                 yref: shape.yref
             });
@@ -2885,7 +3177,6 @@ function convertDrawingToShape(drawing) {
             return null;
         }
 
-        // console.log('🎨 DRAWINGS: Final shape created:', shape);
         return shape;
     } catch (error) {
         console.error('Combined WebSocket: Error converting drawing to shape:', error, drawing);
@@ -2895,12 +3186,7 @@ function convertDrawingToShape(drawing) {
 
 function convertYouTubeVideoToAnnotation(video, index) {
     try {
-        console.log(`🎥 Combined WebSocket: Converting YouTube video to annotation:`, {
-            id: video.id,
-            title: video.title,
-            channel: video.channel_title,
-            published: video.published_at
-        });
+
 
         // Parse the published_at timestamp (assuming it's ISO string or similar)
         let publishedTime;
@@ -2964,12 +3250,7 @@ function convertYouTubeVideoToAnnotation(video, index) {
             height: 60   // Fixed height
         };
 
-        console.log(`🎥 Combined WebSocket: Created YouTube annotation at:`, {
-            x: publishedTime.toISOString(),
-            y: chartHeight,
-            title: video.title,
-            channel: video.channel_title
-        });
+
 
         return annotation;
     } catch (error) {
@@ -2980,8 +3261,6 @@ function convertYouTubeVideoToAnnotation(video, index) {
 
 
 function updateChartWithHistoricalData(dataPoints, symbol) {
-    console.log('📈 Combined WebSocket: Processing historical data for chart update');
-    console.log('📈 Combined WebSocket: Data points received:', dataPoints.length);
 
     // Define chartElement globally for the function
     const chartElement = document.getElementById('chart');
@@ -2999,16 +3278,9 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         return;
     }
 
-    // DEBUG: Log detailed data structure
-    console.log('🔍 DEBUG: First data point structure:', JSON.stringify(dataPoints[0], null, 2));
-    console.log('🔍 DEBUG: Sample data points (first 3):', dataPoints.slice(0, 3).map(p => ({
-        time: p.time,
-        ohlc: p.ohlc,
-        indicators: Object.keys(p.indicators || {})
-    })));
+
 
     // Extract OHLC data
-    console.log('📊 Combined WebSocket: Extracting OHLC data from', dataPoints.length, 'points');
 
     // Validate timestamp data before converting to Date objects
     const validDataPoints = dataPoints.filter(point => {
@@ -3041,20 +3313,11 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     const close = dataPoints.map(point => point.ohlc.close);
     const volume = dataPoints.map(point => point.ohlc.volume);
 
-    console.log('📊 Combined WebSocket: Sample OHLC data - Open:', open.slice(0, 3), 'Close:', close.slice(0, 3));
 
     // DEBUG: Log timestamp conversion details
-    // console.log('🔍 DEBUG: Timestamp conversion details:');
-    // console.log('  Raw timestamps (first 3):', dataPoints.slice(0, 3).map(p => p.time));
-    // console.log('  Converted timestamps (first 3):', timestamps.slice(0, 3));
-    // console.log('  First timestamp (UTC):', timestamps[0].toISOString());
-    // console.log('  Last timestamp (UTC):', timestamps[timestamps.length - 1].toISOString());
-    // console.log('  First timestamp (Local):', timestamps[0].toLocaleString());
-    // console.log('  Last timestamp (Local):', timestamps[timestamps.length - 1].toLocaleString());
 
     // DEBUG: Check for NaN values in OHLC data
     const ohlcNaNCount = [open, high, low, close].reduce((count, arr) => count + arr.filter(v => isNaN(v)).length, 0);
-    // console.log('🔍 DEBUG: OHLC NaN count:', ohlcNaNCount, 'out of', open.length * 4, 'values');
     if (ohlcNaNCount > 0) {
         // console.warn('🚨 WARNING: Found NaN values in OHLC data!');
     }
@@ -3110,10 +3373,6 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     const indicatorTraces = [];
     const indicatorsData = {};
 
-    console.log('🔍 DEBUG: Processing indicator data from dataPoints...');
-    console.log('🔍 DEBUG: Number of dataPoints:', dataPoints.length);
-    console.log('🔍 DEBUG: combinedIndicators:', combinedIndicators);
-    console.log('🔍 DEBUG: Sample dataPoint indicators:', dataPoints.slice(0, 3).map(p => p.indicators ? Object.keys(p.indicators) : 'no indicators'));
 
     // Log the total indicator types found across all data points
     const allIndicatorKeys = new Set();
@@ -3122,7 +3381,6 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
             Object.keys(point.indicators).forEach(key => allIndicatorKeys.add(key));
         }
     });
-    console.log('🔍 DEBUG: All indicator keys found in data:', Array.from(allIndicatorKeys));
 
     // Find the earliest point that has ALL indicators available
     let firstCompletePointIndex = -1;
@@ -3137,10 +3395,6 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         }
     });
 
-    console.log(`📊 Indicator availability analysis:`);
-    console.log(`  First complete data point: ${firstCompletePointIndex}/${dataPoints.length}`);
-    console.log(`  Last complete data point: ${lastCompletePointIndex}/${dataPoints.length}`);
-    console.log(`  Points with indicators: ${lastCompletePointIndex - firstCompletePointIndex + 1}`);
 
     // Only process points that have indicators
     // FIX: Don't filter out points with missing indicators early in the dataset
@@ -3150,8 +3404,6 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         point.ohlc && point.ohlc.open !== undefined && point.ohlc.close !== undefined
     );
 
-    console.log(`🔄 Filtered data - keeping ${processedDataPoints.length} points with valid OHLC data`);
-    console.log(`💡 NOTE: ${dataPoints.length - processedDataPoints.length} points filtered out due to missing OHLC data`);
 
     processedDataPoints.forEach((point, pointIndex) => {
         // Safe timestamp conversion with validation
@@ -3197,24 +3449,16 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         }
     });
 
-    console.log(`✅ Processed ${processedDataPoints.length} points with complete indicator data`);
 
-    console.log('🔍 DEBUG: Final indicatorsData after processing:', indicatorsData);
-    console.log('🔍 DEBUG: indicatorsData keys:', Object.keys(indicatorsData));
 
     // Detailed debug for CTO Line specifically
     if (indicatorsData.cto_line) {
-        console.log('🔍 CTO LINE DEBUG: CTO Line data found in indicatorsData');
-        console.log('🔍 CTO LINE DEBUG: CTO Line timestamps length:', indicatorsData.cto_line.timestamps ? indicatorsData.cto_line.timestamps.length : 'none');
-        console.log('🔍 CTO LINE DEBUG: CTO Line values keys:', indicatorsData.cto_line.values ? Object.keys(indicatorsData.cto_line.values) : 'none');
         if (indicatorsData.cto_line.values) {
             Object.keys(indicatorsData.cto_line.values).forEach(key => {
                 const valArray = indicatorsData.cto_line.values[key];
-                console.log(`🔍 CTO LINE DEBUG: ${key} length: ${valArray ? valArray.length : 'none'}, first 3: ${valArray ? valArray.slice(0,3) : 'none'}`);
             });
         }
     } else {
-        console.log('❌ CTO LINE DEBUG: CTO Line data NOT found in indicatorsData');
     }
 
     // Create traces for each indicator with separate subplots
@@ -3222,13 +3466,8 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     const forcedIndicatorOrder = ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10', 'open_interest', 'jma', 'cto_line'];
     const indicatorTypes = forcedIndicatorOrder.filter(indicatorId => combinedIndicators.includes(indicatorId));
 
-    // console.log('FORCED INDICATOR ORDER - Processing in this exact sequence:', indicatorTypes);
-    // console.log('FORCED INDICATOR ORDER - MACD should be index 0 (first):', indicatorTypes[0] === 'macd');
     const subplotCount = indicatorTypes.length;
 
-    console.log('📊 Combined WebSocket: Processing indicators in order:', indicatorTypes);
-    console.log('📊 Combined WebSocket: combinedIndicators:', combinedIndicators);
-    console.log('📊 Combined WebSocket: Available indicatorsData keys:', Object.keys(indicatorsData));
 
 
 
@@ -3240,15 +3479,9 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         const yAxisName = `y${index + 2}`; // y2, y3, y4, etc.
 
         /*
-        // console.log(`Combined WebSocket: Processing indicator ${indicatorId} with ${indicatorData ? indicatorData.timestamps.length : 'N/A'} data points`);
-        // console.log(`🔍 DEBUG: indicatorData for ${indicatorId}:`, indicatorData);
-        // console.log(`🔍 DEBUG: indicatorData.timestamps:`, indicatorData ? indicatorData.timestamps : 'N/A');
-        // console.log(`🔍 DEBUG: indicatorData.values:`, indicatorData ? indicatorData.values : 'N/A');
         */
 
         if (indicatorId === 'macd' && indicatorData.values.macd && indicatorData.values.signal && indicatorData.values.histogram) {
-            console.log(`🔍 DEBUG: MACD condition check - macd: ${!!indicatorData.values.macd}, signal: ${!!indicatorData.values.signal}, histogram: ${!!indicatorData.values.histogram}`);
-            console.log(`🔍 DEBUG: MACD values lengths - macd: ${indicatorData.values.macd ? indicatorData.values.macd.length : 'N/A'}, signal: ${indicatorData.values.signal ? indicatorData.values.signal.length : 'N/A'}, histogram: ${indicatorData.values.histogram ? indicatorData.values.histogram.length : 'N/A'}`);
 
             // Ensure we have valid data before processing
             if (indicatorData.values.macd.length === 0) {
@@ -3257,18 +3490,13 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
             }
 
             // MACD with signal and histogram - use data directly from Python backend
-            console.log(`Combined WebSocket: MACD - Using ${indicatorData.values.macd.length} data points from Python backend`);
 
             // DEBUG: Log last 5 MACD data points being sent to Plotly
             const macdLast5 = indicatorData.values.macd.slice(-5);
             const signalLast5 = indicatorData.values.signal.slice(-5);
             const histogramLast5 = indicatorData.values.histogram.slice(-5);
             const macdTimestampsLast5 = indicatorData.timestamps.slice(-5);
-            console.log(`📊 MACD TRACE DATA (last 5 points):`);
             macdLast5.forEach((val, idx) => {
-                console.log(`  MACD[${indicatorData.values.macd.length - 5 + idx}]: ${val} at ${macdTimestampsLast5[idx] ? new Date(macdTimestampsLast5[idx]).toISOString() : 'N/A'}`);
-                console.log(`  Signal[${indicatorData.values.signal.length - 5 + idx}]: ${signalLast5[idx]} at ${macdTimestampsLast5[idx] ? new Date(macdTimestampsLast5[idx]).toISOString() : 'N/A'}`);
-                console.log(`  Histogram[${indicatorData.values.histogram.length - 5 + idx}]: ${histogramLast5[idx]} at ${macdTimestampsLast5[idx] ? new Date(macdTimestampsLast5[idx]).toISOString() : 'N/A'}`);
             });
 
             // Use the backend's timestamps for this indicator to maintain proper alignment
@@ -3309,18 +3537,13 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                 connectgaps: false  // Don't connect gaps to show natural indicator behavior
             });
         } else if (indicatorId === 'rsi' && indicatorData.values.rsi) {
-            console.log(`🔍 DEBUG: RSI condition check - rsi: ${!!indicatorData.values.rsi}`);
-            console.log(`🔍 DEBUG: RSI values length: ${indicatorData.values.rsi ? indicatorData.values.rsi.length : 'N/A'}`);
 
             // RSI - use data directly from Python backend
-            console.log(`Combined WebSocket: RSI - Using ${indicatorData.values.rsi.length} data points from Python backend`);
 
             // DEBUG: Log last 5 RSI data points being sent to Plotly
             const rsiLast5 = indicatorData.values.rsi.slice(-5);
             const rsiTimestampsLast5 = indicatorData.timestamps.slice(-5);
-            console.log(`📊 RSI TRACE DATA (last 5 points):`);
             rsiLast5.forEach((val, idx) => {
-                console.log(`  RSI[${indicatorData.values.rsi.length - 5 + idx}]: ${val} at ${rsiTimestampsLast5[idx] ? new Date(rsiTimestampsLast5[idx]).toISOString() : 'N/A'}`);
             });
 
             // Use the backend's timestamps for this indicator to maintain proper alignment
@@ -3328,7 +3551,6 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
 
             // Check for null/undefined values that might cause display issues
             const rsiNullCount = rsiValues.filter(v => v === null || v === undefined).length;
-            console.log(`🔍 DEBUG: RSI null values: ${rsiNullCount}/${rsiValues.length}`);
 
             indicatorTraces.push({
                 x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
@@ -3344,10 +3566,8 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
 
             // Check for RSI_SMA14 and add it if available
             if (indicatorData.values.rsi_sma14) {
-                console.log(`Combined WebSocket: RSI_SMA14 - Using ${indicatorData.values.rsi_sma14.length} data points from Python backend`);
 
                 const rsiSma14Values = indicatorData.values.rsi_sma14;
-                console.log(`🔍 DEBUG: RSI_SMA14 data - nulls: ${rsiSma14Values.filter(v => v === null).length}`);
 
                 indicatorTraces.push({
                     x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
@@ -3362,23 +3582,16 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                 });
             }
             } else if (indicatorId.startsWith('stochrsi') && indicatorData.values.stoch_k && indicatorData.values.stoch_d) {
-                console.log(`🔍 DEBUG: StochRSI condition check - stoch_k: ${!!indicatorData.values.stoch_k}, stoch_d: ${!!indicatorData.values.stoch_d}`);
-                console.log(`🔍 DEBUG: StochRSI values lengths - k: ${indicatorData.values.stoch_k ? indicatorData.values.stoch_k.length : 'N/A'}, d: ${indicatorData.values.stoch_d ? indicatorData.values.stoch_d.length : 'N/A'}`);
-                console.log(`🔍 DEBUG: StochRSI timestamps length: ${indicatorData.timestamps ? indicatorData.timestamps.length : 'N/A'}`);
 
                 // Stochastic RSI - use data directly from Python backend
-                console.log(`Combined WebSocket: StochRSI - Using ${indicatorData.values.stoch_k.length} data points from Python backend`);
 
                 // DEBUG: Log last 5 StochRSI data points being sent to Plotly
                 const stochKLast5 = indicatorData.values.stoch_k.slice(-5);
                 const stochDLast5 = indicatorData.values.stoch_d.slice(-5);
                 const stochTimestampsLast5 = indicatorData.timestamps.slice(-5);
-                console.log(`📊 StochRSI TRACE DATA (last 5 points):`);
                 stochKLast5.forEach((val, idx) => {
-                    console.log(`  Stoch K[${indicatorData.values.stoch_k.length - 5 + idx}]: ${val} at ${stochTimestampsLast5[idx] ? new Date(stochTimestampsLast5[idx]).toISOString() : 'N/A'}`);
                 });
                 stochDLast5.forEach((val, idx) => {
-                    console.log(`  Stoch D[${indicatorData.values.stoch_d.length - 5 + idx}]: ${val} at ${stochTimestampsLast5[idx] ? new Date(stochTimestampsLast5[idx]).toISOString() : 'N/A'}`);
                 });
 
                 // Extract variant parameters from indicatorId (e.g., 'stochrsi_14_3' -> '14,3')
@@ -3393,7 +3606,6 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                 const kNullCount = kValues.filter(v => v === null || v === undefined).length;
                 const dNullCount = dValues.filter(v => v === null || v === undefined).length;
 
-                console.log(`🔍 DEBUG: StochRSI null values - K: ${kNullCount}/${kValues.length}, D: ${dNullCount}/${dValues.length}`);
 
                 indicatorTraces.push({
                     x: indicatorData.timestamps,  // Use backend timestamps for proper alignment
@@ -3419,32 +3631,24 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                     connectgaps: false  // Don't connect gaps - show natural indicator behavior
                 });
             } else if (indicatorId === 'cto_line') {
-                console.log(`🔍 DEBUG: CTO Line condition check - upper: ${!!indicatorData.values.cto_upper}, lower: ${!!indicatorData.values.cto_lower}, trend: ${!!indicatorData.values.cto_trend}`);
 
                 // Check if we have the required data
                 if (!indicatorData.values.cto_upper || !indicatorData.values.cto_lower) {
-                    console.log('❌ CTO Line: Missing required upper or lower values, skipping');
                     return;
                 }
 
-                console.log(`🔍 DEBUG: CTO Line values lengths - upper: ${indicatorData.values.cto_upper.length}, lower: ${indicatorData.values.cto_lower.length}`);
-                console.log(`🔍 DEBUG: CTO Line first values - upper: ${indicatorData.values.cto_upper[0]}, lower: ${indicatorData.values.cto_lower[0]}`);
 
                 // CTO Line (Larsson Line) - two SMMA lines with optional trend coloring
-                console.log(`Combined WebSocket: CTO Line - Using ${indicatorData.values.cto_upper.length} data points from Python backend`);
 
                 // DEBUG: Log last 5 CTO Line data points being sent to Plotly
                 const upperLast5 = indicatorData.values.cto_upper.slice(-5);
                 const lowerLast5 = indicatorData.values.cto_lower.slice(-5);
                 const trendLast5 = indicatorData.values.cto_trend && indicatorData.values.cto_trend.length > 0 ? indicatorData.values.cto_trend.slice(-5) : [];
                 const ctoTimestampsLast5 = indicatorData.timestamps.slice(-5);
-                console.log(`📊 CTO Line TRACE DATA (last 5 points):`);
                 upperLast5.forEach((val, idx) => {
                     const trend = trendLast5.length > idx ? trendLast5[idx] : 'N/A';
-                    console.log(`  CTO Upper[${indicatorData.values.cto_upper.length - 5 + idx}]: ${val}, Trend: ${trend} at ${ctoTimestampsLast5[idx] ? new Date(ctoTimestampsLast5[idx]).toISOString() : 'N/A'}`);
                 });
                 lowerLast5.forEach((val, idx) => {
-                    console.log(`  CTO Lower[${indicatorData.values.cto_lower.length - 5 + idx}]: ${val} at ${ctoTimestampsLast5[idx] ? new Date(ctoTimestampsLast5[idx]).toISOString() : 'N/A'}`);
                 });
 
                 // Use the backend's timestamps for this indicator to maintain proper alignment
@@ -3455,13 +3659,11 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                 const upperNullCount = upperValues.filter(v => v === null || v === undefined).length;
                 const lowerNullCount = lowerValues.filter(v => v === null || v === undefined).length;
 
-                console.log(`🔍 DEBUG: CTO Line null values - Upper: ${upperNullCount}/${upperValues.length}, Lower: ${lowerNullCount}/${lowerValues.length}`);
 
                 // Only create traces if we have at least some valid data points
                 const upperValidCount = upperValues.filter(v => v !== null && v !== undefined && !isNaN(v)).length;
                 const lowerValidCount = lowerValues.filter(v => v !== null && v !== undefined && !isNaN(v)).length;
 
-                console.log(`🔍 DEBUG: CTO Line valid data points - Upper: ${upperValidCount}/${upperValues.length}, Lower: ${lowerValidCount}/${lowerValues.length}`);
 
                 if (upperValidCount > 0 && lowerValidCount > 0) {
                     // Create CTO Upper line (fast SMMA) - same style as RSI
@@ -3501,7 +3703,6 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
 
                     if (existingCTOUpperIndex !== -1 && existingCTOLowerIndex !== -1) {
                         // CTO traces already exist - we need to merge the data
-                        console.log('🔄 CTO Line: Merging with existing CTO traces');
 
                         const existingUpper = existingTraces[existingCTOUpperIndex];
                         const existingLower = existingTraces[existingCTOLowerIndex];
@@ -3516,7 +3717,6 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                         lowerTrace.x = mergedLower.x;
                         lowerTrace.y = mergedLower.y;
 
-                        console.log(`🔄 CTO Line: Merged existing data - Upper: ${existingUpper.x?.length || 0} → ${mergedUpper.x.length}, Lower: ${existingLower.x?.length || 0} → ${mergedLower.x.length}`);
                     }
 
                     indicatorTraces.push(upperTrace, lowerTrace);
@@ -3524,9 +3724,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                     // Store CTO traces globally for quick restoration when re-enabled
                     storedCTOTraces = [upperTrace, lowerTrace];
 
-                    console.log('✅ CTO Line: Successfully added upper and lower line traces and stored for future restoration');
                 } else {
-                    console.log('❌ CTO Line: No valid data points found, skipping trace creation');
                 }
 
                 // Optional: Add trend-based background coloring (bullish/bearish regions)
@@ -3540,23 +3738,44 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     // These are marked with isplaceholder: true and will be replaced with real data
     const existingTraces = window.gd?.data || [];
     const updatedTraces = existingTraces.filter(trace => !trace.isplaceholder);
-    console.log(`🔧 Placeholder cleanup: Removed ${(existingTraces.length - updatedTraces.length)} placeholder traces from chart`);
 
-    // Update chart with all traces
-    const allTraces = [priceTrace, ...indicatorTraces];
+    // Collect all traces for the chart update
+    // Order: volume profiles first, then price trace, indicators, and trade history traces
+    let allTraces = [];
 
-    console.log('📊 Combined WebSocket: Final trace counts:');
-    console.log('  Price trace: 1');
-    console.log('  Indicator traces:', indicatorTraces.length);
-    console.log('  Total traces:', allTraces.length);
-    console.log('  Indicator trace names:', indicatorTraces.map(t => t.name));
+    // Add volume profile traces first (behind everything else)
+    if (existingTraces) {
+        const existingVolumeProfileTraces = existingTraces.filter(trace =>
+            trace.name && trace.name.includes('Volume Profile')
+        );
+        if (existingVolumeProfileTraces.length > 0) {
+            allTraces.push(...existingVolumeProfileTraces);
+        }
+    }
+
+    // Add price trace
+    allTraces.push(priceTrace);
+
+    // Add indicator traces
+    allTraces.push(...indicatorTraces);
+
+    // Add remaining trade history traces (buy/sell trades)
+    if (existingTraces) {
+        const tradeHistoryTraces = existingTraces.filter(trace =>
+            trace.name && (trace.name.includes('Buy Trades') || trace.name.includes('Sell Trades'))
+        );
+        if (tradeHistoryTraces.length > 0) {
+            allTraces.push(...tradeHistoryTraces);
+        }
+    }
+
+    // Set the global traces array to the allTraces for consistent chart management
+    globalTraces = allTraces;
 
     // DEBUG: Export data as CSV for analysis
     window.exportPlotlyDataAsCSV = function() {
-        console.log('📊 EXPORTING PLOTLY DATA AS CSV FOR DEBUGGING...');
 
         if (!window.gd || !window.gd.data) {
-            console.log('❌ No chart data to export');
             return;
         }
 
@@ -3587,7 +3806,6 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
             // Get price trace
             const priceTrace = window.gd.data.find(t => t.type === 'candlestick');
             if (!priceTrace || !priceTrace.x) {
-                console.log('❌ No price trace found');
                 return;
             }
 
@@ -3665,13 +3883,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                 document.body.removeChild(link);
                 URL.revokeObjectURL(url);
 
-                console.log(`✅ CSV exported successfully: ${filename}`);
-                console.log(`📊 Exported ${csvRows.length - 1} data points`);
-                console.log('📋 CSV contains columns:', headers.join(', '));
             } else {
-                console.log('❌ Browser does not support CSV download');
-                console.log('📋 CSV Content:');
-                console.log(csvContent);
             }
 
             return csvContent;
@@ -3682,7 +3894,6 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         }
     };
 
-    console.log('🛠️ DEBUG: exportPlotlyDataAsCSV() function is now available - call it to download current chart data as CSV');
 
     // Check if we need to create a new layout or can reuse existing one
     let layout;
@@ -3724,11 +3935,9 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
             };
         }
 
-        console.log('🔄 Reusing existing layout instead of recreating');
     } else {
         // Create new layout only if we don't have one
         layout = createLayoutForIndicators(indicatorTypes, Object.keys(indicatorsData));
-        console.log('🆕 Creating new layout (first time or layout missing)');
     }
 
     // Layout configuration is now handled above in the reuse/create logic
@@ -3739,38 +3948,15 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         return;
     }
 
-    console.log('🔔 DEBUG: About to call Plotly.react with', allTraces.length, 'traces');
-    console.log('🔔 DEBUG: Layout object keys:', Object.keys(layout));
-    console.log('🔔 DEBUG: Price trace has', priceTrace.x ? priceTrace.x.length : 0, 'data points');
 
     // Preserve existing shapes when updating chart with historical data
     if (window.gd && window.gd.layout && window.gd.layout.shapes) {
         layout.shapes = window.gd.layout.shapes;
-        console.log('🎨 DRAWINGS: Preserving', window.gd.layout.shapes.length, 'existing shapes during historical data update');
     }
 
-    // PRESERVE TRADE HISTORY VISUALIZATION DATA
-    if (window.gd && window.gd.data) {
-        // Look for existing trade history traces (volume profile or trade circles)
-        const tradeHistoryTraces = window.gd.data.filter(trace =>
-            trace.name && (trace.name.includes('Volume Profile') || trace.name.includes('Buy Trades') || trace.name.includes('Sell Trades'))
-        );
+    // Set the global traces array to the allTraces for consistent chart management
+    globalTraces = allTraces;
 
-        if (tradeHistoryTraces.length > 0) {
-            console.log('💹 TRADE HISTORY: Preserving', tradeHistoryTraces.length, 'trade history traces during chart update');
-            // Add preserved traces to the chart update
-            allTraces.push(...tradeHistoryTraces);
-            console.log('💹 TRADE HISTORY: Final traces after adding:', allTraces.length);
-        }
-    }
-
-    console.log('🔄 Using Plotly.react with user\'s zoom/pan settings preserved...');
-    console.log('📊 Plotly.react input details:');
-    console.log('  Chart element exists:', !!chartElement);
-    console.log('  All traces count:', allTraces.length);
-    console.log('  Trace names:', allTraces.map(t => t.name));
-    console.log('  Layout has grid:', !!layout.grid);
-    console.log('  Layout grid rows:', layout.grid ? layout.grid.rows : 'N/A');
 
     // Acquire chart update lock
     if (!acquireChartUpdateLock()) {
@@ -3779,22 +3965,16 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     }
 
     Plotly.react(chartElement, allTraces, layout).then(() => {
-        console.log('✅ Plotly.react completed successfully with user settings preserved');
-        console.log('[CHART_UPDATE] combinedData.js historical data - chart update completed at', new Date().toISOString());
-        console.log('📊 User zoom/pan settings maintained - no forced autorange');
 
         // Debug: Check what traces are actually in the chart after update
         if (window.gd && window.gd.data) {
-            console.log('🔍 POST-REACT: Chart traces after update:', window.gd.data.length);
             window.gd.data.forEach((trace, index) => {
-                console.log(`  Trace ${index}: ${trace.name} (${trace.x ? trace.x.length : 0} points)`);
             });
         }
 
         // Apply autoscale after chart update to ensure all data is visible
         // DISABLED: Autoscale after historical data causes infinite loop
         // if (window.applyAutoscale && window.gd) {
-        //     console.log('🔄 Applying autoscale after historical data update');
         //     window.applyAutoscale(window.gd);
         // }
     }).catch((error) => {
@@ -3804,13 +3984,10 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         releaseChartUpdateLock();
     });
 
-    console.log('📊 Chart should now display all merged historical data');
 
     // Set up WebSocket message handler after subplots are initialized
-    console.log('🎨 DRAWINGS: Chart layout with subplots initialized, setting up WebSocket message handler');
     try {
         setupWebSocketMessageHandler();
-        console.log('✅ Combined WebSocket: Message handler setup completed in updateChartWithHistoricalData');
     } catch (error) {
         console.error('❌ Combined WebSocket: Failed to setup message handler in updateChartWithHistoricalData:', error);
     }
@@ -3822,30 +3999,16 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         const dataMinPrice = Math.min(...close);
         const dataMaxPrice = Math.max(...close);
 
-        // console.log('🔍 DEBUG: Data range vs Axis range:');
-        // console.log('  Data time range:', new Date(dataMinTime).toISOString(), 'to', new Date(dataMaxTime).toISOString());
-        // console.log('  Data price range:', dataMinPrice, 'to', dataMaxPrice);
-        // console.log('  Axis X range:', layout.xaxis.autorange ? 'autorange' : layout.xaxis.range);
-        // console.log('  Axis Y range:', layout.yaxis.autorange ? 'autorange' : layout.yaxis.range);
 
         // Check if data is outside axis range - this could cause invisibility
-        // console.log('🔍 DEBUG: Checking axis range adjustment...');
-        // console.log('  layout.xaxis.autorange:', layout.xaxis.autorange);
-        // console.log('  layout.xaxis.range:', layout.xaxis.range);
-        // console.log('  window.currentXAxisRange:', window.currentXAxisRange);
 
         if (!layout.xaxis.autorange && layout.xaxis.range) {
             const axisMinTime = layout.xaxis.range[0].getTime();
             const axisMaxTime = layout.xaxis.range[1].getTime();
 
-            // console.log('🔍 DEBUG: Axis time range:', new Date(axisMinTime).toISOString(), 'to', new Date(axisMaxTime).toISOString());
 
             const dataOutsideAxis = dataMinTime < axisMinTime || dataMaxTime > axisMaxTime;
-            /* console.log('🔍 DEBUG: Data outside axis?', dataOutsideAxis, {
-                dataMinLessThanAxisMin: dataMinTime < axisMinTime,
-                dataMaxGreaterThanAxisMax: dataMaxTime > axisMaxTime
-            });
-            */
+
 
             if (dataOutsideAxis) {
                 // console.warn('🚨 WARNING: Data range extends beyond axis range!');
@@ -3853,35 +4016,19 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                 // console.warn('  Data max:', new Date(dataMaxTime).toISOString(), 'vs Axis max:', layout.xaxis.range[1].toISOString());
 
                 // Honor user's zoom/pan settings - do not auto-adjust axis range
-                // console.log('ℹ️ HONORING USER ZOOM: Not auto-adjusting axis range to preserve user\'s zoom/pan settings');
-                // console.log('  User set range:', layout.xaxis.range[0].toISOString(), 'to', layout.xaxis.range[1].toISOString());
-                // console.log('  Data available:', new Date(dataMinTime).toISOString(), 'to', new Date(dataMaxTime).toISOString());
             } else {
-                // console.log('✅ Data is within current axis range - no adjustment needed');
             }
         } else {
-            // console.log('ℹ️ Axis is in autorange mode or has no range set');
         }
     }
 
-    /* console.log('Combined WebSocket: Layout X-axis settings:', {
-        autorange: layout.xaxis.autorange,
-        range: layout.xaxis.range,
-        currentXAxisRange: window.currentXAxisRange
-    });
-    // console.log('Combined WebSocket: Layout Y-axis settings:', {
-        autorange: layout.yaxis.autorange,
-        range: layout.yaxis.range,
-        currentYAxisRange: window.currentYAxisRange
-    });
-    */
+
 
     // Update price trace to use y (not yaxis)
     priceTrace.yaxis = 'y';
 
     // Force Y-axis autoscale if no specific range is set
     if (!window.currentYAxisRange) {
-        // console.log('Combined WebSocket: Forcing Y-axis autoscale for new data range');
         window.isApplyingAutoscale = true;
         Plotly.relayout(chartElement, { 'yaxis.autorange': true }).then(() => {
             window.isApplyingAutoscale = false;
@@ -3894,18 +4041,15 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     delay(100).then(() => {
         if (window.gd && window.gd._ev) {
             const relayoutHandlers = window.gd._ev._events?.plotly_relayout;
-            // console.log('Combined WebSocket: Event handlers after Plotly.react:', relayoutHandlers?.length || 0);
             if (!relayoutHandlers || relayoutHandlers.length === 0) {
                 // console.warn('Combined WebSocket: Event handlers lost after Plotly.react - re-attaching...');
                 if (typeof initializePlotlyEventHandlers === 'function') {
                     initializePlotlyEventHandlers(window.gd);
-                    // console.log('Combined WebSocket: Event handlers re-attached after Plotly.react');
                 }
             }
         }
     });
 
-    // console.log(`Combined WebSocket: Updated chart with ${dataPoints.length} historical points and ${validTraces.length - 1} valid indicator traces (${allTraces.length - validTraces.length} traces filtered out due to NaN values)`);
 }
 
 function updateChartWithLiveData(dataPoint, symbol) {
@@ -3954,8 +4098,18 @@ function updateChartWithLiveData(dataPoint, symbol) {
     // Check if chart update is locked
     if (isChartUpdateLocked()) {
         console.warn('🔒 Chart update locked, queuing live data update');
-        // Queue the update for later
-        setTimeout(() => updateChartWithLiveData(dataPoint, symbol), CHART_UPDATE_DEBOUNCE_DELAY);
+        // Queue the latest live update, replacing any previous queued live update
+        queuedLiveUpdate = dataPoint;
+        if (!liveUpdateTimeout) {
+            liveUpdateTimeout = setTimeout(() => {
+                liveUpdateTimeout = null;
+                const latestData = queuedLiveUpdate;
+                queuedLiveUpdate = null;
+                if (latestData) {
+                    updateChartWithLiveData(latestData, symbol);
+                }
+            }, CHART_UPDATE_DEBOUNCE_DELAY);
+        }
         return;
     }
 
@@ -4002,10 +4156,20 @@ function updateChartWithLiveData(dataPoint, symbol) {
         return;
     }
 
+    // DEBUG: Log trace update details
+    console.log('[DEBUG] Live update for', {
+        symbol: symbol || 'unknown',
+        timestamp: timestamp.toISOString(),
+        livePrice,
+        isNewCandle,
+        existingTraceType: trace.type,
+        existingTracePoints: trace.x ? trace.x.length : 0,
+        lastClose: trace.close ? trace.close[trace.close.length - 1] : 'N/A'
+    });
+
     try {
         if (isNewCandle) {
             // Add new candle
-            // console.log('[CHART_UPDATE] combinedData.js live data - adding new candle at', new Date().toISOString());
             const ohlc = dataPoint.ohlc || {};
             const newData = {
                 x: [[timestamp]],
@@ -4015,32 +4179,74 @@ function updateChartWithLiveData(dataPoint, symbol) {
                 close: [[ohlc.close || livePrice]]
             };
 
+            console.log('[DEBUG] Extending trace with new candle', newData);
             Plotly.extendTraces(gd, newData, [priceTraceIndex]);
-            // console.log('[CHART_UPDATE] combinedData.js live data - new candle added');
         } else {
             // Update existing candle
-            // console.log('[CHART_UPDATE] combinedData.js live data - updating existing candle at', new Date().toISOString());
             const ohlc = dataPoint.ohlc || {};
+
+            // Store original values for comparison
+            const originalHigh = trace.high[trace.high.length - 1];
+            const originalLow = trace.low[trace.low.length - 1];
+            const originalClose = trace.close[trace.close.length - 1];
+
+            // Update high with consideration for live price
+            let newHigh = originalHigh;
             if (ohlc.high !== undefined) {
-                trace.high[trace.high.length - 1] = Math.max(trace.high[trace.high.length - 1], ohlc.high);
+                newHigh = Math.max(newHigh, ohlc.high);
             }
+            // Always consider live price for high update
+            newHigh = Math.max(newHigh, livePrice);
+            trace.high[trace.high.length - 1] = newHigh;
+
+            // Update low with consideration for live price
+            let newLow = originalLow;
             if (ohlc.low !== undefined) {
-                trace.low[trace.low.length - 1] = Math.min(trace.low[trace.low.length - 1], ohlc.low);
+                newLow = Math.min(newLow, ohlc.low);
             }
-            if (ohlc.close !== undefined) {
-                trace.close[trace.close.length - 1] = ohlc.close;
-            } else {
-                trace.close[trace.close.length - 1] = livePrice;
+            // Always consider live price for low update
+            newLow = Math.min(newLow, livePrice);
+            trace.low[trace.low.length - 1] = newLow;
+
+            // Update close - either use OHLC close if provided, or live price
+            const newClose = ohlc.close !== undefined ? ohlc.close : livePrice;
+            trace.close[trace.close.length - 1] = newClose;
+
+
+            // Update the trace data arrays (this should directly affect the chart)
+            trace.high[trace.high.length - 1] = newHigh;
+            trace.low[trace.low.length - 1] = newLow;
+            trace.close[trace.close.length - 1] = newClose;
+
+            // Force a chart redraw by triggering a data update
+            try {
+                // Use Plotly.restyle to update the candlestick data
+                const updateData = {
+                    high: [trace.high],
+                    low: [trace.low],
+                    close: [trace.close]
+                };
+
+                Plotly.restyle(gd, updateData, [priceTraceIndex]).then(() => {
+                }).catch((error) => {
+                    console.warn('⚠️ Restyle failed, trying react fallback:', error);
+                    // Fallback to Plotly.react
+                    const layoutWithShapes = { ...gd.layout };
+                    if (gd.layout && gd.layout.shapes) {
+                        layoutWithShapes.shapes = gd.layout.shapes;
+                    }
+                    Plotly.react(gd, gd.data, layoutWithShapes);
+                });
+            } catch (error) {
+                console.error('❌ Error during candlestick restyle:', error);
+                // Final fallback
+                const layoutWithShapes = { ...gd.layout };
+                if (gd.layout && gd.layout.shapes) {
+                    layoutWithShapes.shapes = gd.layout.shapes;
+                }
+                Plotly.react(gd, gd.data, layoutWithShapes);
             }
 
-            // Preserve shapes when updating live data
-            const layoutWithShapes = { ...gd.layout };
-            if (gd.layout && gd.layout.shapes) {
-                layoutWithShapes.shapes = gd.layout.shapes;
-            }
-
-            Plotly.react(gd, gd.data, layoutWithShapes);
-            // console.log('[CHART_UPDATE] combinedData.js live data - existing candle updated');
         }
     } finally {
         // Always release the lock
@@ -4048,9 +4254,8 @@ function updateChartWithLiveData(dataPoint, symbol) {
     }
 
     // Update price line if it exists
-    updateOrAddRealtimePriceLine(gd, price, timestamp.getTime(), timestamp.getTime() + (getTimeframeSecondsJS(combinedResolution) * 1000));
+    // updateOrAddRealtimePriceLine(gd, price, timestamp.getTime(), timestamp.getTime() + (getTimeframeSecondsJS(combinedResolution) * 1000));
 
-    // console.log(`Combined WebSocket: Updated live data for ${symbol} at ${timestamp.toISOString()}`);
 }
 
 function closeCombinedWebSocket(reason = "Closing WebSocket") {
@@ -4077,7 +4282,7 @@ function closeCombinedWebSocket(reason = "Closing WebSocket") {
             connectionId
         });
 
-        combinedWebSocket = null;
+        combinedWebSocket = window.combinedWebSocket = null;
     }
 
     // Reset all state variables
@@ -4106,7 +4311,6 @@ function closeCombinedWebSocket(reason = "Closing WebSocket") {
 }
 
 function updateCombinedIndicators(newIndicators) {
-    // console.log('Combined WebSocket: Updating indicators from', combinedIndicators, 'to', newIndicators);
 
     const oldIndicators = [...combinedIndicators];
     combinedIndicators = newIndicators;
@@ -4121,7 +4325,6 @@ function updateCombinedIndicators(newIndicators) {
 
     // Calculate new indicators client-side for immediate display
     if (newIndicatorIds.length > 0) {
-        // console.log('Combined WebSocket: Calculating new indicators client-side:', newIndicatorIds);
         calculateIndicatorsClientSide(newIndicatorIds);
     }
 
@@ -4133,18 +4336,15 @@ function calculateIndicatorsClientSide(newIndicatorIds) {
     // Calculate indicators client-side using existing chart data for immediate display
     const chartElement = document.getElementById('chart');
     if (!chartElement || !window.gd || !window.gd.data) {
-        // console.log('Combined WebSocket: No chart data available for client-side calculation');
         return;
     }
 
     // Get existing OHLC data from the chart
     const priceTrace = window.gd.data.find(trace => trace.type === 'candlestick');
     if (!priceTrace) {
-        // console.log('Combined WebSocket: No price data available for indicator calculation');
         return;
     }
 
-    // console.log('Combined WebSocket: Calculating indicators client-side for:', newIndicatorIds);
 
     // Extract OHLC data
     const closes = priceTrace.close || [];
@@ -4154,7 +4354,6 @@ function calculateIndicatorsClientSide(newIndicatorIds) {
     const timestamps = priceTrace.x || [];
 
     if (closes.length === 0) {
-        // console.log('Combined WebSocket: Insufficient data for indicator calculation');
         return;
     }
 
@@ -4179,7 +4378,6 @@ function calculateIndicatorsClientSide(newIndicatorIds) {
         const updatedLayout = createLayoutForIndicators([...new Set([...getCurrentActiveIndicators(), ...newIndicatorIds])], getCurrentActiveIndicators());
 
         Plotly.react(chartElement, updatedData, updatedLayout);
-        // console.log(`Combined WebSocket: Added ${calculatedTraces.length} client-side calculated traces`);
     }
 }
 
@@ -4284,7 +4482,6 @@ function calculateIndicator(indicatorId, timestamps, opens, highs, lows, closes,
             break;
 
         default:
-            // console.log(`Combined WebSocket: Client-side calculation not implemented for ${indicatorId}`);
     }
 
     return traces;
@@ -4301,6 +4498,50 @@ function calculateRSI(closes, period = 14) {
         gains.push(change > 0 ? change : 0);
         losses.push(change < 0 ? Math.abs(change) : 0);
     }
+
+    const ema = [];
+    const multiplier = 2 / (period + 1);
+
+    // First EMA value is SMA
+    let sum = 0;
+    for (let i = 0; i < period; i++) {
+        sum += values[i];
+    }
+    ema.push(sum / period);
+
+    // Calculate remaining EMA values
+    for (let i = period; i < values.length; i++) {
+        const currentEMA = (values[i] - ema[ema.length - 1]) * multiplier + ema[ema.length - 1];
+        ema.push(currentEMA);
+    }
+
+    return ema;
+}
+
+function calculateMACD(closes, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
+    const fastEMA = calculateEMA(closes, fastPeriod);
+    const slowEMA = calculateEMA(closes, slowPeriod);
+
+    const macd = [];
+    const minLength = Math.min(fastEMA.length, slowEMA.length);
+
+    for (let i = 0; i < minLength; i++) {
+        macd.push(fastEMA[i] - slowEMA[i]);
+    }
+
+    const signal = calculateEMA(macd, signalPeriod);
+    const histogram = [];
+
+    const histMinLength = Math.min(macd.length, signal.length);
+    for (let i = 0; i < histMinLength; i++) {
+        histogram.push(macd[i] - signal[i]);
+    }
+
+    return { macd, signal, histogram };
+}
+
+function calculateEMA(values, period) {
+    if (values.length < period) return [];
 
     const rsi = [];
     let avgGain = gains.slice(0, period).reduce((sum, gain) => sum + gain, 0) / period;
@@ -4375,19 +4616,14 @@ function calculateEMA(values, period) {
 function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
     const chartElement = document.getElementById('chart');
     if (!chartElement || !window.gd || !window.gd.data) {
-        // console.log('Combined WebSocket: Chart not ready for indicator update');
         return;
     }
 
     const currentData = window.gd.data;
     if (!currentData || currentData.length === 0) {
-        // console.log('Combined WebSocket: No chart data available for indicator update');
         return;
     }
 
-    console.log('🎯 INDICATOR DISPLAY UPDATE: Chart layout update for indicator changes');
-    console.log('🎯 INDICATOR DISPLAY UPDATE: oldIndicators:', oldIndicators);
-    console.log('🎯 INDICATOR DISPLAY UPDATE: newIndicators:', newIndicators);
 
     // Find the price trace (candlestick)
     const priceTraceIndex = currentData.findIndex(trace => trace.type === 'candlestick');
@@ -4403,8 +4639,6 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
     const indicatorsToAdd = newIndicators.filter(ind => !oldIndicators.includes(ind));
     const indicatorsToRemove = oldIndicators.filter(ind => !newIndicators.includes(ind));
 
-    console.log('🎯 INDICATOR DISPLAY UPDATE: indicatorsToAdd:', indicatorsToAdd);
-    console.log('🎯 INDICATOR DISPLAY UPDATE: indicatorsToRemove:', indicatorsToRemove);
 
     // Start with price trace
     let updatedTraces = [priceTrace];
@@ -4413,10 +4647,6 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
     const tracesByIndicator = {};
 
     // DEBUG: Log which indicators are being added vs kept
-    console.log('🎯 INDICATOR DISPLAY UPDATE: CTO_LINE DEBUG - CTO line in oldIndicators:', oldIndicators.includes('cto_line'));
-    console.log('🎯 INDICATOR DISPLAY UPDATE: CTO_LINE DEBUG - CTO line in newIndicators:', newIndicators.includes('cto_line'));
-    console.log('🎯 INDICATOR DISPLAY UPDATE: CTO_LINE DEBUG - CTO line in indicatorsToAdd:', indicatorsToAdd.includes('cto_line'));
-    console.log('🎯 INDICATOR DISPLAY UPDATE: CTO_LINE DEBUG - CTO line in indicatorsToRemove:', indicatorsToRemove.includes('cto_line'));
 
     // First pass: group traces by indicator
     currentIndicatorTraces.forEach(trace => {
@@ -4447,9 +4677,7 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
                 tracesByIndicator[traceIndicatorId] = [];
             }
             tracesByIndicator[traceIndicatorId].push(trace);
-            console.log(`🎯 INDICATOR DISPLAY UPDATE: Keeping trace ${trace.name} for indicator ${traceIndicatorId}`);
         } else {
-            console.log(`🎯 INDICATOR DISPLAY UPDATE: Removing trace ${trace.name} (indicator ${traceIndicatorId} not selected or not found)`);
         }
     });
 
@@ -4457,36 +4685,30 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
     const forcedIndicatorOrder = ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10', 'open_interest', 'jma', 'cto_line'];
     const activeIndicatorIds = forcedIndicatorOrder.filter(indicatorId => newIndicators.includes(indicatorId));
 
-    console.log('🎯 INDICATOR DISPLAY UPDATE: FORCED ORDER activeIndicatorIds:', activeIndicatorIds);
 
     // Second pass: assign y-axes based on active indicators order
     activeIndicatorIds.forEach((indicatorId, index) => {
         const yAxisName = `y${index + 2}`; // y2, y3, y4, etc. in correct order
         const indicatorTraces = tracesByIndicator[indicatorId] || [];
 
-        console.log(`🎯 INDICATOR DISPLAY UPDATE: Assigning ${indicatorId} to ${yAxisName} (index ${index})`);
 
         if (indicatorTraces.length > 0) {
             // Assign existing traces to their y-axis
             indicatorTraces.forEach(trace => {
                 trace.yaxis = yAxisName;
                 updatedTraces.push(trace);
-                console.log(`🎯 INDICATOR DISPLAY UPDATE: Assigned ${trace.name} to ${yAxisName}`);
             });
         } else {
             // SPECIAL HANDLING: For CTO line when being re-enabled, restore stored traces if available
             if (indicatorId === 'cto_line' && indicatorsToAdd.includes('cto_line')) {
                 if (storedCTOTraces && storedCTOTraces.length === 2) {
-                    console.log(`🎯 INDICATOR DISPLAY UPDATE: CTO LINE RE-ENABLED - Restoring stored traces`);
 
                     // Restore the stored CTO traces and assign correct y-axis
                     const restoredUpper = { ...storedCTOTraces[0], yaxis: yAxisName };
                     const restoredLower = { ...storedCTOTraces[1], yaxis: yAxisName };
 
                     updatedTraces.push(restoredUpper, restoredLower);
-                    console.log(`🎯 INDICATOR DISPLAY UPDATE: Restored CTO line traces (${storedCTOTraces[0].x ? storedCTOTraces[0].x.length : 0} data points)`);
                 } else {
-                    console.log(`🎯 INDICATOR DISPLAY UPDATE: CTO LINE RE-ENABLED - Creating placeholder traces (no stored data available)`);
 
                     // Create minimal placeholder traces for CTO line with empty data
                     // These will be replaced when actual WebSocket data arrives
@@ -4518,16 +4740,12 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
 
                     updatedTraces.push(placeholderCTOUpper);
                     updatedTraces.push(placeholderCTOLower);
-                    console.log(`🎯 INDICATOR DISPLAY UPDATE: Added placeholder CTO line traces`);
                 }
             } else {
-                console.log(`🎯 INDICATOR DISPLAY UPDATE: No traces yet for ${indicatorId} - will wait for WebSocket data`);
             }
         }
     });
 
-    console.log('🎯 INDICATOR DISPLAY UPDATE: Updated traces count:', updatedTraces.length);
-    console.log('🎯 INDICATOR DISPLAY UPDATE: Traces by name:', updatedTraces.map(t => t.name));
 
     // Create layout for updated traces with correct domain ordering
     const layout = createLayoutForIndicators(activeIndicatorIds, Object.keys(tracesByIndicator));
@@ -4535,21 +4753,17 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
     // Preserve existing shapes when updating indicators
     if (window.gd && window.gd.layout && window.gd.layout.shapes) {
         layout.shapes = window.gd.layout.shapes;
-        console.log('🎨 DRAWINGS: Preserving', window.gd.layout.shapes.length, 'existing shapes during indicator update');
     }
 
     // Update the chart layout immediately
-    console.log('🎯 INDICATOR DISPLAY UPDATE: About to call Plotly.react with updated layout');
+    // This call creates new layout domains for the updated active indicators
     Plotly.react(chartElement, updatedTraces, layout);
-    console.log('🎯 INDICATOR DISPLAY UPDATE: Chart layout updated successfully');
 
     // NOTE: updateCombinedIndicators already called this function, avoid recursive call
 
     // CRITICAL: Immediately notify backend and wait for indicator data response
     if (combinedWebSocket && combinedWebSocket.readyState === WebSocket.OPEN) {
-        console.log('🎯 INDICATOR DISPLAY UPDATE: Sending immediate config to backend for indicator changes');
         sendCombinedConfig();
-        console.log('🎯 INDICATOR DISPLAY UPDATE: Config sent - backend will respond with updated indicator data');
     } else {
         console.warn('🎯 INDICATOR DISPLAY UPDATE: WebSocket not available - reloading chart');
         // Fallback: Reload chart with available data
@@ -4558,12 +4772,20 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
         }
     }
 
-    console.log('🎯 INDICATOR DISPLAY UPDATE: Indicator display update complete');
 }
 
 function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) {
     // Populate activeIndicatorsState with the correct yAxisRef mapping
     window.populateActiveIndicatorsState(activeIndicatorIds);
+
+    // Calculate price chart height here, before creating the layout
+    let priceChartHeight = 1;
+    if (activeIndicatorIds.length > 0) {
+        const numIndicators = activeIndicatorIds.length;
+        const priceChartProportion = 3; // Price chart is 3 parts
+        const totalProportions = priceChartProportion + numIndicators;
+        priceChartHeight = priceChartProportion / totalProportions;
+    }
 
     const baseLayout = {
         title: `${combinedSymbol} - ${combinedResolution.toUpperCase()}`,
@@ -4593,11 +4815,12 @@ function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
             showticklabels: true,
             showgrid: true,
             side: 'left',
-            domain: activeIndicatorIds.length > 0 ? [0, (3 / (3 + activeIndicatorIds.length))] : [0, 1] // Set explicit domain for price chart
+            // Price chart should be at the BOTTOM, so its domain starts from 0
+            domain: activeIndicatorIds.length > 0 ? [0, priceChartHeight] : [0, 1]
         },
         showlegend: false,
         hovermode: 'x unified',
-        margin: { l: 50, r: 10, b: 20, t: 40 }
+        margin: { l: 50, r: 10, b: 80, t: 40 } // Increased bottom margin to 80px for session shapes below chart
     };
 
     if (activeIndicatorIds.length > 0) {
@@ -4625,7 +4848,6 @@ function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
             vertical_spacing: 0.05
         };
 
-        console.log(`DEBUG: Grid created with ${rowHeights.length} rows, vertical_spacing: 0.05`);
 
         // Add background colors to even indicators
         baseLayout.shapes = baseLayout.shapes || [];
@@ -4701,14 +4923,11 @@ function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
                 overlaying: 'x' // CRITICAL FIX: Overlay on the main x-axis
             };
 
-            console.log(`DEBUG: ${indicatorId} y-axis created with domain [${indicatorDomainStart.toFixed(3)}, ${indicatorDomainEnd.toFixed(3)}]`);
         });
 
         // Domain coverage handled by explicit domain settings for each y-axis
-        console.log(`DEBUG: Domain coverage handled by explicit domain settings`);
     } else {
         // No indicators - let Plotly handle domain automatically
-        console.log(`DEBUG: No indicators, domain handled automatically`);
     }
 
 
@@ -4716,6 +4935,238 @@ function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
 }
 
 
+
+function updateChartWithLiveData(dataPoint, symbol) {
+    if (!dataPoint) {
+        console.warn('Combined WebSocket: No live data point to process');
+        return;
+    }
+
+    // Safely extract live price for validation with comprehensive fallbacks
+    let livePrice = null;
+
+    // First try OHLC close price
+    if (dataPoint.ohlc && typeof dataPoint.ohlc.close === 'number' && !isNaN(dataPoint.ohlc.close)) {
+        livePrice = dataPoint.ohlc.close;
+    }
+    // Then try direct close property
+    else if (typeof dataPoint.close === 'number' && !isNaN(dataPoint.close)) {
+        livePrice = dataPoint.close;
+    }
+    // Then try direct price property
+    else if (typeof dataPoint.price === 'number' && !isNaN(dataPoint.price)) {
+        livePrice = dataPoint.price;
+    }
+    // Backend sometimes sends "live_price" property
+    else if (typeof dataPoint.live_price === 'number' && !isNaN(dataPoint.live_price)) {
+        livePrice = dataPoint.live_price;
+    }
+
+    if (livePrice === null || typeof livePrice !== 'number' || isNaN(livePrice)) {
+        console.warn('🔴 Combined WebSocket: Invalid live price:', livePrice, {
+            dataPointKeys: dataPoint ? Object.keys(dataPoint) : 'dataPoint is null/undefined',
+            ohlcExists: !!(dataPoint && dataPoint.ohlc),
+            ohlcKeys: dataPoint && dataPoint.ohlc ? Object.keys(dataPoint.ohlc) : null,
+            hasClose: !!(dataPoint && dataPoint.close),
+            closeType: dataPoint && dataPoint.close ? typeof dataPoint.close : null,
+            hasPrice: !!(dataPoint && dataPoint.price),
+            priceType: dataPoint && dataPoint.price ? typeof dataPoint.price : null
+        });
+        return;
+    }
+
+    const gd = document.getElementById('chart');
+    if (!gd || !gd.data) {
+        // console.warn('Combined WebSocket: Chart not ready for live update');
+        return;
+    }
+
+    // Check if chart update is locked
+    if (isChartUpdateLocked()) {
+        console.warn('🔒 Chart update locked, queuing live data update');
+        // Queue the latest live update, replacing any previous queued live update
+        queuedLiveUpdate = dataPoint;
+        if (!liveUpdateTimeout) {
+            liveUpdateTimeout = setTimeout(() => {
+                liveUpdateTimeout = null;
+                const latestData = queuedLiveUpdate;
+                queuedLiveUpdate = null;
+                if (latestData) {
+                    updateChartWithLiveData(latestData, symbol);
+                }
+            }, CHART_UPDATE_DEBOUNCE_DELAY);
+        }
+        return;
+    }
+
+    // Safe timestamp conversion with validation
+    let timestamp;
+    if (dataPoint.time && !isNaN(dataPoint.time) && dataPoint.time > 0) {
+        try {
+            timestamp = new Date(dataPoint.time * 1000);
+            if (isNaN(timestamp.getTime())) {
+                console.warn(`⚠️ Invalid timestamp in live data:`, dataPoint.time);
+                return;
+            }
+        } catch(e) {
+            console.warn(`⚠️ Error converting timestamp in live data:`, dataPoint.time);
+            return;
+        }
+    } else {
+        console.warn(`⚠️ Invalid or missing timestamp in live data:`, dataPoint.time);
+        return;
+    }
+
+    // Safely extract price with fallback for different data structures
+    const price = (dataPoint.ohlc && dataPoint.ohlc.close) ? dataPoint.ohlc.close :
+                  (dataPoint.close !== undefined ? dataPoint.close :
+                  (dataPoint.price !== undefined ? dataPoint.price :
+                  (dataPoint.live_price !== undefined ? dataPoint.live_price : null)));
+
+    // Find the candlestick trace
+    const priceTraceIndex = gd.data.findIndex(trace => trace.type === 'candlestick');
+    if (priceTraceIndex === -1) {
+        // console.warn('Combined WebSocket: Could not find candlestick trace');
+        return;
+    }
+
+    const trace = gd.data[priceTraceIndex];
+
+    // ALWAYS update the latest candle - no timestamp checking
+    // This ensures live price updates always affect the most recent candle
+
+    // Acquire chart update lock
+    if (!acquireChartUpdateLock()) {
+        console.warn('🔒 Could not acquire chart update lock for live data');
+        return;
+    }
+
+    // Check if this timestamp should create a new candle or if we have data
+    const hasExistingCandles = trace.x && trace.x.length > 0;
+    const lastTimestamp = hasExistingCandles ? trace.x[trace.x.length - 1] : null;
+
+    // DEBUG: Log trace update details
+    console.log('[DEBUG] Live update for', {
+        symbol: symbol || 'unknown',
+        timestamp: timestamp.toISOString(),
+        livePrice,
+        hasExistingCandles,
+        existingTraceType: trace.type,
+        existingTracePoints: trace.x ? trace.x.length : 0,
+        lastClose: trace.close ? trace.close[trace.close.length - 1] : 'N/A'
+    });
+
+    try {
+        if (!hasExistingCandles) {
+            // No candles yet - create first candle
+            console.log('[DEBUG] Creating first candle from live data');
+            const ohlc = dataPoint.ohlc || {};
+            trace.x.push(timestamp);
+            trace.open.push(ohlc.open || livePrice);
+            trace.high.push(ohlc.high || livePrice);
+            trace.low.push(ohlc.low || livePrice);
+            trace.close.push(ohlc.close || livePrice);
+            trace.volume = trace.volume || [];
+            trace.volume.push(ohlc.volume || 0);
+
+            const updateData = {
+                x: [trace.x],
+                open: [trace.open],
+                high: [trace.high],
+                low: [trace.low],
+                close: [trace.close],
+                volume: [trace.volume]
+            };
+
+            Plotly.restyle(gd, updateData, [priceTraceIndex]).then(() => {
+                console.log('[DEBUG] First candle created successfully:', timestamp.toISOString());
+            }).catch((error) => {
+                console.warn('⚠️ Restyle failed for first candle:', error);
+            });
+
+        } else {
+            // ALWAYS update the latest (most recent) candle
+            // This ensures live price updates are always visible on the current candle
+            const ohlc = dataPoint.ohlc || {};
+
+            // Store original values for comparison and updates
+            const originalHigh = trace.high[trace.high.length - 1];
+            const originalLow = trace.low[trace.low.length - 1];
+            const originalClose = trace.close[trace.close.length - 1];
+
+            // Update high with consideration for live price
+            let newHigh = originalHigh;
+            if (ohlc.high !== undefined) {
+                newHigh = Math.max(newHigh, ohlc.high);
+            }
+            // Always consider live price for high update
+            newHigh = Math.max(newHigh, livePrice);
+            trace.high[trace.high.length - 1] = newHigh;
+
+            // Update low with consideration for live price
+            let newLow = originalLow;
+            if (ohlc.low !== undefined) {
+                newLow = Math.min(newLow, ohlc.low);
+            }
+            // Always consider live price for low update
+            newLow = Math.min(newLow, livePrice);
+            trace.low[trace.low.length - 1] = newLow;
+
+            // Update close - either use OHLC close if provided, or live price
+            const newClose = ohlc.close !== undefined ? ohlc.close : livePrice;
+            trace.close[trace.close.length - 1] = newClose;
+
+            // Only update x timestamp if this is a different timeframe
+            const isNewTimeframe = lastTimestamp.getTime() !== timestamp.getTime();
+            if (isNewTimeframe) {
+                trace.x[trace.x.length - 1] = timestamp;
+            }
+
+            // Force a chart redraw by triggering a data update
+            try {
+                const updateData = {
+                    high: [trace.high],
+                    low: [trace.low],
+                    close: [trace.close]
+                };
+
+                // Include x update if timeframe changed
+                if (isNewTimeframe) {
+                    updateData.x = [trace.x];
+                }
+
+                Plotly.restyle(gd, updateData, [priceTraceIndex]).then(() => {
+                    console.log('[DEBUG] Latest candle updated successfully - timestamp:' +
+                        (isNewTimeframe ? 'changed' : 'unchanged'));
+                }).catch((error) => {
+                    console.warn('⚠️ Restyle failed, trying react fallback:', error);
+                    // Fallback to Plotly.react
+                    const layoutWithShapes = { ...gd.layout };
+                    if (gd.layout && gd.layout.shapes) {
+                        layoutWithShapes.shapes = gd.layout.shapes;
+                    }
+                    Plotly.react(gd, gd.data, layoutWithShapes);
+                });
+            } catch (error) {
+                console.error('❌ Error during candlestick restyle:', error);
+                // Final fallback
+                const layoutWithShapes = { ...gd.layout };
+                if (gd.layout && gd.layout.shapes) {
+                    layoutWithShapes.shapes = gd.layout.shapes;
+                }
+                Plotly.react(gd, gd.data, layoutWithShapes);
+            }
+
+        }
+    } finally {
+        // Always release the lock
+        releaseChartUpdateLock();
+    }
+
+    // Update price line if it exists
+    // updateOrAddRealtimePriceLine(gd, price, timestamp.getTime(), timestamp.getTime() + (getTimeframeSecondsJS(combinedResolution) * 1000));
+
+}
 
 function updateCombinedResolution(newResolution) {
     const oldResolution = combinedResolution;
@@ -4742,14 +5193,12 @@ function getTimeframeSecondsJS(timeframe) {
 window.addEventListener('resize', function() {
     const chartElement = document.getElementById('chart');
     if (chartElement && window.gd) {
-        // console.log('Window resized, triggering chart relayout for full height');
         Plotly.relayout(chartElement, { autosize: true });
     }
 });
 
 // Display buy signal details when clicked
 function displayBuySignalDetails(signalData) {
-    console.log('💰 BUY SIGNAL DETAILS:', signalData);
 
     // Create or update a modal/dialog to show buy signal details
     let modal = document.getElementById('buy-signal-modal');
@@ -4817,7 +5266,6 @@ function displayBuySignalDetails(signalData) {
 
     modal.style.display = 'block';
 
-    console.log('💰 Buy signal modal displayed');
 }
 
 // Make function globally available
@@ -4832,35 +5280,53 @@ window.setupWebSocketMessageHandler = setupWebSocketMessageHandler;
 window.mergeDataPoints = mergeDataPoints;
 window.mergeDataPointsWithIndicators = mergeDataPointsWithIndicators;
 window.createLayoutForIndicators = createLayoutForIndicators;
+function cleanupVolumeProfileForRectangle(rectangleId) {
+
+    if (!window.gd || !window.gd.data) {
+        console.warn('🧹 No chart data available for cleanup');
+        return false;
+    }
+
+    const initialTraceCount = window.gd.data.length;
+
+    // Filter out volume profile traces associated with this rectangle
+    // They have names like "VP-${rectangleId} Buy: price" or "VP-${rectangleId} Sell: price"
+    const filteredTraces = window.gd.data.filter(trace =>
+        !trace.name || !trace.name.includes(`VP-${rectangleId}`)
+    );
+
+    const removedCount = initialTraceCount - filteredTraces.length;
+
+    if (removedCount > 0) {
+
+        // Update the chart with filtered traces
+        Plotly.react(window.gd, filteredTraces, window.gd.layout).then(() => {
+        }).catch((error) => {
+            console.error(`❌ Error during volume profile cleanup:`, error);
+        });
+
+        return true;
+    } else {
+        return false;
+    }
+}
+
+window.cleanupVolumeProfileForRectangle = cleanupVolumeProfileForRectangle;
 
 // DEBUG: Add debugging function for chart diagnosis
 window.debugChartState = function() {
-    // console.log('🔍 CHART DEBUG INFORMATION:');
-    // console.log('Current WebSocket state:', combinedWebSocket ? combinedWebSocket.readyState : 'none');
 
     if (window.gd) {
-        // console.log('Chart exists with', window.gd.data ? window.gd.data.length : 0, 'traces');
         if (window.gd.data && window.gd.data.length > 0) {
             window.gd.data.forEach((trace, index) => {
-                // console.log(`Trace ${index} (${trace.name}): ${trace.x ? trace.x.length : 0} points`);
                 if (trace.x && trace.x.length > 0) {
-                    // console.log(`  First data point: ${trace.x[0]}`);
-                    // console.log(`  Last data point: ${trace.x[trace.x.length - 1]}`);
                 }
             });
         }
-        /* console.log('Chart layout:', {
-            xaxis: window.gd.layout.xaxis,
-            yaxis: window.gd.layout.yaxis
-        });
-        */
+
     } else {
-        // console.log('Chart (window.gd) does not exist');
     }
 
-    // console.log('Current axis ranges:');
-    // console.log('  X-axis:', window.currentXAxisRange);
-    // console.log('  Y-axis:', window.currentYAxisRange);
 
     return {
         websocket: combinedWebSocket ? combinedWebSocket.readyState : 'none',
@@ -4872,10 +5338,8 @@ window.debugChartState = function() {
 
 // DEBUG: Add function to check WebSocket message handler status
 window.checkWebSocketStatus = function() {
-    console.log('🔍 STATUS: Checking WebSocket connection status...');
 
     if (!combinedWebSocket) {
-        console.log('❌ STATUS: No WebSocket connection found');
         return { connected: false, readyState: 'none', hasHandler: false };
     }
 
@@ -4886,13 +5350,11 @@ window.checkWebSocketStatus = function() {
         url: combinedWebSocket.url
     };
 
-    console.log('✅ STATUS: WebSocket status:', status);
     return status;
 };
 
 // DEBUG: Add function to manually test historical data loading
 window.testHistoricalDataLoad = function() {
-    // console.log('🧪 TESTING HISTORICAL DATA LOAD...');
 
     // Check if we have a chart
     if (!window.gd) {
@@ -4902,28 +5364,23 @@ window.testHistoricalDataLoad = function() {
 
     // Check current data
     const currentDataPoints = window.gd.data && window.gd.data[0] ? window.gd.data[0].x.length : 0;
-    // console.log(`📊 Current chart has ${currentDataPoints} data points`);
 
     // Check axis ranges
     const xRange = window.gd.layout.xaxis.range;
     if (xRange) {
-        // console.log('📈 Current X-axis range:', xRange[0], 'to', xRange[1]);
     }
 
     // Simulate a pan to the left by calling the pan detection
-    // console.log('🎯 Simulating pan detection...');
     if (typeof window.testPanningDetection === 'function') {
         window.testPanningDetection();
     } else {
         // console.warn('⚠️ testPanningDetection function not found');
     }
 
-    // console.log('✅ Test completed. Check console for results.');
 };
 
 // DEBUG: Add chart rendering validation function
 window.validateChartRendering = function() {
-    // console.log('🔍 CHART RENDERING VALIDATION...');
 
     if (!window.gd) {
         // console.error('❌ No chart found (window.gd is undefined)');
@@ -4955,7 +5412,6 @@ window.validateChartRendering = function() {
             duration: xRange[1].getTime() - xRange[0].getTime(),
             durationHours: (xRange[1].getTime() - xRange[0].getTime()) / (1000 * 60 * 60)
         };
-        // console.log('📊 X-axis range validation:', validation.data.xAxisRange);
     } else {
         validation.warnings.push('No X-axis range set');
     }
@@ -4963,7 +5419,6 @@ window.validateChartRendering = function() {
     // Check Y-axis range
     if (window.gd.layout.yaxis.range) {
         validation.data.yAxisRange = window.gd.layout.yaxis.range;
-        // console.log('📊 Y-axis range validation:', validation.data.yAxisRange);
     } else {
         validation.warnings.push('No Y-axis range set');
     }
@@ -5042,12 +5497,6 @@ window.validateChartRendering = function() {
     }
 
     // Summary
-    // console.log('📋 VALIDATION SUMMARY:');
-    // console.log('  Valid:', validation.valid);
-    // console.log('  Errors:', validation.errors.length);
-    // console.log('  Warnings:', validation.warnings.length);
-    // console.log('  Data points:', validation.data.firstTracePoints || 0);
-    // console.log('  NaN percentage:', validation.data.nanStats ? validation.data.nanStats.nanPercentage + '%' : 'N/A');
 
     if (validation.errors.length > 0) {
         // console.error('❌ ERRORS:', validation.errors);
@@ -5062,11 +5511,6 @@ window.validateChartRendering = function() {
 
 // DEBUG: Add functions for testing the new synchronization features
 window.getMessageQueueStatus = function() {
-    console.log('📨 MESSAGE QUEUE STATUS:');
-    console.log('  Queue length:', messageQueue.length);
-    console.log('  Is processing:', isProcessingMessage);
-    console.log('  Chart update locked:', chartUpdateLock);
-    console.log('  Queue contents:', messageQueue.map(msg => msg.type));
     return {
         queueLength: messageQueue.length,
         isProcessing: isProcessingMessage,
@@ -5077,14 +5521,11 @@ window.getMessageQueueStatus = function() {
 
 // DEBUG: Comprehensive chart inspection for data overlapping issues
 window.inspectChartData = function() {
-    console.log('🔍 CHART DATA INSPECTION:');
     if (!window.gd || !window.gd.data) {
-        console.log('❌ No chart data available');
         return { error: 'No chart data' };
     }
 
     const traces = window.gd.data;
-    console.log(`📊 Total traces: ${traces.length}`);
 
     const inspection = {
         totalTraces: traces.length,
@@ -5106,9 +5547,6 @@ window.inspectChartData = function() {
         };
 
         inspection.traces.push(traceInfo);
-        console.log(`  Trace ${index}: ${trace.name} (${trace.type}) - ${traceInfo.dataPoints} points on ${trace.yaxis}`);
-        console.log(`    Time range: ${traceInfo.firstTimestamp} to ${traceInfo.lastTimestamp}`);
-        console.log(`    Y range: ${traceInfo.yRange ? traceInfo.yRange.join(' to ') : 'N/A'}`);
     });
 
     // Check for overlapping issues
@@ -5136,16 +5574,12 @@ window.inspectChartData = function() {
         inspection.overlappingDetected = true;
     }
 
-    console.log('🚨 ISSUES DETECTED:', inspection.issues.length);
-    inspection.issues.forEach(issue => console.log(`  ❌ ${issue}`));
 
     return inspection;
 };
 
 // DEBUG: Comprehensive diagnostic report for data overlapping issues
 window.diagnoseDataOverlapping = function() {
-    console.log('🔬 COMPREHENSIVE DATA OVERLAPPING DIAGNOSIS');
-    console.log('='.repeat(50));
 
     const diagnosis = {
         timestamp: new Date().toISOString(),
@@ -5155,7 +5589,6 @@ window.diagnoseDataOverlapping = function() {
     };
 
     // 1. Chart data inspection
-    console.log('\n1️⃣ CHART DATA INSPECTION:');
     const chartInspection = window.inspectChartData();
     if (chartInspection.overlappingDetected) {
         diagnosis.issues.push(...chartInspection.issues);
@@ -5163,7 +5596,6 @@ window.diagnoseDataOverlapping = function() {
     }
 
     // 2. Data merging analysis
-    console.log('\n2️⃣ DATA MERGING ANALYSIS:');
     const dataAnalysis = window.analyzeDataMerging();
     if (dataAnalysis.duplicates > 0) {
         diagnosis.issues.push(`Found ${dataAnalysis.duplicates} duplicate timestamps`);
@@ -5174,7 +5606,6 @@ window.diagnoseDataOverlapping = function() {
     }
 
     // 3. Layout inspection
-    console.log('\n3️⃣ LAYOUT INSPECTION:');
     const layoutInspection = window.inspectLayout();
     if (layoutInspection.issues.length > 0) {
         diagnosis.issues.push(...layoutInspection.issues);
@@ -5182,51 +5613,26 @@ window.diagnoseDataOverlapping = function() {
     }
 
     // 4. WebSocket status
-    console.log('\n4️⃣ WEBSOCKET STATUS:');
     const wsStatus = window.checkWebSocketStatus();
-    console.log(`  Connected: ${wsStatus.connected}`);
-    console.log(`  State: ${wsStatus.readyState}`);
-    console.log(`  Has handler: ${wsStatus.hasHandler}`);
 
     // 5. Current state
-    console.log('\n5️⃣ CURRENT STATE:');
-    console.log(`  Symbol: ${combinedSymbol}`);
-    console.log(`  Resolution: ${combinedResolution}`);
-    console.log(`  Indicators: ${JSON.stringify(combinedIndicators)}`);
-    console.log(`  Time range: ${combinedFromTs} to ${combinedToTs}`);
 
     // 6. Message queue status
-    console.log('\n6️⃣ MESSAGE QUEUE STATUS:');
     const queueStatus = window.getMessageQueueStatus();
-    console.log(`  Queue length: ${queueStatus.queueLength}`);
-    console.log(`  Processing: ${queueStatus.isProcessing}`);
-    console.log(`  Chart locked: ${queueStatus.chartLocked}`);
 
     // Summary and recommendations
-    console.log('\n📋 SUMMARY:');
-    console.log(`  Total issues found: ${diagnosis.issues.length}`);
-    console.log(`  Severity: ${diagnosis.severity}`);
 
     if (diagnosis.issues.length > 0) {
-        console.log('\n🚨 ISSUES FOUND:');
         diagnosis.issues.forEach((issue, index) => {
-            console.log(`  ${index + 1}. ${issue}`);
         });
     }
 
     if (diagnosis.recommendations.length > 0) {
-        console.log('\n💡 RECOMMENDATIONS:');
         diagnosis.recommendations.forEach((rec, index) => {
-            console.log(`  ${index + 1}. ${rec}`);
         });
     }
 
     // Quick fix suggestions
-    console.log('\n🔧 QUICK FIXES TO TRY:');
-    console.log('  1. Run: window.clearChartData() - Clear all chart data');
-    console.log('  2. Run: window.forceReloadChart() - Force chart reload');
-    console.log('  3. Run: window.resetWebSocket() - Reset WebSocket connection');
-    console.log('  4. Check browser console for detailed error messages');
 
     return diagnosis;
 };
@@ -5234,16 +5640,12 @@ window.diagnoseDataOverlapping = function() {
 // DEBUG: Quick fix functions
 window.clearChartData = function() {
     if (window.gd) {
-        console.log('🧹 Clearing all chart data...');
         Plotly.react(window.gd, [], window.gd.layout || {});
-        console.log('✅ Chart data cleared');
     } else {
-        console.log('❌ No chart available to clear');
     }
 };
 
 window.forceReloadChart = function() {
-    console.log('🔄 Forcing chart reload...');
     if (window.gd) {
         // Clear and reinitialize
         Plotly.react(window.gd, [], {});
@@ -5251,59 +5653,43 @@ window.forceReloadChart = function() {
         if (combinedSymbol) {
             setupCombinedWebSocket(combinedSymbol, combinedIndicators, combinedResolution, combinedFromTs, combinedToTs);
         }
-        console.log('✅ Chart reload initiated');
     } else {
-        console.log('❌ No chart available to reload');
     }
 };
 
 window.resetWebSocket = function() {
-    console.log('🔌 Resetting WebSocket connection...');
     closeCombinedWebSocket("Manual reset for debugging");
     setTimeout(() => {
         if (combinedSymbol) {
             setupCombinedWebSocket(combinedSymbol, combinedIndicators, combinedResolution, combinedFromTs, combinedToTs);
-            console.log('✅ WebSocket reset complete');
         }
     }, 1000);
 };
 
 // DEBUG: Test data clearing on resolution changes
 window.testResolutionChangeDataClearing = function() {
-    console.log('🧪 TESTING RESOLUTION CHANGE DATA CLEARING');
 
     // Get current state
     const originalResolution = combinedResolution;
     const originalDataCount = window.gd && window.gd.data ? window.gd.data.length : 0;
 
-    console.log(`📊 Before resolution change:`);
-    console.log(`  Resolution: ${originalResolution}`);
-    console.log(`  Data traces: ${originalDataCount}`);
 
     // Simulate resolution change from 1h to 1d
     const newResolution = originalResolution === '1h' ? '1d' : '1h';
-    console.log(`🔄 Simulating resolution change: ${originalResolution} → ${newResolution}`);
 
     // Check if chart data is cleared (this should happen in main.js resolution change handler)
     setTimeout(() => {
         const afterDataCount = window.gd && window.gd.data ? window.gd.data.length : 0;
-        console.log(`📊 After resolution change:`);
-        console.log(`  Data traces: ${afterDataCount}`);
 
         if (afterDataCount === 0) {
-            console.log('✅ Chart data was properly cleared');
         } else if (afterDataCount === originalDataCount) {
-            console.log('⚠️ Chart data was NOT cleared - this could cause overlapping');
         } else {
-            console.log('🤔 Chart data partially cleared - investigate further');
         }
 
         // Test WebSocket config update
         if (combinedWebSocket && combinedWebSocket.readyState === WebSocket.OPEN) {
-            console.log('🔌 WebSocket is connected, testing config update...');
             sendCombinedConfig(originalResolution); // Pass old resolution to test change detection
         } else {
-            console.log('❌ WebSocket not connected');
         }
     }, 100);
 
@@ -5317,7 +5703,6 @@ window.testResolutionChangeDataClearing = function() {
 
 // DEBUG: Monitor chart updates for overlapping
 window.monitorChartUpdates = function(duration = 30000) {
-    console.log(`👀 MONITORING CHART UPDATES for ${duration / 1000} seconds`);
 
     let updateCount = 0;
     let lastTraceCount = window.gd && window.gd.data ? window.gd.data.length : 0;
@@ -5325,7 +5710,6 @@ window.monitorChartUpdates = function(duration = 30000) {
 
     const monitorInterval = setInterval(() => {
         if (!window.gd || !window.gd.data) {
-            console.log('❌ Chart not available for monitoring');
             clearInterval(monitorInterval);
             return;
         }
@@ -5334,12 +5718,10 @@ window.monitorChartUpdates = function(duration = 30000) {
         updateCount++;
 
         if (currentTraceCount !== lastTraceCount) {
-            console.log(`📊 Update ${updateCount}: Trace count changed from ${lastTraceCount} to ${currentTraceCount}`);
 
             // Check for potential overlapping
             const priceTraces = window.gd.data.filter(t => t.type === 'candlestick');
             if (priceTraces.length > 1) {
-                console.log('🚨 OVERLAPPING DETECTED: Multiple price traces!');
                 overlappingDetected = true;
             }
 
@@ -5350,9 +5732,6 @@ window.monitorChartUpdates = function(duration = 30000) {
     // Stop monitoring after duration
     setTimeout(() => {
         clearInterval(monitorInterval);
-        console.log(`🏁 MONITORING COMPLETE:`);
-        console.log(`  Total updates detected: ${updateCount}`);
-        console.log(`  Overlapping detected: ${overlappingDetected}`);
     }, duration);
 
     return {
@@ -5364,15 +5743,12 @@ window.monitorChartUpdates = function(duration = 30000) {
 
 // DEBUG: Check data merging logic for duplicates and overlaps
 window.analyzeDataMerging = function() {
-    console.log('🔄 DATA MERGING ANALYSIS:');
     if (!window.gd || !window.gd.data) {
-        console.log('❌ No chart data available');
         return { error: 'No chart data' };
     }
 
     const priceTrace = window.gd.data.find(t => t.type === 'candlestick');
     if (!priceTrace || !priceTrace.x) {
-        console.log('❌ No price data available');
         return { error: 'No price data' };
     }
 
@@ -5407,21 +5783,13 @@ window.analyzeDataMerging = function() {
         }
     }
 
-    console.log(`📊 Data Analysis Results:`);
-    console.log(`  Total data points: ${analysis.totalPoints}`);
-    console.log(`  Duplicate timestamps: ${analysis.duplicates}`);
-    console.log(`  Data gaps: ${analysis.gaps}`);
-    console.log(`  Time range: ${analysis.timeRange.start} to ${analysis.timeRange.end}`);
-    console.log(`  Expected interval: ${expectedInterval}ms (${expectedInterval / 1000}s)`);
 
     return analysis;
 };
 
 // DEBUG: Inspect subplot layout for overlapping issues
 window.inspectLayout = function() {
-    console.log('📐 LAYOUT INSPECTION:');
     if (!window.gd || !window.gd.layout) {
-        console.log('❌ No chart layout available');
         return { error: 'No layout' };
     }
 
@@ -5460,13 +5828,8 @@ window.inspectLayout = function() {
         }
     });
 
-    console.log(`📊 Layout Analysis:`);
-    console.log(`  Grid: ${inspection.gridRows} rows x ${inspection.gridColumns} columns`);
-    console.log(`  Y-axes: ${inspection.yAxes.length}`);
-    console.log(`  X-axes: ${inspection.xAxes.length}`);
 
     inspection.yAxes.forEach(axis => {
-        console.log(`    ${axis.name}: domain [${axis.domain.join(', ')}], range [${axis.range ? axis.range.join(', ') : 'auto'}]`);
     });
 
     // Check for overlapping domains
@@ -5491,8 +5854,6 @@ window.inspectLayout = function() {
         }
     });
 
-    console.log('🚨 LAYOUT ISSUES:', inspection.issues.length);
-    inspection.issues.forEach(issue => console.log(`  ❌ ${issue}`));
 
     return inspection;
 };
@@ -5500,37 +5861,30 @@ window.inspectLayout = function() {
 window.clearMessageQueue = function() {
     const clearedCount = messageQueue.length;
     messageQueue = [];
-    console.log(`🧹 Cleared ${clearedCount} messages from queue`);
     return clearedCount;
 };
 
 window.forceReleaseChartLock = function() {
     if (chartUpdateLock) {
         releaseChartUpdateLock();
-        console.log('🔓 Force released chart update lock');
         return true;
     } else {
-        console.log('ℹ️ Chart update lock was not held');
         return false;
     }
 };
 
 // DEBUG: Get WebSocket logs for debugging
 window.getWebSocketLogs = function(limit = 20) {
-    console.log(`🔌 WEBSOCKET LOGS (last ${limit} entries):`);
     const logsToShow = websocketLogs.slice(-limit);
 
     if (logsToShow.length === 0) {
-        console.log('❌ No WebSocket logs available');
         return [];
     }
 
     logsToShow.forEach((log, index) => {
         const time = new Date(log.timestamp).toLocaleTimeString();
-        console.log(`${index + 1}. [${time}] WS[${log.connectionId}]: ${log.event}`, log.details);
     });
 
-    console.log(`📊 Total logs available: ${websocketLogs.length}`);
     return logsToShow;
 };
 
@@ -5538,6 +5892,194 @@ window.getWebSocketLogs = function(limit = 20) {
 window.clearWebSocketLogs = function() {
     const clearedCount = websocketLogs.length;
     websocketLogs.length = 0;
-    console.log(`🧹 Cleared ${clearedCount} WebSocket logs`);
     return clearedCount;
+};
+
+// DEBUG: Fix for OHLC to vertical lines issue
+window.fixCandlestickDisplay = function() {
+    if (!window.gd || !window.gd.data) {
+        console.warn('🔧 No chart data available for candlestick fix');
+        return false;
+    }
+
+    const candlestickTrace = window.gd.data.find(trace => trace.type === 'candlestick');
+    if (!candlestickTrace) {
+        console.warn('🔧 No candlestick trace found');
+        return false;
+    }
+
+    console.log('[DEBUG] Fixing candlestick display - current trace:', {
+        type: candlestickTrace.type,
+        points: candlestickTrace.x ? candlestickTrace.x.length : 0,
+        hasOHLC: !!(candlestickTrace.open && candlestickTrace.high && candlestickTrace.low && candlestickTrace.close)
+    });
+
+    // Force candlestick display by ensuring all required OHLC arrays exist and are properly formatted
+    const requiredArrays = ['open', 'high', 'low', 'close'];
+    let needsFix = false;
+
+    requiredArrays.forEach(arrayName => {
+        if (!candlestickTrace[arrayName] || !Array.isArray(candlestickTrace[arrayName])) {
+            console.warn(`🔧 Missing or invalid ${arrayName} array, creating new one`);
+            candlestickTrace[arrayName] = [];
+            needsFix = true;
+        }
+    });
+
+    // Ensure all OHLC arrays have the same length
+    const maxLength = Math.max(
+        candlestickTrace.open.length,
+        candlestickTrace.high.length,
+        candlestickTrace.low.length,
+        candlestickTrace.close.length
+    );
+
+    if (candlestickTrace.x && candlestickTrace.x.length !== maxLength) {
+        console.warn(`🔧 X-axis length (${candlestickTrace.x.length}) doesn't match OHLC arrays (${maxLength})`);
+        needsFix = true;
+    }
+
+    if (needsFix) {
+        // Force a complete chart redraw with proper candlestick configuration
+        const fixedTrace = {
+            x: candlestickTrace.x || [],
+            open: candlestickTrace.open || [],
+            high: candlestickTrace.high || [],
+            low: candlestickTrace.low || [],
+            close: candlestickTrace.close || [],
+            volume: candlestickTrace.volume || [],
+            type: 'candlestick',
+            xaxis: 'x',
+            yaxis: 'y',
+            name: candlestickTrace.name || 'Price',
+            increasing: { line: { color: 'green' } },
+            decreasing: { line: { color: 'red' } },
+            hoverinfo: 'all'
+        };
+
+        // Replace the problematic trace
+        const traceIndex = window.gd.data.findIndex(trace => trace.type === 'candlestick');
+        if (traceIndex !== -1) {
+            window.gd.data[traceIndex] = fixedTrace;
+
+            // Force chart update
+            Plotly.react(window.gd, window.gd.data, window.gd.layout).then(() => {
+                console.log('✅ Candlestick display fixed successfully');
+                return true;
+            }).catch((error) => {
+                console.error('❌ Error fixing candlestick display:', error);
+                return false;
+            });
+        }
+    } else {
+        console.log('✅ Candlestick display is already correct');
+        return true;
+    }
+};
+
+// DEBUG: Monitor for candlestick display issues
+window.monitorCandlestickDisplay = function(interval = 5000) {
+    const monitorInterval = setInterval(() => {
+        if (!window.gd || !window.gd.data) return;
+
+        const candlestickTrace = window.gd.data.find(trace => trace.type === 'candlestick');
+        if (!candlestickTrace) {
+            console.warn('🚨 MONITOR: No candlestick trace found!');
+            return;
+        }
+
+        // Check if OHLC arrays are properly maintained
+        const issues = [];
+
+        if (!candlestickTrace.open || candlestickTrace.open.length === 0) issues.push('Missing open array');
+        if (!candlestickTrace.high || candlestickTrace.high.length === 0) issues.push('Missing high array');
+        if (!candlestickTrace.low || candlestickTrace.low.length === 0) issues.push('Missing low array');
+        if (!candlestickTrace.close || candlestickTrace.close.length === 0) issues.push('Missing close array');
+
+        // Check for length mismatches
+        const lengths = [candlestickTrace.open, candlestickTrace.high, candlestickTrace.low, candlestickTrace.close]
+            .filter(arr => arr)
+            .map(arr => arr.length);
+
+        if (lengths.length > 0) {
+            const minLength = Math.min(...lengths);
+            const maxLength = Math.max(...lengths);
+            if (maxLength !== minLength) {
+                issues.push(`OHLC array length mismatch: ${minLength}-${maxLength}`);
+            }
+        }
+
+        if (issues.length > 0) {
+            console.warn('🚨 MONITOR: Candlestick display issues detected:', issues);
+            console.warn('🚨 MONITOR: Auto-fixing candlestick display...');
+
+            // Auto-fix the issue
+            window.fixCandlestickDisplay();
+        } else {
+            console.log('✅ MONITOR: Candlestick display is healthy');
+        }
+    }, interval);
+
+    return monitorInterval;
+};
+
+// DEBUG: Force candlestick mode validation
+window.validateCandlestickMode = function() {
+    if (!window.gd) {
+        return { valid: false, error: 'No chart found' };
+    }
+
+    const validation = {
+        valid: true,
+        issues: [],
+        candlestickTrace: null
+    };
+
+    const candlestickTrace = window.gd.data.find(trace => trace.type === 'candlestick');
+    if (!candlestickTrace) {
+        validation.valid = false;
+        validation.issues.push('No candlestick trace found');
+        return validation;
+    }
+
+    validation.candlestickTrace = {
+        name: candlestickTrace.name,
+        points: candlestickTrace.x ? candlestickTrace.x.length : 0,
+        hasOpen: !!(candlestickTrace.open && candlestickTrace.open.length > 0),
+        hasHigh: !!(candlestickTrace.high && candlestickTrace.high.length > 0),
+        hasLow: !!(candlestickTrace.low && candlestickTrace.low.length > 0),
+        hasClose: !!(candlestickTrace.close && candlestickTrace.close.length > 0),
+        openLength: candlestickTrace.open ? candlestickTrace.open.length : 0,
+        highLength: candlestickTrace.high ? candlestickTrace.high.length : 0,
+        lowLength: candlestickTrace.low ? candlestickTrace.low.length : 0,
+        closeLength: candlestickTrace.close ? candlestickTrace.close.length : 0
+    };
+
+    // Check for missing OHLC arrays
+    if (!validation.candlestickTrace.hasOpen) validation.issues.push('Missing open array');
+    if (!validation.candlestickTrace.hasHigh) validation.issues.push('Missing high array');
+    if (!validation.candlestickTrace.hasLow) validation.issues.push('Missing low array');
+    if (!validation.candlestickTrace.hasClose) validation.issues.push('Missing close array');
+
+    // Check for length mismatches
+    const lengths = [
+        validation.candlestickTrace.openLength,
+        validation.candlestickTrace.highLength,
+        validation.candlestickTrace.lowLength,
+        validation.candlestickTrace.closeLength
+    ].filter(l => l > 0);
+
+    if (lengths.length > 0) {
+        const uniqueLengths = [...new Set(lengths)];
+        if (uniqueLengths.length > 1) {
+            validation.issues.push(`OHLC array length mismatch: ${uniqueLengths.join(', ')}`);
+            validation.valid = false;
+        }
+    }
+
+    if (validation.issues.length > 0) {
+        validation.valid = false;
+    }
+
+    return validation;
 };

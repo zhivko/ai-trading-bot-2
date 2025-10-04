@@ -306,24 +306,39 @@ async def get_live_price(request: Request):
 async def stream_logs_endpoint(request: Request):
     from logging_config import log_file_path
     import asyncio
+    import os
     from sse_starlette.sse import EventSourceResponse
 
     async def log_generator():
         try:
-            with open(log_file_path, "r", encoding="utf-8") as f:
-                # Go to the end of the file to start streaming new content
-                f.seek(0, 2)
-                while True:
-                    if await request.is_disconnected():
-                        logger.info("Log stream client disconnected.")
-                        break
+            file_size = 0
+            while True:
+                if await request.is_disconnected():
+                    logger.info("Log stream client disconnected.")
+                    break
 
-                    line = f.readline()
-                    if not line:
-                        await asyncio.sleep(0.5)  # Wait for new lines
-                        continue
+                try:
+                    current_size = os.path.getsize(log_file_path)
+                    if current_size < file_size:
+                        # File was rotated, reset position
+                        file_size = 0
+                        logger.info("Log file appears to have been rotated, resetting stream.")
 
-                    yield json.dumps(line.strip()) # Yield just the JSON string, EventSourceResponse adds "data: "
+                    if current_size > file_size:
+                        with open(log_file_path, "r", encoding="utf-8") as f:
+                            f.seek(file_size)
+                            new_data = f.read()
+                            if new_data:
+                                for line in new_data.splitlines():
+                                    if line.strip():
+                                        yield json.dumps(line.strip())
+                        file_size = current_size
+
+                    await asyncio.sleep(1)  # Check every 1 second
+                except (FileNotFoundError, OSError) as e:
+                    logger.warning(f"Error reading log file for streaming: {e}")
+                    await asyncio.sleep(1)
+
         except asyncio.CancelledError:
             logger.info("Log stream generator cancelled.")
 

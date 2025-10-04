@@ -52,7 +52,6 @@ window.populateActiveIndicatorsState = function(activeIndicatorIds) {
         yAxisRef: `y${index + 2}` // y2, y3, y4, etc. matching Plotly layout
     }));
 
-    console.log('🔧 Populated activeIndicatorsState:', window.activeIndicatorsState);
 };
 
 window.determineSubplotNameForShape = determineSubplotNameForShape; // Export to global scope
@@ -85,10 +84,8 @@ window.delay = delay;
 
 // Debug function to export Plotly data as CSV - available immediately
 window.exportPlotlyDataAsCSV = function() {
-    console.log('📊 EXPORTING PLOTLY DATA AS CSV FOR DEBUGGING...');
 
     if (!window.gd || !window.gd.data) {
-        console.log('❌ No chart data to export');
         return;
     }
 
@@ -119,7 +116,6 @@ window.exportPlotlyDataAsCSV = function() {
         // Get price trace
         const priceTrace = window.gd.data.find(t => t.type === 'candlestick');
         if (!priceTrace || !priceTrace.x) {
-            console.log('❌ No price trace found');
             return;
         }
 
@@ -197,13 +193,7 @@ window.exportPlotlyDataAsCSV = function() {
             document.body.removeChild(link);
             URL.revokeObjectURL(url);
 
-            console.log(`✅ CSV exported successfully: ${filename}`);
-            console.log(`📊 Exported ${csvRows.length - 1} data points`);
-            console.log('📋 CSV contains columns:', headers.join(', '));
         } else {
-            console.log('❌ Browser does not support CSV download');
-            console.log('📋 CSV Content:');
-            console.log(csvContent);
         }
 
         return csvContent;
@@ -214,4 +204,3 @@ window.exportPlotlyDataAsCSV = function() {
     }
 };
 
-console.log('🛠️ DEBUG: exportPlotlyDataAsCSV() function is now available - call it to download current chart data as CSV');

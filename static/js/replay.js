@@ -32,9 +32,6 @@ async function fetchNextReplayCandle() {
 
         if (candleData && candleData.s === 'ok' && candleData.t && candleData.t.length > 0) {
             if (window.gd && window.gd.data && window.gd.data[0]) {
-                console.log(`Replay: Extending OHLC trace for ${new Date(candleData.t[0] * 1000).toISOString().split('T')[0]} with:`, {
-                    t: new Date(candleData.t[0] * 1000), o: candleData.o[0], h: candleData.h[0], l: candleData.l[0], c: candleData.c[0]
-                });
                 Plotly.extendTraces(window.gd, {
                     x: [[new Date(candleData.t[0] * 1000)]], open: [[candleData.o[0]]], high: [[candleData.h[0]]], low: [[candleData.l[0]]], close: [[candleData.c[0]]],
                 }, [0]);
@@ -54,7 +51,6 @@ async function fetchNextReplayCandle() {
     let currentIndicatorTraceBaseIndex = 1;
 
     if (activeIndicatorCheckboxes.length > 0) {
-        console.log(`Replay Tick: Processing ${activeIndicatorCheckboxes.length} active indicators. Initial base index: ${currentIndicatorTraceBaseIndex}`);
         const activeIndicatorIds = Array.from(activeIndicatorCheckboxes).map(cb => cb.value);
         const indicatorUrl = `/indicatorHistory?symbol=${replaySymbol}&resolution=${replayResolution}&from_ts=${from_ts}&to_ts=${to_ts}&indicator_id=${activeIndicatorIds.join(',')}&simulation=true`;
 
@@ -87,7 +83,6 @@ async function fetchNextReplayCandle() {
                         console.warn(`Replay: No data or error for indicator ${indicatorId}.`);
                         currentIndicatorTraceBaseIndex++;
                     }
-                    console.log(`Replay Tick: After processing ${indicatorId}, next trace index will be: ${currentIndicatorTraceBaseIndex}`);
                 });
             } else {
                 console.error("Replay: Error in combined indicator response structure.", allIndicatorsResponse);
@@ -126,7 +121,6 @@ async function fetchNextReplayCandle() {
 
 function stopReplay(reason = "User stopped replay.") {
     if (!isReplaying && !replayIntervalId) return;
-    console.log("Stopping replay:", reason);
     isReplaying = false;
     clearInterval(replayIntervalId);
     replayIntervalId = null;
@@ -174,7 +168,6 @@ async function initializeReplayControls() {
             return;
         }
 
-        console.log(`Starting replay for ${replaySymbol} (${replayResolution}) from ${new Date(replayStartTimeSec * 1000)} to ${new Date(replayToTimeSec * 1000)} at ${replaySpeedSetting}x speed.`);
 
         isReplaying = true;
         currentReplayTimeSec = replayStartTimeSec;

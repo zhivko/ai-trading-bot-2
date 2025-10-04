@@ -412,14 +412,34 @@ class EmailAlertService:
                 # logger.info(f"Checking drawing {idx+1}/{len(drawings)} for {symbol} by {user_email}")
 
                 resolution = drawing['resolution']
-                kline_zset_key = f"zset:kline:{symbol}:{resolution}"
-                # logger.debug(f"Fetching klines for {symbol} from {kline_zset_key}")
-                latest_kline_list = await redis.zrevrange(kline_zset_key, 0, 1)
 
-                if not latest_kline_list or len(latest_kline_list) < 2:
-                    logger.warning(f"Not enough kline data for {symbol} to check for crosses.")
+                # Import SUPPORTED_RESOLUTIONS to validate resolution
+                from config import SUPPORTED_RESOLUTIONS
+                if resolution not in SUPPORTED_RESOLUTIONS:
+                    logger.warning(f"Skipping drawing {drawing.get('id')} with invalid resolution '{resolution}'. Supported: {SUPPORTED_RESOLUTIONS}")
                     continue
 
+                kline_zset_key = f"zset:kline:{symbol}:{resolution}"
+                logger.debug(f"Fetching klines for {symbol}:{resolution} from {kline_zset_key}")
+
+                # First check if key exists
+                key_exists = await redis.exists(kline_zset_key)
+                if not key_exists:
+                    logger.warning(f"zset key {kline_zset_key} does not exist for {symbol}:{resolution}")
+                    continue
+
+                # Get cardinality
+                cardinality = await redis.zcard(kline_zset_key)
+                logger.debug(f"zset {kline_zset_key} has {cardinality} members")
+
+                latest_kline_list = await redis.zrevrange(kline_zset_key, 0, 9)  # Get up to 10 most recent klines for resilience
+                logger.debug(f"zrevrange returned {len(latest_kline_list) if latest_kline_list else 0} items")
+
+                if not latest_kline_list or len(latest_kline_list) < 2:
+                    logger.warning(f"Not enough kline data for {symbol}:{resolution} to check for crosses (found {len(latest_kline_list) if latest_kline_list else 0} klines, key exists: {key_exists}, cardinality: {cardinality}).")
+                    continue
+
+                # Use the two most recent klines for cross detection
                 latest_kline = json.loads(latest_kline_list[0])
                 prev_kline = json.loads(latest_kline_list[1])
                 # logger.debug(f"Latest kline time: {latest_kline.get('time')}, prev: {prev_kline.get('time')}")
@@ -688,15 +708,47 @@ class EmailAlertService:
                 trading_symbol = symbol
 
             trading_service_url = "http://localhost:8000"
+
+            # Check for existing orders and positions before placing new order
+            logger.info(f"Checking for existing {action} orders/positions for {symbol}")
+
+            async with aiohttp.ClientSession() as session:
+                # Check open orders
+                orders_url = f"{trading_service_url}/orders"
+                async with session.get(orders_url) as response:
+                    if response.status == 200:
+                        orders_result = await response.json()
+                        orders = orders_result.get('orders', [])
+                        for order in orders:
+                            if order.get('symbol') == trading_symbol and order.get('side', '').upper() == ('BUY' if action == 'long' else 'SELL'):
+                                logger.warning(f"Already have an open {order.get('side')} order for {symbol}, skipping new order")
+                                return None, f"Already have an open {(order.get('side'))} order for {symbol}"
+
+                # Check open positions
+                positions_url = f"{trading_service_url}/positions"
+                async with session.get(positions_url) as response:
+                    if response.status == 200:
+                        positions_result = await response.json()
+                        positions = positions_result.get('positions', [])
+                        for position in positions:
+                            if position.get('symbol') == trading_symbol and position.get('side', '').upper() == ('LONG' if action == 'long' else 'SHORT'):
+                                logger.warning(f"Already have an open {position.get('side')} position for {symbol}, skipping new order")
+                                return None, f"Already have an open {position.get('side')} position for {symbol}"
+
+            # No existing orders/positions, proceed with placing the order
             endpoint = f"{trading_service_url}/{'buy' if action == 'long' else 'sell'}/{trading_symbol}"
 
-            logger.info(f"Attempting to place {action} order for {symbol} ({trading_symbol}) via trading service")
+            logger.info(f"Placing {action} order for {symbol} ({trading_symbol}) via trading service")
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(endpoint) as response:
                     if response.status == 200:
                         result = await response.json()
-                        order_id = result.get('orderId', 'unknown')
+                        # The trading service returns 'orderId' (camelCase)
+                        order_id = result.get('orderId')
+                        if not order_id:
+                            # Try alternative fields if 'orderId' is not present
+                            order_id = result.get('order_id') or result.get('id') or 'unknown'
                         logger.info(f"Successfully placed {action} order for {symbol}: {order_id}")
                         return order_id, None
                     else:

@@ -1,22 +1,16 @@
 function updateSelectedShapeInfoPanel(activeShape) {
-    console.log('[DEBUG] updateSelectedShapeInfoPanel called with activeShape:', activeShape);
     // Assumes selectedShapeInfoDiv is globally available or passed as an argument
     if (!window.selectedShapeInfoDiv) {
-        console.log('[DEBUG] updateSelectedShapeInfoPanel - selectedShapeInfoDiv not found');
         return;
     }
 
     const selectedCount = window.getSelectedShapeCount();
     const selectedIds = window.getSelectedShapeIds();
-    console.log('[DEBUG] updateSelectedShapeInfoPanel - selectedCount:', selectedCount, 'selectedIds:', selectedIds);
-    console.log('[DEBUG] updateSelectedShapeInfoPanel - activeShape exists:', !!activeShape, 'activeShape.id:', activeShape?.id);
-    console.log('[DEBUG] updateSelectedShapeInfoPanel - hoveredShapeBackendId:', window.hoveredShapeBackendId);
 
     // Determine what to display based on selection and hover state
     const isHovering = activeShape && activeShape.id;
     const hasSelection = selectedCount > 0;
 
-    console.log('[DEBUG] updateSelectedShapeInfoPanel - Logic check: isHovering:', isHovering, 'hasSelection:', hasSelection, 'selectedCount:', selectedCount);
 
     if (hasSelection || isHovering) {
         let infoHtml = '';
@@ -36,7 +30,6 @@ function updateSelectedShapeInfoPanel(activeShape) {
             }
         } else if (isHovering) {
             // Handle hovered shape (no shapes selected but hovering over one)
-            console.log('[DEBUG] updateSelectedShapeInfoPanel - handling hovered shape:', activeShape.id);
             infoHtml = `<p><strong>ID:</strong> ${activeShape.id}</p>`;
         }
 
@@ -44,25 +37,18 @@ function updateSelectedShapeInfoPanel(activeShape) {
         window.activeShapeForPotentialDeletion = activeShape;
 
         // Show the "Delete line" and "Edit line" buttons when shapes are selected OR hovered
-        console.log('[DEBUG] updateSelectedShapeInfoPanel - SHOWING buttons (selected:', hasSelection, 'hovered:', isHovering, ')');
         if (window.deleteShapeBtn) {
             window.deleteShapeBtn.style.display = 'inline-block';
-            console.log('[DEBUG] updateSelectedShapeInfoPanel - deleteShapeBtn set to inline-block');
         } else {
-            console.log('[DEBUG] updateSelectedShapeInfoPanel - deleteShapeBtn not found');
         }
         if (window.editShapeBtn) {
             window.editShapeBtn.style.display = 'inline-block';
-            console.log('[DEBUG] updateSelectedShapeInfoPanel - editShapeBtn set to inline-block');
         } else {
-            console.log('[DEBUG] updateSelectedShapeInfoPanel - editShapeBtn not found');
         }
     } else {
-        console.log('[DEBUG] updateSelectedShapeInfoPanel - no shapes selected or hovered');
         window.selectedShapeInfoDiv.innerHTML = '<p>No shape selected.</p>';
 
         // Hide the "Delete line" and "Edit line" buttons when no shape is selected
-        console.log('[DEBUG] updateSelectedShapeInfoPanel - HIDING buttons for no selection');
         if (window.deleteShapeBtn) {
             window.deleteShapeBtn.style.display = 'none';
         }
@@ -73,21 +59,10 @@ function updateSelectedShapeInfoPanel(activeShape) {
 }
 
 async function updateShapeVisuals() {
-    console.log('[DEBUG] updateShapeVisuals called at', new Date().toISOString(), '- HOVER COLORING SHOULD HAPPEN HERE');
-    console.log('[DEBUG] updateShapeVisuals - window.gd exists:', !!window.gd);
-    console.log('[DEBUG] updateShapeVisuals - window.gd.layout exists:', !!(window.gd && window.gd.layout));
-    console.log('[DEBUG] updateShapeVisuals - window.hoveredShapeBackendId:', window.hoveredShapeBackendId);
-    console.log('[DEBUG] updateShapeVisuals - Current selection state:', {
-        selectedIds: window.getSelectedShapeIds ? window.getSelectedShapeIds() : 'N/A',
-        selectedCount: window.getSelectedShapeCount ? window.getSelectedShapeCount() : 'N/A',
-        lastSelected: window.lastSelectedShapeId
-    });
     if (!window.gd || !window.gd.layout) {
-        console.log('[DEBUG] updateShapeVisuals early return - window.gd or layout missing');
         return;
     }
     const currentShapes = window.gd.layout.shapes || [];
-    console.log('[DEBUG] updateShapeVisuals - current shapes count:', currentShapes.length);
 
     const newShapes = currentShapes.map(s => {
         const newShape = { ...s };
@@ -124,7 +99,6 @@ async function updateShapeVisuals() {
             const isHovered = s.id === window.hoveredShapeBackendId;
             const isLastSelected = s.id === window.lastSelectedShapeId;
 
-            console.log(`[DEBUG] updateShapeVisuals - Processing shape ${s.id}: selected=${isSelected}, hovered=${isHovered}, lastSelected=${isLastSelected}`);
 
             newShape.editable = isSelected;
             if (newShape.line) {
@@ -134,20 +108,16 @@ async function updateShapeVisuals() {
                     if ((window.getSelectedShapeCount && window.getSelectedShapeCount() > 1) && isLastSelected) {
                         newShape.line.color = '#00FF00'; // Bright green for last selected
                         newShape.line.width = 3; // Thicker line for last selected
-                        console.log(`[DEBUG] updateShapeVisuals - Setting shape ${s.id} to BRIGHT GREEN (last selected)`);
                     } else {
                         newShape.line.color = window.SELECTED_DRAWING_COLOR;
                         newShape.line.width = 2.5; // Slightly thicker for selected
-                        console.log(`[DEBUG] updateShapeVisuals - Setting shape ${s.id} to SELECTED color (${window.SELECTED_DRAWING_COLOR})`);
                     }
                 } else if (isHovered) {
-                    console.log(`[DEBUG] updateShapeVisuals - Setting shape ${s.id} to HOVER color (${window.HOVER_DRAWING_COLOR})`);
                     newShape.line.color = window.HOVER_DRAWING_COLOR;
                     newShape.line.width = 2; // Normal width for hover
                 } else {
                     newShape.line.color = window.DEFAULT_DRAWING_COLOR;
                     newShape.line.width = 2; // Normal width for default
-                    console.log(`[DEBUG] updateShapeVisuals - Setting shape ${s.id} to DEFAULT color (${window.DEFAULT_DRAWING_COLOR})`);
                 }
                 // Removed problematic onmousedown handler that was interfering with drag functionality
                 // Shape properties functionality has been completely removed
@@ -156,10 +126,7 @@ async function updateShapeVisuals() {
         return newShape;
     });
     try {
-        console.log('[DEBUG] updateShapeVisuals - calling Plotly.relayout with', newShapes.length, 'shapes at', new Date().toISOString());
-        console.log('[DEBUG] updateShapeVisuals - newShapes sample:', newShapes.slice(0, 2));
         await Plotly.relayout(window.gd, { 'shapes': newShapes });
-        console.log('[DEBUG] updateShapeVisuals - Plotly.relayout completed successfully at', new Date().toISOString());
     } catch (error) {
         console.error("Error during relayout for shape editability:", error);
         console.error("Error details:", error.message, error.stack);
@@ -173,7 +140,6 @@ if (typeof VISUAL_UPDATE_DEBOUNCE_DELAY === 'undefined') {
 }
 window.debouncedUpdateShapeVisuals = debounce(updateShapeVisuals, VISUAL_UPDATE_DEBOUNCE_DELAY);
 window.updateShapeVisuals = updateShapeVisuals; // Export updateShapeVisuals to global scope
-console.log('[DEBUG] debouncedUpdateShapeVisuals and updateShapeVisuals defined and available globally');
 
 function logEventToPanel(message, type = 'INFO') {
     if (!window.eventOutput) {

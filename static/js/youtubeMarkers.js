@@ -20,7 +20,6 @@ class YouTubeMarkersManager {
      */
     async initializeForSymbol(symbol) {
         this.currentSymbol = symbol;
-        console.log('🎥 YouTube Markers: Initializing for', symbol, '(websocket-based)');
 
         // WebSocket-based: markers will come from websocket handlers
         // No need to load from HTTP endpoint
@@ -44,12 +43,10 @@ class YouTubeMarkersManager {
 
             if (data.status === 'success' && data.markers) {
                 this.markers = data.markers;
-                console.log('🎥 YouTube Markers: Loaded', data.count, 'markers');
 
                 // Add markers to chart
                 this.addMarkersToChart();
             } else {
-                console.log('🎥 YouTube Markers: No markers available');
                 this.markers = [];
             }
         } catch (error) {
@@ -62,28 +59,12 @@ class YouTubeMarkersManager {
      */
     addMarkersToChart() {
         if (!window.gd || !this.markers || !this.markers.x || this.markers.x.length === 0) {
-            console.log('🎥 YouTube Markers: No markers to add or chart not ready');
             return;
         }
 
         try {
             // Remove existing YouTube markers
             this.removeExistingMarkers();
-
-            // Debug marker data
-            console.log('🎥 YouTube Markers: Adding markers with data:', {
-                count: this.markers.x ? this.markers.x.length : 0,
-                x_range: this.markers.x ? [
-                    new Date(Math.min(...this.markers.x)).toLocaleString(),
-                    new Date(Math.max(...this.markers.x)).toLocaleString()
-                ] : 'none',
-                y_range: this.markers.y ? [Math.min(...this.markers.y), Math.max(...this.markers.y)] : 'none',
-                first_marker: this.markers.x && this.markers.x.length > 0 ? {
-                    timestamp: new Date(this.markers.x[0]).toLocaleString(),
-                    price: this.markers.y ? this.markers.y[0] : 'undefined',
-                    title: this.markers.text ? this.markers.text[0] : 'no title'
-                } : 'none'
-            });
 
             // Prepare marker data
             const markerTrace = {
@@ -122,8 +103,6 @@ class YouTubeMarkersManager {
             // Set up click event handler for markers
             this.setupClickHandler();
 
-            console.log('🎥 YouTube Markers: Added to chart successfully');
-            console.log('🎥 YouTube Markers: Markers should appear as red diamonds on the price chart');
 
         } catch (error) {
             console.error('🎥 YouTube Markers: Error adding to chart:', error);
@@ -151,7 +130,6 @@ class YouTubeMarkersManager {
             });
 
             if (tracesToRemove.length > 0) {
-                console.log('🎥 YouTube Markers: Removed', tracesToRemove.length, 'existing markers');
             }
 
         } catch (error) {
@@ -170,19 +148,16 @@ class YouTubeMarkersManager {
 
         // Only start periodic updates if enabled
         if (!this.periodicUpdatesEnabled) {
-            console.log('🎥 YouTube Markers: Periodic updates disabled (markers are static)');
             return;
         }
 
         // Set up new interval
         this.updateTimer = setInterval(async () => {
             if (this.isEnabled && this.currentSymbol) {
-                console.log('🎥 YouTube Markers: Periodic update...');
                 await this.loadMarkers();
             }
         }, this.updateInterval);
 
-        console.log(`🎥 YouTube Markers: Periodic updates started (every ${this.updateInterval / 1000 / 60} minutes)`);
     }
 
     /**
@@ -192,7 +167,6 @@ class YouTubeMarkersManager {
         if (this.updateTimer) {
             clearInterval(this.updateTimer);
             this.updateTimer = null;
-            console.log('🎥 YouTube Markers: Periodic updates stopped');
         }
     }
 
@@ -207,14 +181,12 @@ class YouTubeMarkersManager {
             const isUserChartUpdate = this.isUserChartUpdate(eventData);
 
             if (isUserChartUpdate && this.isEnabled) {
-                console.log('🎥 YouTube Markers: User chart update detected, refreshing markers...');
                 setTimeout(() => {
                     if (this.isEnabled) {
                         this.addMarkersToChart();
                     }
                 }, 500); // Small delay to ensure chart is updated
             } else {
-                console.log('🎥 YouTube Markers: Skipping marker refresh for automatic update');
             }
         });
     }
@@ -297,17 +269,6 @@ class YouTubeMarkersManager {
         // - Drag mode changes
         const isUserUpdate = (hasXRangeChange || hasYRangeChange) ? isSignificantRangeChange : (hasAutorange || isDragModeChange);
 
-        // Debug logging - only for actual user updates
-        if (isUserUpdate) {
-            console.log('🎥 YouTube Markers: Detected user chart update:', {
-                hasXRangeChange,
-                hasYRangeChange,
-                hasAutorange,
-                isDragModeChange,
-                isSignificantRangeChange
-            });
-        }
-
         return isUserUpdate;
     }
 
@@ -317,7 +278,6 @@ class YouTubeMarkersManager {
      */
     setEnabled(enabled) {
         this.isEnabled = enabled;
-        console.log('🎥 YouTube Markers:', enabled ? 'Enabled' : 'Disabled', '(websocket-based)');
 
         if (enabled) {
             // WebSocket-based: markers will come from websocket handlers
@@ -335,7 +295,6 @@ class YouTubeMarkersManager {
      */
     updateSymbol(symbol) {
         if (this.currentSymbol !== symbol) {
-            console.log('🎥 YouTube Markers: Symbol changed to', symbol, '(websocket-based)');
             this.currentSymbol = symbol;
             // WebSocket-based: markers will come from websocket handlers
             // No need to load from HTTP endpoint
@@ -369,16 +328,13 @@ class YouTubeMarkersManager {
         // Store reference to the click handler function
         if (!this.clickHandler) {
             this.clickHandler = (data) => {
-                console.log('🎥 YouTube Markers: Click detected', data);
 
                 // Check if clicked point is from YouTube markers
                 if (data.points && data.points.length > 0) {
                     const point = data.points[0];
-                    console.log('🎥 YouTube Markers: Clicked point:', point);
 
                     // Find the trace that was clicked
                     if (point.fullData && point.fullData.name === 'YouTube Videos') {
-                        console.log('🎥 YouTube Markers: YouTube marker clicked!');
                         const pointIndex = point.pointIndex;
 
                         // Get description data
@@ -391,15 +347,12 @@ class YouTubeMarkersManager {
                         const publishedDate = point.fullData.customdata ?
                             point.fullData.customdata[pointIndex] : '';
 
-                        console.log('🎥 YouTube Markers: Opening modal for:', title);
 
                         // Show description modal
                         this.showTranscriptModal(title, transcript, videoId, publishedDate);
                     } else {
-                        console.log('🎥 YouTube Markers: Clicked non-YouTube marker:', point.fullData ? point.fullData.name : 'unknown');
                     }
                 } else {
-                    console.log('🎥 YouTube Markers: No points in click data');
                 }
             };
         }
@@ -419,7 +372,6 @@ class YouTubeMarkersManager {
         // Store reference for cleanup
         this.existingClickHandler = this.clickHandler;
 
-        console.log('🎥 YouTube Markers: Click handler set up successfully');
     }
 
     /**
@@ -562,7 +514,6 @@ class YouTubeMarkersManager {
             }
         });
 
-        console.log('🎥 YouTube Markers: Description modal displayed');
     }
 
     /**
@@ -570,7 +521,6 @@ class YouTubeMarkersManager {
      * WebSocket-based: markers come from websocket, manual refresh not needed
      */
     async refresh() {
-        console.log('🎥 YouTube Markers: Manual refresh requested (websocket-based - no action needed)');
         // WebSocket-based: markers come from websocket handlers
         // No need to manually load from HTTP endpoint
     }
@@ -581,7 +531,6 @@ window.youtubeMarkersManager = new YouTubeMarkersManager();
 
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('🎥 YouTube Markers: DOM ready, waiting for chart initialization...');
 
     // Wait for chart to be initialized
     const checkChartReady = setInterval(() => {
@@ -600,15 +549,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 window.youtubeMarkersManager.updateSymbol(newSymbol);
             });
 
-            console.log('🎥 YouTube Markers: Fully initialized');
         }
     }, 1000);
 });
 
 // Export for debugging
 window.debugYouTubeMarkers = function() {
-    console.log('🎥 YouTube Markers Debug Info:');
-    console.log(window.youtubeMarkersManager.getStats());
     return window.youtubeMarkersManager.getStats();
 };
 
@@ -624,7 +570,6 @@ window.toggleYouTubeMarkers = function(enabled) {
 
 window.toggleYouTubeMarkerUpdates = function(enabled) {
     window.youtubeMarkersManager.periodicUpdatesEnabled = enabled !== undefined ? enabled : !window.youtubeMarkersManager.periodicUpdatesEnabled;
-    console.log('🎥 YouTube Markers: Periodic updates', window.youtubeMarkersManager.periodicUpdatesEnabled ? 'enabled' : 'disabled');
 
     if (window.youtubeMarkersManager.periodicUpdatesEnabled) {
         window.youtubeMarkersManager.startPeriodicUpdates();

@@ -352,7 +352,7 @@ app.route('/settings', methods=['GET', 'POST'])(settings_endpoint)
 app.post("/set_last_symbol/{symbol}")(set_last_selected_symbol)
 app.get("/get_last_symbol")(get_last_selected_symbol)
 app.get("/get_live_price")(get_live_price)
-app.get("/stream/logs")(stream_logs_endpoint)
+# app.get("/stream/logs")(stream_logs_endpoint)  # Log streaming disabled
 
 # Indicator endpoints
 app.get("/indicatorHistory")(indicator_history_endpoint)

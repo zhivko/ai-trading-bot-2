@@ -16,7 +16,6 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
         const hasIndicators = gd && gd.data && gd.data.some(trace => trace.type !== 'candlestick');
         const yref = hasIndicators ? 'yaxis1' : 'y';
 
-        console.log('[PriceLine] Using y-axis reference:', yref, '(hasIndicators:', hasIndicators, ')');
 
         const lineDefinition = {
                 type: 'line',
@@ -78,8 +77,6 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
             gd.layout.annotations.splice(existingAnnotationIndex, 1);
         }
         gd.layout.annotations.push(annotationDefinition);
-        // console.log('[PriceLine] updateOrAddRealtimePriceLine - Pushed annotation:', JSON.parse(JSON.stringify(annotationDefinition)));
-        // console.log('[PriceLine] updateOrAddRealtimePriceLine - gd.layout.annotations after push:', JSON.parse(JSON.stringify(gd.layout.annotations)));
 
 
         gd.layout.shapes = shapes;
@@ -91,7 +88,6 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
     }
 
     if (doRelayout) {
-        // console.log('[PriceLine] updateOrAddRealtimePriceLine - Calling Plotly.relayout with full layout object due to doRelayout=true. Annotations:', JSON.parse(JSON.stringify(gd.layout.annotations)));
         Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations });
     }
 }
@@ -104,11 +100,9 @@ function removeRealtimePriceLine(gd, doRelayout = false) {
     const initialLength = gd.layout.shapes.length;
     let annotationsChanged = false;
     if (gd.layout.annotations) {
-       // console.log('[PriceLine] removeRealtimePriceLine - Before removing annotation:', JSON.parse(JSON.stringify(gd.layout.annotations)));
         const initialAnnotationLength = gd.layout.annotations.length;
         gd.layout.annotations = gd.layout.annotations.filter(ann => ann.name !== REALTIME_PRICE_TEXT_ANNOTATION_NAME);
         annotationsChanged = gd.layout.annotations.length < initialAnnotationLength;
-        // console.log('[PriceLine] removeRealtimePriceLine - After removing annotation:', JSON.parse(JSON.stringify(gd.layout.annotations)), 'Annotations changed:', annotationsChanged);
     } else {
         gd.layout.annotations = []; // Ensure it's an array if it was null/undefined
 
@@ -118,7 +112,6 @@ function removeRealtimePriceLine(gd, doRelayout = false) {
     const removed = gd.layout.shapes.length < initialLength;
 
     if ((removed || annotationsChanged) && doRelayout) {
-        // console.log('[PriceLine] removeRealtimePriceLine - Calling Plotly.relayout due to removed shape/annotation and doRelayout=true. Annotations:', JSON.parse(JSON.stringify(gd.layout.annotations)));
         Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations });
     }
     return removed;
@@ -126,7 +119,6 @@ function removeRealtimePriceLine(gd, doRelayout = false) {
 
 function closeWebSocket(reason = "Closing WebSocket") {
     if (liveWebSocket) { // Assumes liveWebSocket is global from state.js
-        console.log(`WebSocket: Closing connection for ${currentSymbolForStream}. Reason: ${reason}`); // Assumes currentSymbolForStream is global
         liveWebSocket.onclose = null;
         liveWebSocket.close(1000, reason);
         liveWebSocket = null;
@@ -178,7 +170,6 @@ function handleRealtimeKline(klineData) {
 
     try {
         // Debug: Log all available traces
-        // console.log('WebSocket: Available traces:', gd.data.map((t, i) => ({ index: i, type: t.type, name: t.name })));
 
         // First try to find by exact symbol match
         priceTraceIndex = gd.data.findIndex(trace => trace.type === 'candlestick' && trace.name === window.symbolSelect.value);
@@ -187,7 +178,6 @@ function handleRealtimeKline(klineData) {
         if (priceTraceIndex === -1) {
             priceTraceIndex = gd.data.findIndex(trace => trace.type === 'candlestick');
             if (priceTraceIndex !== -1) {
-                console.log('WebSocket: Found candlestick trace by type only at index', priceTraceIndex);
             }
         }
 
@@ -197,7 +187,6 @@ function handleRealtimeKline(klineData) {
         }
 
         trace = gd.data[priceTraceIndex];
-        console.log('WebSocket: Using trace at index', priceTraceIndex, 'with name:', trace.name);
     } catch (e) {
         console.warn('WebSocket: Error accessing chart data, skipping update:', e.message);
         return;
@@ -206,12 +195,6 @@ function handleRealtimeKline(klineData) {
     const liveUpdateTimeSec = Number(klineData.time);
     const livePrice = parseFloat(klineData.price !== undefined ? klineData.price : klineData.close);
     const livePriceFromRedis = klineData.live_price ? parseFloat(klineData.live_price) : null;
-
-    console.log('🔴 Live price data received:', {
-        websocketPrice: livePrice,
-        redisPrice: livePriceFromRedis,
-        usingRedisPrice: livePriceFromRedis !== null
-    });
 
     if (isNaN(livePrice) || isNaN(liveUpdateTimeSec)) {
         console.warn("WebSocket: Invalid price or time in live data", klineData);
@@ -271,11 +254,10 @@ function handleRealtimeKline(klineData) {
 
             // Use live price from Redis if available, otherwise use the WebSocket price
             const priceToUse = livePriceFromRedis !== null ? livePriceFromRedis : livePrice;
-            updateOrAddRealtimePriceLine(gd, priceToUse, candleStartTimeMsForLine, candleEndTimeMsForLine, false);
-            Plotly.extendTraces(gd, newCandleData, [priceTraceIndex], MAX_LIVE_CANDLES);
-            Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations });
+            // updateOrAddRealtimePriceLine(gd, priceToUse, candleStartTimeMsForLine, candleEndTimeMsForLine, false);
+            // Plotly.extendTraces(gd, newCandleData, [priceTraceIndex], MAX_LIVE_CANDLES);
+            // Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations });
         } else if (currentPeriodStartSec === lastCandleOpenTimeSec) {
-            console.log('🔴 LIVE CANDLE: Updating existing candle at index', lastCandleIndex, 'with price', livePrice);
             const candleTrace = gd.data[priceTraceIndex];
 
             // Validate existing candle data
@@ -302,16 +284,15 @@ function handleRealtimeKline(klineData) {
             candleTrace.low[lastCandleIndex] = Math.min(currentLow, livePrice);
             candleTrace.close[lastCandleIndex] = livePrice;
 
-            console.log('🔴 LIVE CANDLE: Updated candle - prev close:', prevPrice, 'new high/low/close:', livePrice);
 
             // Use live price from Redis if available, otherwise use the WebSocket price
             const priceToUse = livePriceFromRedis !== null ? livePriceFromRedis : livePrice;
             updateOrAddRealtimePriceLine(gd, priceToUse, candleStartTimeMsForLine, candleEndTimeMsForLine, false);
 
             // Ensure arrays are copied to trigger reactivity
-            candleTrace.high = [...candleTrace.high];
-            candleTrace.low = [...candleTrace.low];
-            candleTrace.close = [...candleTrace.close];
+            // candleTrace.high = [...candleTrace.high];
+            // candleTrace.low = [...candleTrace.low];
+            // candleTrace.close = [...candleTrace.close];
 
             Plotly.react(gd, gd.data, gd.layout);
         } else {
@@ -327,13 +308,11 @@ function handleRealtimeKline(klineData) {
 
 function setupWebSocket(symbolToStream) {
     // Live data is always enabled now
-    console.log('WebSocket: Setting up live data connection for', symbolToStream);
 
     if (liveWebSocket) { // Assumes liveWebSocket is global from state.js
         if (currentSymbolForStream !== symbolToStream || liveWebSocket.readyState !== WebSocket.OPEN) { // Assumes currentSymbolForStream is global
             closeWebSocket(`Switching to new symbol ${symbolToStream} or re-establishing.`);
         } else {
-            console.log(`WebSocket: Already connected and open for ${symbolToStream}.`);
             return;
         }
     }
@@ -342,11 +321,9 @@ function setupWebSocket(symbolToStream) {
     const wsHost = window.location.host;
     const streamUrl = `${wsProtocol}//${wsHost}/stream/live/${symbolToStream}`;
 
-    console.log(`WebSocket: Attempting to connect to live stream: ${streamUrl}`);
     liveWebSocket = new WebSocket(streamUrl);
 
     liveWebSocket.onopen = () => {
-        console.log(`WebSocket: Connection to ${streamUrl} opened.`);
         currentSymbolForStream = symbolToStream;
     };
 
@@ -389,7 +366,6 @@ function setupWebSocket(symbolToStream) {
     };
 
     liveWebSocket.onclose = (event) => {
-        console.log(`WebSocket: Live stream for ${symbolToStream} closed. Reason: '${event.reason}', Code: ${event.code}`);
 
         // Check if this is the WebSocket instance we care about before nullifying
         if (liveWebSocket === event.target) {
@@ -401,13 +377,10 @@ function setupWebSocket(symbolToStream) {
 
         // Attempt to reconnect if not a clean close and symbol matches
         if (event.code !== 1000 && window.symbolSelect.value === symbolToStream && !liveWebSocket) {
-            console.log(`WebSocket: Attempting to reconnect to ${symbolToStream} in 5 seconds...`);
             setTimeout(() => {
                 if (window.symbolSelect.value === symbolToStream && !liveWebSocket) {
-                    console.log(`WebSocket: Reconnecting to ${symbolToStream}.`);
                     setupWebSocket(symbolToStream);
                 } else {
-                    console.log(`WebSocket: Reconnection aborted for ${symbolToStream}, conditions changed.`);
                 }
             }, 5000);
         }

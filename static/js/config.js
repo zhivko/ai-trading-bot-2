@@ -17,32 +17,21 @@ const REALTIME_PRICE_TEXT_ANNOTATION_NAME = 'realtimePriceTextAnnotation';
 // Function to detect mobile devices using modern browser APIs
 function isMobileDevice() {
     // Log client resolution information
-    console.log('[DEBUG] Mobile Detection Info:');
-    console.log('  window.innerWidth:', window.innerWidth);
-    console.log('  window.innerHeight:', window.innerHeight);
-    console.log('  screen.width:', screen.width);
-    console.log('  screen.height:', screen.height);
-    console.log('  devicePixelRatio:', window.devicePixelRatio);
-    console.log('  navigator.userAgent:', navigator.userAgent);
 
     // Use the modern User-Agent Client Hints API if available
     if (navigator.userAgentData && typeof navigator.userAgentData.mobile === 'boolean') {
-        console.log('  navigator.userAgentData.mobile:', navigator.userAgentData.mobile);
         return navigator.userAgentData.mobile;
     }
 
     // Fallback: Check for coarse pointer (typical of touch devices)
     if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
-        console.log('  pointer coarse detected: true');
         return true;
     }
 
     // Final fallback: Check user agent for mobile devices (legacy method)
     const userAgentMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    console.log('  userAgent mobile pattern match:', userAgentMobile);
 
     const isMobile = userAgentMobile;
-    console.log('[DEBUG] Final mobile detection result:', isMobile);
     return isMobile;
 }
 
@@ -59,7 +48,6 @@ const config = {
             click: function(gd) {
                 // Switch to drawline mode
                 Plotly.relayout(gd, { dragmode: 'drawline' });
-                console.log('Switched to drawline mode');
             }
         }
     ],
@@ -87,7 +75,6 @@ function disableMobileHover(gd) {
             hovermode: false,
             hoverdistance: 0
         });
-        console.log('Mobile hover disabled via Plotly.relayout');
     }
 }
 
@@ -101,25 +88,21 @@ function enableMobilePinchZoom(gd) {
             // Ensure double-click resets zoom on mobile
             doubleClick: 'reset'
         });
-        console.log('Mobile pinch zoom enabled');
 
         // Add touch event logging for debugging
         const chartDiv = document.getElementById('chart');
         if (chartDiv) {
             chartDiv.addEventListener('touchstart', function(event) {
                 if (event.touches.length === 2) {
-                    console.log('[PINCH] Two-finger touch detected - initiating pinch zoom');
                 }
             }, { passive: true });
 
             chartDiv.addEventListener('touchmove', function(event) {
                 if (event.touches.length === 2) {
-                    console.log('[PINCH] Pinch move detected');
                 }
             }, { passive: true });
 
             chartDiv.addEventListener('touchend', function(event) {
-                console.log('[PINCH] Touch end detected, touches remaining:', event.touches.length);
             }, { passive: true });
         }
     }
@@ -143,7 +126,6 @@ function forceHideHoverElements() {
             }
         `;
         document.head.appendChild(style);
-        console.log('Mobile hover elements hidden via CSS injection');
     }
 }
 

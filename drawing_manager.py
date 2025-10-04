@@ -59,7 +59,7 @@ async def get_drawings(symbol: str, request: Request = None, resolution: Optiona
     # A drawing is included if its 'resolution' property matches the requested resolution.
     # Drawings without a 'resolution' property will be excluded.
     filtered_drawings = [d for d in all_drawings if d.get("resolution") == resolution]
-    logger.info(f"get_drawings for {symbol} with resolution '{resolution}': found {len(all_drawings)} total, returning {len(filtered_drawings)} filtered.")
+    # logger.info(f"get_drawings for {symbol} with resolution '{resolution}': found {len(all_drawings)} total, returning {len(filtered_drawings)} filtered.")
     return filtered_drawings
 
 async def delete_drawing(symbol: str, drawing_id: str, request: Request = None, email: Optional[str] = None) -> bool:

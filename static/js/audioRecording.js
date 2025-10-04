@@ -22,7 +22,6 @@ class AudioRecorder {
                 }
             });
 
-            console.log('🎤 Microphone access granted');
             return true;
         } catch (error) {
             console.error('❌ Error accessing microphone:', error);
@@ -62,12 +61,9 @@ class AudioRecorder {
             this.isRecording = true;
             this.recordingStartTime = Date.now();
 
-            console.log('🎙️ Recording started');
-
             // Set up auto-stop timer
             this.recordingTimer = setTimeout(() => {
                 if (this.isRecording) {
-                    console.log('⏰ Auto-stopping recording (max time reached)');
                     this.stopRecording();
                 }
             }, this.maxRecordingTime);
@@ -96,7 +92,6 @@ class AudioRecorder {
                 this.recordingTimer = null;
             }
 
-            console.log('🎙️ Recording stopped');
             return true;
         } catch (error) {
             console.error('❌ Error stopping recording:', error);
@@ -106,16 +101,12 @@ class AudioRecorder {
 
     async handleRecordingStop() {
         try {
-            console.log('📝 Processing recorded audio...');
-
             // Create audio blob
             const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
 
             // Create FormData for upload
             const formData = new FormData();
             formData.append('audio_file', audioBlob, 'recording.webm');
-
-            console.log('📤 Sending audio to server for transcription...');
 
             // Show processing status
             this.updateUIStatus('processing', 'Transcribing audio and analyzing...');
@@ -133,9 +124,6 @@ class AudioRecorder {
             const result = await response.json();
 
             if (result.status === 'success') {
-                console.log('✅ Transcription successful:', result.transcribed_text);
-                console.log('🤖 LLM Analysis received:', result.llm_analysis);
-                console.log('📊 Full result object:', result);
                 this.updateUIStatus('success', result.transcribed_text);
                 this.displayTranscriptionResult(result);
             } else {
@@ -182,11 +170,6 @@ class AudioRecorder {
         const confidence = result.confidence ? (result.confidence * 100).toFixed(1) : 'N/A';
         const llmAnalysis = result.llm_analysis || 'No analysis available';
 
-        // Debug logging for LLM analysis
-        console.log('🎯 DISPLAY: Transcription result object:', result);
-        console.log('🎯 DISPLAY: LLM Analysis value:', llmAnalysis);
-        console.log('🎯 DISPLAY: LLM Analysis defined:', typeof result.llm_analysis);
-
         resultElement.innerHTML = `
             <div class="transcription-header">
                 <strong>Transcription Result:</strong>
@@ -225,19 +208,15 @@ class AudioRecorder {
             clearTimeout(this.recordingTimer);
             this.recordingTimer = null;
         }
-
-        console.log('🧹 Audio recorder cleaned up');
     }
 }
 
 // Global audio recorder instance
 let audioRecorder = null;
 
-// Initialize audio recording functionality
-function initializeAudioRecording() {
-    console.log('🎤 Initializing audio recording functionality...');
-
-    // Create audio recorder instance
+    // Initialize audio recording functionality
+    function initializeAudioRecording() {
+// Create audio recorder instance
     audioRecorder = new AudioRecorder();
 
     // Set up record button
@@ -272,8 +251,6 @@ function initializeAudioRecording() {
             audioRecorder.cleanup();
         }
     });
-
-    console.log('✅ Audio recording functionality initialized');
 }
 
 // Check if browser supports required APIs

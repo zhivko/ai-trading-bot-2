@@ -6,15 +6,11 @@ let isProgrammaticallySettingRange = false;
 function saveSettings() {
     // Prevent saving settings while they're still being loaded
     if (isLoadingSettings) {
-        console.log("[DEBUG settingsManager] Skipping saveSettings - settings are still loading from server");
-        console.log("[DEBUG settingsManager] This prevents overwriting saved indicators with empty array during page load");
         return;
     }
 
     // Prevent saving settings while indicators are still being restored
     if (isRestoringIndicators) {
-        console.log("[DEBUG settingsManager] Skipping saveSettings - indicators are still being restored from server");
-        console.log("[DEBUG settingsManager] This prevents saving empty indicators during restoration");
         return;
     }
 
@@ -52,15 +48,12 @@ function saveSettings() {
 
     const indicatorCheckboxes = document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]');
     const activeIndicators = [];
-    console.log('[DEBUG settingsManager] Found', indicatorCheckboxes.length, 'indicator checkboxes for saving');
     indicatorCheckboxes.forEach(checkbox => {
         if (checkbox.checked) {
             activeIndicators.push(checkbox.value);
-            console.log('[DEBUG settingsManager] Saving active indicator:', checkbox.value);
         }
     });
     settings.activeIndicators = activeIndicators;
-    console.log('[DEBUG settingsManager] Saving activeIndicators array:', activeIndicators);
     settings.liveDataEnabled = true; // Always enabled now
     settings.showAgentTrades = document.getElementById('showAgentTradesCheckbox').checked;
 
@@ -75,7 +68,6 @@ function saveSettings() {
     // Include the last selected symbol in settings
     settings.last_selected_symbol = currentSymbol;
 
-    console.log('[DEBUG settingsManager] Saving settings for', currentSymbol, ':', JSON.stringify(settings, null, 2));
 
     fetch('/settings', {
         method: 'POST',
@@ -84,7 +76,6 @@ function saveSettings() {
     })
     .then(response => {
         if (response.ok) {
-            console.log('[DEBUG settingsManager] Settings saved successfully for', currentSymbol);
         } else {
             console.error('[DEBUG settingsManager] Failed to save settings for', currentSymbol, 'Status:', response.status);
         }
@@ -157,13 +148,9 @@ async function populateDropdowns() {
 
 async function loadSettings(symbolOverride = null) {
     isLoadingSettings = true; // Prevent saveSettings from running during load
-    console.log("[DEBUG settingsManager] Started loading settings, preventing saves");
-    console.log("[DEBUG settingsManager] symbolOverride parameter:", symbolOverride);
-    console.log("[DEBUG settingsManager] window.symbolSelect.value:", window.symbolSelect ? window.symbolSelect.value : "NOT SET");
 
     // Use provided symbol override (e.g., from URL) or fall back to dropdown value
     const currentSymbol = symbolOverride || window.symbolSelect.value;
-    console.log("[DEBUG settingsManager] Final currentSymbol:", currentSymbol);
     if (!currentSymbol) {
         console.error("loadSettings: No symbol available. This should not happen - dropdown should be populated first.");
         isLoadingSettings = false;
@@ -173,9 +160,7 @@ async function loadSettings(symbolOverride = null) {
     updateSelectedShapeInfoPanel(null); // Assumes updateSelectedShapeInfoPanel is globally available
 
     try {
-        console.log('[DEBUG settingsManager] Loading settings for symbol:', currentSymbol);
         const response = await fetch(`/settings?symbol=${currentSymbol}`);
-        console.log('[DEBUG settingsManager] Settings response status:', response.status);
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -184,16 +169,13 @@ async function loadSettings(symbolOverride = null) {
         }
 
         const settings = await response.json();
-        console.log('[DEBUG settingsManager] Successfully loaded settings for', currentSymbol, ':', JSON.stringify(settings, null, 2));
 
         // Always apply saved settings to UI controls - this is the expected behavior
-        console.log('[DEBUG settingsManager] Applying saved resolution and range settings to UI controls');
 
         // Set resolution programmatically (without triggering change event)
         if (settings.resolution && window.resolutionSelect.options.length > 0) {
             isProgrammaticallySettingResolution = true;
             window.resolutionSelect.value = settings.resolution;
-            console.log('[DEBUG settingsManager] Applied saved resolution to UI:', settings.resolution);
             // Reset flag after a short delay to allow any event processing
             delay(10).then(() => {
                 isProgrammaticallySettingResolution = false;
@@ -204,7 +186,6 @@ async function loadSettings(symbolOverride = null) {
         if (settings.range && window.rangeSelect.options.length > 0) {
             isProgrammaticallySettingRange = true;
             window.rangeSelect.value = settings.range;
-            console.log('[DEBUG settingsManager] Applied saved range to UI:', settings.range);
             // Reset flag after a short delay to allow any event processing
             delay(10).then(() => {
                 isProgrammaticallySettingRange = false;
@@ -226,42 +207,24 @@ async function loadSettings(symbolOverride = null) {
                 // Convert seconds to milliseconds for JavaScript Date objects
                 minTimestamp = settings.xAxisMin * 1000;
                 maxTimestamp = settings.xAxisMax * 1000;
-                console.log('[DEBUG settingsManager] Converted seconds to milliseconds:', {
-                    originalMin: settings.xAxisMin,
-                    originalMax: settings.xAxisMax,
-                    convertedMin: minTimestamp,
-                    convertedMax: maxTimestamp
-                });
             }
             // Handle legacy timestamps that were incorrectly saved as milliseconds but represent old dates
             else if (settings.xAxisMin < 1e12 && new Date(settings.xAxisMin).getFullYear() < 2000) {
                 // These are old millisecond timestamps that need to be converted to proper milliseconds
                 minTimestamp = Math.floor(settings.xAxisMin / 1000);
                 maxTimestamp = Math.floor(settings.xAxisMax / 1000);
-                console.log('[DEBUG settingsManager] Fixed legacy millisecond timestamps:', {
-                    originalMin: settings.xAxisMin,
-                    originalMax: settings.xAxisMax,
-                    fixedMin: minTimestamp,
-                    fixedMax: maxTimestamp
-                });
             }
             // Handle current millisecond timestamps (1.75e12 range for 2025 dates)
             else {
                 // Already in milliseconds, use as-is
                 minTimestamp = settings.xAxisMin;
                 maxTimestamp = settings.xAxisMax;
-                console.log('[DEBUG settingsManager] Using millisecond timestamps as-is:', {
-                    min: minTimestamp,
-                    max: maxTimestamp
-                });
             }
 
             // Only set currentXAxisRange if it's not already set (preserves user's current panning)
             if (!window.currentXAxisRange) {
                 window.currentXAxisRange = [minTimestamp, maxTimestamp];
-                console.log('[DEBUG settingsManager] Set window.currentXAxisRange to saved values:', window.currentXAxisRange);
             } else {
-                console.log('[DEBUG settingsManager] Preserving existing currentXAxisRange (user panning):', window.currentXAxisRange);
             }
 
             const minDateDisplay = new Date(minTimestamp);
@@ -269,7 +232,6 @@ async function loadSettings(symbolOverride = null) {
             window.xAxisMinDisplay.textContent = isNaN(minDateDisplay.getTime()) ? 'Invalid Date' : minDateDisplay.toISOString();
             window.xAxisMaxDisplay.textContent = isNaN(maxDateDisplay.getTime()) ? 'Invalid Date' : maxDateDisplay.toISOString();
 
-            console.log('[DEBUG settingsManager] X-axis display updated - Min:', window.xAxisMinDisplay.textContent, 'Max:', window.xAxisMaxDisplay.textContent);
         } else {
             window.currentXAxisRange = null;
             window.xAxisMinDisplay.textContent = 'Auto';
@@ -286,9 +248,7 @@ async function loadSettings(symbolOverride = null) {
                  window.currentYAxisRange = [settings.yAxisMin, settings.yAxisMax];
                  window.yAxisMinDisplay.textContent = settings.yAxisMin.toFixed(2);
                  window.yAxisMaxDisplay.textContent = settings.yAxisMax.toFixed(2);
-                 console.log('[DEBUG settingsManager] Set window.currentYAxisRange to saved values:', window.currentYAxisRange);
              } else {
-                 console.log('[DEBUG settingsManager] Preserving existing currentYAxisRange (user zoom):', window.currentYAxisRange);
              }
          } else {
              // Only clear if not already set by user
@@ -302,7 +262,6 @@ async function loadSettings(symbolOverride = null) {
         // Restore active indicators - ensure DOM is ready
         const restoreIndicators = () => {
             const allIndicatorCheckboxes = document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]');
-            console.log('[DEBUG settingsManager] Found', allIndicatorCheckboxes.length, 'indicator checkboxes in DOM');
 
             if (allIndicatorCheckboxes.length === 0) {
                 console.warn('[DEBUG settingsManager] No indicator checkboxes found, will retry in 100ms');
@@ -312,33 +271,28 @@ async function loadSettings(symbolOverride = null) {
 
             // Set flag to prevent saves during restoration
             isRestoringIndicators = true;
-            console.log('[DEBUG settingsManager] Started restoring indicators, preventing saves');
 
             // First uncheck all
             allIndicatorCheckboxes.forEach(checkbox => checkbox.checked = false);
 
             // Then check the active ones
             if (settings.activeIndicators && Array.isArray(settings.activeIndicators) && settings.activeIndicators.length > 0) {
-                console.log('[DEBUG settingsManager] Restoring active indicators:', settings.activeIndicators);
                 settings.activeIndicators.forEach(indicatorValue => {
                     const checkbox = document.querySelector(`#indicator-checkbox-list input[type="checkbox"][value="${indicatorValue}"]`);
                     if (checkbox) {
                         checkbox.checked = true;
-                        console.log('[DEBUG settingsManager] Checked indicator:', indicatorValue);
                     } else {
                         console.warn('[DEBUG settingsManager] Indicator checkbox not found for:', indicatorValue);
                     }
                 });
             }
             isRestoringIndicators = false;
-            console.log('[DEBUG settingsManager] Finished restoring indicators, allowing saves again');
         };
 
         // Try to restore indicators immediately, or retry if DOM not ready
         restoreIndicators();
 
         // Live data is always enabled now
-        console.log('[DEBUG settingsManager] Live data is always enabled');
 
         // Load Agent Trades checkbox state
         if (typeof settings.showAgentTrades === 'boolean') {
@@ -388,15 +342,12 @@ async function loadSettings(symbolOverride = null) {
                 // (URL symbols should be allowed to trigger change events)
                 if (settings.last_selected_symbol !== currentUrlSymbol) {
                     window.isProgrammaticallySettingSymbol = true;
-                    console.log('[DEBUG settingsManager] Setting programmatic flag for non-URL symbol:', settings.last_selected_symbol);
                 } else {
-                    console.log('[DEBUG settingsManager] Not setting programmatic flag for URL symbol:', settings.last_selected_symbol);
                 }
                 window.symbolSelect.value = settings.last_selected_symbol;
                 // Reset the flag after a short delay to allow the change event to be processed
                 setTimeout(() => {
                     window.isProgrammaticallySettingSymbol = false;
-                    console.log('[DEBUG settingsManager] Reset isProgrammaticallySettingSymbol flag after loading settings');
                 }, 100);
             }
         }
@@ -408,18 +359,15 @@ async function loadSettings(symbolOverride = null) {
             if (window.currentXAxisRange) {
                 layoutUpdate['xaxis.range'] = [new Date(window.currentXAxisRange[0]), new Date(window.currentXAxisRange[1])];
                 layoutUpdate['xaxis.autorange'] = false;
-                console.log('[DEBUG settingsManager] Applying loaded X-axis range to chart:', layoutUpdate['xaxis.range']);
             }
 
             if (window.currentYAxisRange) {
                 layoutUpdate['yaxis.range'] = window.currentYAxisRange;
                 layoutUpdate['yaxis.autorange'] = false;
-                console.log('[DEBUG settingsManager] Applying loaded Y-axis range to chart:', layoutUpdate['yaxis.range']);
             }
 
             if (Object.keys(layoutUpdate).length > 0) {
                 Plotly.relayout(window.gd, layoutUpdate).then(() => {
-                    console.log('[DEBUG settingsManager] Successfully applied loaded ranges to chart');
                 }).catch(error => {
                     console.error('[DEBUG settingsManager] Error applying loaded ranges to chart:', error);
                 });
@@ -444,7 +392,6 @@ async function loadSettings(symbolOverride = null) {
     } finally {
         isLoadingSettings = false; // Allow saves again
         isRestoringIndicators = false; // Ensure indicator restoration flag is also reset
-        console.log("[DEBUG settingsManager] Finished loading settings, allowing saves again");
 
         // WebSocket will be initialized by main.js after all initialization is complete
     }

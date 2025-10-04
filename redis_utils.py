@@ -1314,7 +1314,7 @@ async def cache_trades(symbol: str, exchange: str, trade_bars: list[Dict[str, An
         max_entries = 10000
         await redis.zremrangebyrank(sorted_set_key, 0, -(max_entries + 1))
 
-        logger.info(f"Successfully cached {len(bars_to_process)} trade bars for {symbol} on {exchange}")
+        # logger.info(f"Successfully cached {len(bars_to_process)} trade bars for {symbol} on {exchange}")
     except Exception as e:
         logger.error(f"Error caching trade data: {e}", exc_info=True)
 
@@ -1539,6 +1539,99 @@ async def fill_trade_data_gaps(gaps: List[Dict[str, Any]]) -> None:
             continue
 
     logger.info("🎉 Trade data gap filling completed")
+
+async def cache_individual_trades(trades: list[Dict[str, Any]], exchange_name: str, symbol: str) -> None:
+    """Cache individual trades to Redis with TTL."""
+    if not trades:
+        return
+
+    try:
+        redis = await get_redis_connection()
+        expiration = 60 * 60 * 24 * 7  # Keep individual trades for 7 days
+        sorted_set_key = f"trades:{exchange_name}:{symbol}"
+
+        async with redis.pipeline() as pipe:
+            for trade in trades:
+                timestamp = trade["timestamp"]
+                trade_id = f"{trade.get('id', timestamp)}"  # Use trade ID if available, fallback to timestamp
+
+                # Add exchange_name to the trade data before caching
+                trade_with_exchange = trade.copy()
+                trade_with_exchange['exchange_name'] = exchange_name
+
+                data_str = json.dumps(trade_with_exchange)
+
+                # Cache individual trade
+                trade_key = f"trade:individual:{exchange_name}:{symbol}:{trade_id}"
+                await pipe.setex(trade_key, expiration, data_str)
+
+                # Add to sorted set by timestamp
+                await pipe.zadd(sorted_set_key, {data_str: timestamp})
+
+                # Pipeline batching
+                if len(pipe) >= 500:
+                    await pipe.execute()
+            await pipe.execute()
+
+        # Trim sorted set to keep manageable size (keep most recent trades)
+        max_trades = 50000  # Keep last 50k trades per exchange/symbol
+        await redis.zremrangebyrank(sorted_set_key, 0, -(max_trades + 1))
+
+        logger.info(f"Successfully cached {len(trades)} individual trades for {symbol} on {exchange_name}")
+    except Exception as e:
+        logger.error(f"Error caching individual trades: {e}", exc_info=True)
+
+async def get_individual_trades(exchange_name: str, symbol: str, start_ts: int, end_ts: int) -> list[Dict[str, Any]]:
+    """Retrieve individual trades from Redis for aggregation."""
+    try:
+        redis = await get_redis_connection()
+        sorted_set_key = f"trades:{exchange_name}:{symbol}"
+
+        trades_data_redis = await redis.zrangebyscore(
+            sorted_set_key,
+            min=start_ts,
+            max=end_ts,
+            withscores=False
+        )
+
+        trades = []
+        for data_item in trades_data_redis:
+            try:
+                if isinstance(data_item, bytes):
+                    data_str = data_item.decode('utf-8')
+                elif isinstance(data_item, str):
+                    data_str = data_item
+                else:
+                    continue
+                parsed_trade = json.loads(data_str)
+                trades.append(parsed_trade)
+            except json.JSONDecodeError:
+                continue
+
+        logger.info(f"Retrieved {len(trades)} individual trades for {symbol} on {exchange_name} between {start_ts} and {end_ts}")
+        return trades
+    except Exception as e:
+        logger.error(f"Error retrieving individual trades: {e}", exc_info=True)
+        return []
+
+async def aggregate_trades_from_redis(exchange_name: str, symbol: str, start_ts: int, end_ts: int, resolution_seconds: int = 60) -> list[Dict[str, Any]]:
+    """Aggregate individual trades from Redis into time-based bars."""
+    try:
+        # Get individual trades from Redis
+        individual_trades = await get_individual_trades(exchange_name, symbol, start_ts, end_ts)
+
+        if not individual_trades:
+            logger.info(f"No individual trades found for {symbol} on {exchange_name} in range {start_ts} to {end_ts}")
+            return []
+
+        # Aggregate trades into bars using existing function
+        trade_bars = aggregate_trades_to_bars(individual_trades, resolution_seconds)
+
+        logger.info(f"Aggregated {len(individual_trades)} individual trades into {len(trade_bars)} bars for {symbol} on {exchange_name}")
+        return trade_bars
+    except Exception as e:
+        logger.error(f"Error aggregating trades from Redis for {exchange_name}:{symbol}: {e}", exc_info=True)
+        return []
 
 async def fetch_trades_from_ccxt(exchange_id: str, symbol: str, start_ts: int, end_ts: int) -> list[Dict[str, Any]]:
     """Fetch recent trades from CCXT exchange and aggregate into bars."""

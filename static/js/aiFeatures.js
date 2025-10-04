@@ -117,7 +117,6 @@ function initializeAIFeatures() {
 
                 while (true) {
                     if (aiSuggestionAbortController && aiSuggestionAbortController.signal.aborted) {
-                        console.log("Streaming aborted by signal during read loop.");
                         break;
                     }
                     const { value, done } = await reader.read();

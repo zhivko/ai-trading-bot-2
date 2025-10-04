@@ -13,7 +13,6 @@ const MIN_VOLUME_STEP = 1;
 
 // Initialize trade history functionality
 function initializeTradeHistory() {
-    console.log('[TRADE_HISTORY] Initializing trade history functionality');
 
     // Setup event listeners for trade visualization controls
     setupTradeHistoryControls();
@@ -24,7 +23,6 @@ function initializeTradeHistory() {
 
 // Setup event listeners for trade history controls
 function setupTradeHistoryControls() {
-    console.log('[TRADE_HISTORY] Setting up trade history controls');
 
     // Get DOM elements
     const volumeProfileCheckbox = document.getElementById('show-volume-profile-checkbox');
@@ -32,33 +30,23 @@ function setupTradeHistoryControls() {
     const minVolumeSlider = document.getElementById('min-volume-slider');
     const minVolumeValue = document.getElementById('min-volume-value');
 
-    console.log('[TRADE_HISTORY] DOM elements found:', {
-        volumeProfileCheckbox: !!volumeProfileCheckbox,
-        tradeMarkersCheckbox: !!tradeMarkersCheckbox,
-        minVolumeSlider: !!minVolumeSlider,
-        minVolumeValue: !!minVolumeValue
-    });
 
     // Trade visualization checkboxes
     if (volumeProfileCheckbox) {
         volumeProfileCheckbox.addEventListener('change', handleVolumeProfileToggle);
-        console.log('[TRADE_HISTORY] Volume profile checkbox event listener added');
     }
     if (tradeMarkersCheckbox) {
         tradeMarkersCheckbox.addEventListener('change', handleTradeMarkersToggle);
-        console.log('[TRADE_HISTORY] Trade markers checkbox event listener added');
     }
 
     // Trade filter slider
     if (minVolumeSlider) {
         minVolumeSlider.addEventListener('input', handleMinVolumeChange);
-        console.log('[TRADE_HISTORY] Min volume slider event listener added');
     }
 
     // Trade history data will come automatically via WebSocket
     // No need to manually fetch on symbol change - WebSocket broadcasts to all clients
 
-    console.log('[TRADE_HISTORY] Trade history controls setup completed');
 }
 
 // Fetch trade history data for the current symbol
@@ -69,7 +57,6 @@ async function fetchTradeHistoryForCurrentSymbol(symbol = null, limit = 20) {
         return;
     }
 
-    console.log(`[TRADE_HISTORY] Fetching trade history for symbol: ${currentSymbol}, limit: ${limit}`);
 
     try {
         const response = await fetch(`/trade-history?symbol=${currentSymbol}&limit=${limit}`);
@@ -80,7 +67,6 @@ async function fetchTradeHistoryForCurrentSymbol(symbol = null, limit = 20) {
         const result = await response.json();
         if (result.status === 'success') {
             tradeHistoryData = result.data || [];
-            console.log(`[TRADE_HISTORY] Fetched ${tradeHistoryData.length} trade records`);
 
             // Process data for volume profile and trade markers
             processTradeHistoryData();
@@ -90,7 +76,6 @@ async function fetchTradeHistoryForCurrentSymbol(symbol = null, limit = 20) {
         } else if (Array.isArray(result)) {
             // Handle direct array response (fallback to old format)
             tradeHistoryData = result;
-            console.log(`[TRADE_HISTORY] Fetched ${tradeHistoryData.length} trade records (legacy format)`);
 
             // Process data for volume profile and trade markers
             processTradeHistoryData();
@@ -110,11 +95,9 @@ async function fetchTradeHistoryForCurrentSymbol(symbol = null, limit = 20) {
 // Process trade history data for visualization
 function processTradeHistoryData() {
     if (!tradeHistoryData || tradeHistoryData.length === 0) {
-        console.log('[TRADE_HISTORY] No trade data to process');
         return;
     }
 
-    console.log('[TRADE_HISTORY] Processing trade history data');
 
     // Group trades by price level for volume profile
     const volumeMap = new Map();
@@ -174,7 +157,6 @@ function processTradeHistoryData() {
         id: `trade_${trade.timestamp || trade.time}_${trade.price}_${Math.random().toString(36).substr(2, 9)}`
     }));
 
-    console.log(`[TRADE_HISTORY] Processed ${volumeProfileData.length} price levels and ${tradeMarkers.length} trade markers`);
 }
 
 // Update trade history visualizations on the chart
@@ -185,17 +167,14 @@ function updateTradeHistoryVisualizations() {
     const showVolumeProfile = volumeProfileCheckbox ? volumeProfileCheckbox.checked : false;
     const showTradeMarkers = tradeMarkersCheckbox ? tradeMarkersCheckbox.checked : false;
 
-    console.log(`[TRADE_HISTORY] Updating visualizations - Volume Profile: ${showVolumeProfile}, Trade Markers: ${showTradeMarkers}`);
 
     if (window.gd && window.gd.data) {
-        console.log('[TRADE_HISTORY] Original traces count:', window.gd.data.length);
 
         // Remove existing trade-related traces
         const filteredData = window.gd.data.filter(trace =>
             !trace.name || (!trace.name.includes('Volume Profile') && !trace.name.includes('Buy Trades') && !trace.name.includes('Sell Trades'))
         );
 
-        console.log('[TRADE_HISTORY] After filtering traces count:', filteredData.length);
 
         // Add volume profile if enabled
         if (showVolumeProfile && volumeProfileData.length > 0) {
@@ -203,31 +182,22 @@ function updateTradeHistoryVisualizations() {
             if (volumeProfileTrace && volumeProfileTrace.length > 0) {
                 filteredData.push(...volumeProfileTrace); // Spread array of traces
                 volumeProfileTraces = volumeProfileTrace;
-                console.log('[TRADE_HISTORY] Added', volumeProfileTrace.length, 'volume profile traces');
             }
         }
 
         // Add trade markers if enabled
         if (showTradeMarkers && tradeMarkers.length > 0) {
-            console.log('[TRADE_HISTORY] Creating trade marker traces, tradeMarkers length:', tradeMarkers.length);
             const tradeMarkerTraces = createTradeMarkerTraces();
-            console.log('[TRADE_HISTORY] createTradeMarkerTraces returned:', tradeMarkerTraces ? tradeMarkerTraces.length : 'null/undefined', 'traces');
             if (tradeMarkerTraces && tradeMarkerTraces.length > 0) {
                 filteredData.push(...tradeMarkerTraces);
-                console.log('[TRADE_HISTORY] Added', tradeMarkerTraces.length, 'trade marker traces');
             } else {
-                console.log('[TRADE_HISTORY] No trade marker traces to add');
             }
         } else {
-            console.log('[TRADE_HISTORY] Trade markers not enabled or no tradeMarkers. showTradeMarkers:', showTradeMarkers, 'tradeMarkers.length:', tradeMarkers.length);
         }
 
-        console.log('[TRADE_HISTORY] Final traces count:', filteredData.length);
-        console.log('[TRADE_HISTORY] Trace names:', filteredData.map(t => t.name || 'unnamed'));
 
         // Update the chart
         Plotly.react(window.gd, filteredData, window.gd.layout);
-        console.log('[TRADE_HISTORY] Chart updated with trade history visualizations');
     } else {
         console.warn('[TRADE_HISTORY] Cannot update chart - window.gd or window.gd.data not available');
     }
@@ -236,42 +206,33 @@ function updateTradeHistoryVisualizations() {
 // Create volume profile trace
 function createVolumeProfileTrace() {
     if (!volumeProfileData || volumeProfileData.length === 0) {
-        console.log('[TRADE_HISTORY] Volume profile data is empty, cannot create trace');
         return null;
     }
 
-    console.log('[TRADE_HISTORY] Creating volume profile trace with', volumeProfileData.length, 'price levels');
 
     // Get current min volume filter
     const minVolumeSlider = document.getElementById('min-volume-slider');
     const minVolume = minVolumeSlider ? parseFloat(minVolumeSlider.value) || MIN_VOLUME_DEFAULT : MIN_VOLUME_DEFAULT;
 
-    console.log('[TRADE_HISTORY] Min volume filter value:', minVolume, 'type:', typeof minVolume);
 
     // Debug: Log some volume profile data samples
-    console.log('[TRADE_HISTORY] Sample volume profile data (first 3):');
     volumeProfileData.slice(0, 3).forEach((item, index) => {
-        console.log(`  [${index}] Price: ${item.price}, Total Volume: ${item.totalVolume}, Type: ${typeof item.totalVolume}`);
     });
 
     // Check if all volumes are below the filter (problematic case)
     const maxVolumeInData = Math.max(...volumeProfileData.map(level => level.totalVolume));
     const minDataVolume = Math.min(...volumeProfileData.map(level => level.totalVolume));
-    console.log('[TRADE_HISTORY] Volume range in data - Min:', minDataVolume, 'Max:', maxVolumeInData, 'Filter:', minVolume);
 
     // Filter volume profile data by volume
     const filteredData = volumeProfileData.filter(level => {
         const meetsFilter = level.totalVolume >= minVolume;
         if (!meetsFilter) {
-            console.log(`[TRADE_HISTORY] Filtered out price level: ${level.price}, volume: ${level.totalVolume} (below min: ${minVolume})`);
         }
         return meetsFilter;
     });
 
-    console.log('[TRADE_HISTORY] Filtered data:', filteredData.length, 'of', volumeProfileData.length, 'price levels passed filter');
 
     if (filteredData.length === 0) {
-        console.log('[TRADE_HISTORY] No volume profile data passed the minimum volume filter of', minVolume);
         return null;
     }
 
@@ -279,7 +240,6 @@ function createVolumeProfileTrace() {
     const maxFilteredVolume = Math.max(...filteredData.map(level => level.totalVolume));
     const maxBarWidth = 0.1; // Increased from 0.05 to 0.1 for better visibility
 
-    console.log('[TRADE_HISTORY] Volume profile bars - max volume:', maxFilteredVolume, 'bar width:', maxBarWidth);
 
     // Create highly visible volume profile bars as scatter plot lines
     const volumeBars = [];
@@ -367,7 +327,6 @@ function createVolumeProfileTrace() {
         showlegend: true
     };
 
-    console.log('[TRADE_HISTORY] Created volume profile dots on main chart with', volumeProfileTrace.x.length, 'points');
     return volumeProfileTrace;
 }
 
@@ -381,13 +340,10 @@ function createTradeMarkerTraces() {
     const minVolumeSlider = document.getElementById('min-volume-slider');
     const minVolume = minVolumeSlider ? parseFloat(minVolumeSlider.value) || MIN_VOLUME_DEFAULT : MIN_VOLUME_DEFAULT;
 
-    console.log(`[TRADE_HISTORY] Creating trade markers - Min volume filter: ${minVolume}`);
-    console.log(`[TRADE_HISTORY] Sample trade volumes:`, tradeMarkers.slice(0, 5).map(t => t.volume));
 
     // Filter trades by minimum volume
     const filteredTrades = tradeMarkers.filter(marker => marker.volume >= minVolume);
 
-    console.log(`[TRADE_HISTORY] Filtered ${filteredTrades.length} trades from ${tradeMarkers.length} total`);
 
     if (filteredTrades.length === 0) {
         return [];
@@ -402,8 +358,6 @@ function createTradeMarkerTraces() {
     // Create buy trade markers with enhanced visibility
     if (buyTrades.length > 0) {
         const sizes = buyTrades.map(trade => Math.max(12, Math.min(35, trade.volume * 300))); // Larger sizes, better scaling
-        console.log('[TRADE_HISTORY] Buy trade marker sizes:', sizes.slice(0, 5));
-        console.log('[TRADE_HISTORY] Buy trade first 3 positions:', buyTrades.slice(0, 3).map(t => `(x:${t.x.getTime()}, y:${t.y})`));
 
         traces.push({
             x: buyTrades.map(trade => trade.x),
@@ -436,8 +390,6 @@ function createTradeMarkerTraces() {
     // Create sell trade markers with enhanced visibility
     if (sellTrades.length > 0) {
         const sizes = sellTrades.map(trade => Math.max(12, Math.min(35, trade.volume * 300))); // Larger sizes, better scaling
-        console.log('[TRADE_HISTORY] Sell trade marker sizes:', sizes.slice(0, 5));
-        console.log('[TRADE_HISTORY] Sell trade first 3 positions:', sellTrades.slice(0, 3).map(t => `(x:${t.x.getTime()}, y:${t.y})`));
 
         traces.push({
             x: sellTrades.map(trade => trade.x),
@@ -490,7 +442,6 @@ function calculateMarkerSize(volume) {
 function handleVolumeProfileToggle(event) {
     const isChecked = event.target.checked;
 
-    console.log(`[TRADE_HISTORY] Volume profile toggled: ${isChecked}`);
 
     // Update volume profile visualization immediately when checkbox changes
     // This will add/remove the horizontal bars overlay on the price chart
@@ -509,7 +460,6 @@ function handleVolumeProfileToggle(event) {
 function handleTradeMarkersToggle(event) {
     const isChecked = event.target.checked;
 
-    console.log(`[TRADE_HISTORY] Trade markers toggled: ${isChecked}`);
 
     // Trade history data comes automatically via WebSocket
     // Just update the visualizations based on current data
@@ -530,7 +480,6 @@ function handleMinVolumeChange() {
 
     const minVolume = parseFloat(minVolumeSlider.value);
 
-    console.log(`[TRADE_HISTORY] Minimum volume changed to: ${minVolume}`);
 
     // Update display value
     if (minVolumeValue) {
@@ -556,7 +505,6 @@ function clearTradeHistoryVisualizations() {
 
         if (filteredData.length !== window.gd.data.length) {
             Plotly.react(window.gd, filteredData, window.gd.layout);
-            console.log('[TRADE_HISTORY] Cleared existing trade history visualizations');
         }
     }
 
@@ -569,12 +517,10 @@ function clearTradeHistoryData() {
     tradeHistoryData = [];
     volumeProfileData = [];
     clearTradeHistoryVisualizations();
-    console.log('[TRADE_HISTORY] Cleared all trade history data');
 }
 
 // Memory management for volume profile traces
 function cleanupOldVolumeProfileTraces() {
-    console.log('[VOLUME_PROFILE] Cleaning up old volume profile traces for memory management');
 
     // Clear the global volume profile data to prevent memory leaks
     window.volumeProfileData = [];
@@ -589,7 +535,6 @@ function cleanupOldVolumeProfileTraces() {
         if (filteredData.length < originalCount) {
             // Only update chart if traces were actually removed
             Plotly.react(window.gd, filteredData, window.gd.layout);
-            console.log(`[VOLUME_PROFILE] Removed ${originalCount - filteredData.length} old volume profile traces from chart`);
         }
     }
 
@@ -597,19 +542,16 @@ function cleanupOldVolumeProfileTraces() {
     if (window.gd && window.gd.layout) {
         delete window.gd.layout.yaxis2;
         delete window.gd.layout.xaxis2;
-        console.log('[VOLUME_PROFILE] Cleared volume profile axes from layout');
     }
 
     volumeProfileTraces = [];
 
-    console.log('[VOLUME_PROFILE] Memory cleanup completed - volume profile traces cleared');
 }
 
 // Periodic memory cleanup - clear volume profile data after extended periods
 function scheduleVolumeProfileCleanup(cleanupIntervalMinutes = 30) {
     const cleanupInterval = cleanupIntervalMinutes * 60 * 1000; // Convert to milliseconds
 
-    console.log(`[VOLUME_PROFILE] Scheduling periodic cleanup every ${cleanupIntervalMinutes} minutes`);
 
     // Clear any existing cleanup timer
     if (window.volumeProfileCleanupTimer) {
@@ -618,22 +560,18 @@ function scheduleVolumeProfileCleanup(cleanupIntervalMinutes = 30) {
 
     // Schedule periodic cleanup
     window.volumeProfileCleanupTimer = setInterval(() => {
-        console.log('[VOLUME_PROFILE] Running scheduled memory cleanup');
         cleanupOldVolumeProfileTraces();
 
         // Optional: Force garbage collection if available (Chrome/Edge)
         if (window.gc) {
-            console.log('[VOLUME_PROFILE] Triggering garbage collection');
             window.gc();
         }
     }, cleanupInterval);
 
-    console.log('[VOLUME_PROFILE] Periodic cleanup scheduled');
 }
 
 // Cleanup on symbol/resolution changes to prevent stale data
 function handleSymbolResolutionChange() {
-    console.log('[VOLUME_PROFILE] Symbol/resolution change detected - cleaning up volume profile data');
 
     // Delay cleanup slightly to allow new data to arrive
     setTimeout(() => {
@@ -650,28 +588,22 @@ function handleSymbolResolutionChange() {
 // Update volume profile data from WebSocket message
 function updateVolumeProfileFromWebSocket(volumeProfileData, symbol = null) {
     if (!volumeProfileData || !Array.isArray(volumeProfileData) || volumeProfileData.length === 0) {
-        console.log('[TRADE_HISTORY] No volume profile data received from WebSocket');
         return;
     }
 
-    console.log(`[TRADE_HISTORY] Updating volume profile from WebSocket: ${volumeProfileData.length} price levels for ${symbol || 'unknown symbol'}`);
 
     // Check if we have existing volume profile data for merging
     if (window.volumeProfileData && Array.isArray(window.volumeProfileData) && window.volumeProfileData.length > 0) {
         // Merge new data with existing data
-        console.log(`[VOLUME_PROFILE] Merging ${volumeProfileData.length} new price levels with ${window.volumeProfileData.length} existing levels`);
         window.volumeProfileData = mergeVolumeProfileData(window.volumeProfileData, volumeProfileData);
-        console.log(`[VOLUME_PROFILE] After merging: ${window.volumeProfileData.length} total price levels`);
     } else {
         // No existing data, use new data directly
         window.volumeProfileData = volumeProfileData;
-        console.log(`[VOLUME_PROFILE] No existing data, using ${volumeProfileData.length} new price levels`);
     }
 
     // Synchronize the scaled volume bars on chart immediately
     updateVolumeProfileVisualization();
 
-    console.log(`[TRADE_HISTORY] Volume profile updated from WebSocket for ${symbol || 'unknown symbol'} - ${window.volumeProfileData.length} price levels ready for visualization`);
 }
 
 // Merge volume profile data by combining data at same price levels
@@ -679,7 +611,6 @@ function mergeVolumeProfileData(existingData, newData) {
     if (!existingData || !Array.isArray(existingData)) return newData;
     if (!newData || !Array.isArray(newData)) return existingData;
 
-    console.log(`[VOLUME_PROFILE] Performing detailed merge of ${existingData.length} existing + ${newData.length} new price levels`);
 
     // Create a map of existing data by price for quick lookup
     const mergedMap = new Map();
@@ -734,13 +665,10 @@ function mergeVolumeProfileData(existingData, newData) {
     // Convert map back to array and sort by price
     const mergedArray = Array.from(mergedMap.values()).sort((a, b) => a.price - b.price);
 
-    console.log(`[VOLUME_PROFILE] Merge complete: ${mergedLevels} levels merged, ${addedLevels} levels added, total: ${mergedArray.length}`);
 
     // Log a sample of the merged data for verification
     if (mergedArray.length > 0) {
-        console.log(`[VOLUME_PROFILE] Sample merged data:`);
         mergedArray.slice(0, 3).forEach((level, idx) => {
-            console.log(`  [${idx}] Price: ${level.price}, Total: ${level.totalVolume?.toFixed(4)}, Buy: ${level.buyVolume?.toFixed(4)}, Sell: ${level.sellVolume?.toFixed(4)}, Trades: ${level.trades?.length || 0}`);
         });
     }
 
@@ -750,16 +678,13 @@ function mergeVolumeProfileData(existingData, newData) {
 // Dedicated volume profile visualization that adds horizontal volume bars to the price chart
 function updateVolumeProfileVisualization() {
     if (!window.volumeProfileData || window.volumeProfileData.length === 0) {
-        console.log('[VOLUME_PROFILE] No volume profile data to visualize');
         return;
     }
 
     if (!window.gd || !window.gd.data) {
-        console.log('[VOLUME_PROFILE] Chart not ready for volume profile visualization');
         return;
     }
 
-    console.log(`[VOLUME_PROFILE] Visualizing ${window.volumeProfileData.length} volume profile price levels`);
 
     // Remove existing volume profile traces
     const filteredData = window.gd.data.filter(trace =>
@@ -812,10 +737,8 @@ function updateVolumeProfileVisualization() {
             overlaying: 'x'
         };
 
-        console.log('[VOLUME_PROFILE] Adding volume profile horizontal bars to chart overlay');
         Plotly.react(window.gd, filteredData, layout);
 
-        console.log('[VOLUME_PROFILE] Volume profile visualization updated successfully');
     } else {
         console.warn('[VOLUME_PROFILE] Failed to create volume profile bars');
         if (filteredData.length !== window.gd.data.length) {
@@ -833,7 +756,6 @@ function createVolumeProfileBars() {
     const data = window.volumeProfileData;
     if (data.length === 0) return null;
 
-    console.log(`[VOLUME_PROFILE] Creating horizontal bars for ${data.length} price levels`);
 
     // Find max volume for scaling
     const maxVolume = Math.max(...data.map(level => Math.max(level.totalVolume || 0, level.buyVolume || 0, level.sellVolume || 0)));
@@ -867,13 +789,16 @@ function createVolumeProfileBars() {
         const buyLength = buyVol > 0 ? (buyVol / maxVolume) * maxBarLength : 0;
         const sellLength = sellVol > 0 ? (sellVol / maxVolume) * maxBarLength : 0;
 
+        // Increased line width for wider, more visible bars
+        const lineWidth = Math.max(8, Math.min(20, (totalVol / maxVolume) * 16)); // Scale from 8 to 20 based on volume
+
         // Create horizontal line segments for each volume component
         if (buyLength > 0) {
             // Buy volume bar (green, extending to the right from price level)
             xCoords.push(0, buyLength);
             yCoords.push(price, price);
             colors.push('rgba(0, 255, 0, 0.8)', 'rgba(0, 255, 0, 0.8)');
-            widths.push(4, 4); // Line width
+            widths.push(lineWidth, lineWidth); // Increased line width
             hoverText.push(
                 `Buy Volume: ${totalVol.toFixed(4)} @ $${price.toFixed(2)}`,
                 `Buy Volume: ${totalVol.toFixed(4)} @ $${price.toFixed(2)}`
@@ -887,7 +812,7 @@ function createVolumeProfileBars() {
             xCoords.push(xOffset, xOffset + sellLength);
             yCoords.push(price, price);
             colors.push('rgba(255, 0, 0, 0.8)', 'rgba(255, 0, 0, 0.8)');
-            widths.push(4, 4); // Line width
+            widths.push(lineWidth, lineWidth); // Increased line width
             hoverText.push(
                 `Sell Volume: ${totalVol.toFixed(4)} @ $${price.toFixed(2)}`,
                 `Sell Volume: ${totalVol.toFixed(4)} @ $${price.toFixed(2)}`
@@ -925,18 +850,15 @@ function createVolumeProfileBars() {
         }
     };
 
-    console.log(`[VOLUME_PROFILE] Created volume profile bars trace with ${xCoords.length / 2} bars`);
     return volumeProfileBars;
 }
 
 // Update trade history data from WebSocket message (legacy or fallback)
 function updateTradeHistoryFromWebSocket(tradeData, symbol = null) {
     if (!tradeData || !Array.isArray(tradeData) || tradeData.length === 0) {
-        console.log('[TRADE_HISTORY] No trade data received from WebSocket');
         return;
     }
 
-    console.log(`[TRADE_HISTORY] Updating trade history from WebSocket: ${tradeData.length} trades (legacy mode)`);
 
     // Update the internal trade data
     tradeHistoryData = tradeData;
@@ -947,7 +869,6 @@ function updateTradeHistoryFromWebSocket(tradeData, symbol = null) {
     // Update visualizations if enabled
     updateTradeHistoryVisualizations();
 
-    console.log(`[TRADE_HISTORY] Trade history updated from WebSocket for ${symbol || 'unknown symbol'}`);
 }
 
 // Export functions for global access
