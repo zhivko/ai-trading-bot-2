@@ -594,15 +594,44 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Removed confirmation dialog - delete all immediately
 
             try {
+                // Get all drawings first to identify volume profile traces to remove
+                const drawingsResponse = await fetch(`/get_drawings/${symbol}`);
+                const drawingsResult = await drawingsResponse.json();
+                const drawingIds = [];
+
+                if (drawingsResponse.ok && drawingsResult.status === 'success') {
+                    const drawings = drawingsResult.drawings || [];
+                    drawingIds.push(...drawings.map(d => d.id));
+                }
+
                 const response = await fetch(`/delete_all_drawings/${symbol}`, { method: 'DELETE' });
                 if (!response.ok) {
                     const errorBody = await response.text().catch(() => "Could not read error body");
                     throw new Error(`Failed to delete all drawings from backend: ${response.status} - ${errorBody}`);
                 }
+
                 if (window.gd && window.gd.layout) {
                     window.gd.layout.shapes = [];
                     Plotly.relayout(window.gd, { shapes: [] });
                 }
+
+                // Remove associated volume profile traces for all deleted drawings
+                if (window.gd && window.gd.data && drawingIds.length > 0) {
+                    const filteredData = window.gd.data.filter(trace => {
+                        if (!trace.name) return true;
+                        return !drawingIds.some(id => trace.name.startsWith(`VP-${id}`));
+                    });
+                    if (filteredData.length !== window.gd.data.length) {
+                        window.gd.data = filteredData;
+                        Plotly.react(window.gd, window.gd.data, window.gd.layout).then(() => {
+                            // Re-add trade history markers after shape deletion
+                            if (window.tradeHistoryData && window.tradeHistoryData.length > 0 && window.updateTradeHistoryVisualizations) {
+                                window.updateTradeHistoryVisualizations();
+                            }
+                        });
+                    }
+                }
+
                 activeShapeForPotentialDeletion = null; // from state.js
                 updateSelectedShapeInfoPanel(null); // from uiUpdaters.js
                 hoveredShapeBackendId = null; // from state.js
