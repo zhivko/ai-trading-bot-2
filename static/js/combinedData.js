@@ -336,10 +336,10 @@ function visualizeTradingSessions(sessions, symbol) {
 
             // All session types now use the same height level to fill gaps
             // This ensures no gaps between consecutive sessions
-            // Use thicker bars with negative paper coordinates
-            y0 = -0.25;  // Session background rectangle bottom (taller)
-            y1 = -0.12;  // Session background rectangle top
-            yLabelPos = -0.175;  // Label position in center of session
+            // Position below the X-axis in the lowest subplot (price chart)
+            y0 = -0.08;   // Below the bottom edge of the price chart
+            y1 = 0;  // Extend to the bottom edge (X-axis level)
+            yLabelPos = -0.04; // Label position in center of the rectangle below the chart
 
             // Create single session background rectangle - FIXED TO NOT BE MOVABLE
             const sessionShape = {
@@ -450,10 +450,6 @@ ${session.characteristics || ''}`,
     }
 }
 
-function handleTradeHistoryMessage(message) {
-
-    // Handle other trade history message types if needed
-}
 
 function handleShapeVolumeProfilesMessage(message) {
 
@@ -1328,9 +1324,17 @@ function processMessageQueue() {
         }
 
         if (!message.type) {
-            console.warn('⚠️ Message missing type:', message);
-            isProcessingMessage = false;
-            return;
+            // Try to infer message type from message structure
+            if (message.info && message.price && message.amount) {
+                // Looks like a single trade message - wrap in array for trade_history handler
+                message.type = 'trade_history';
+                message.data = [message];
+            } else {
+                console.info(JSON.stringify(message));
+                console.warn('⚠️ Message missing type and cannot infer:', message);
+                isProcessingMessage = false;
+                return;
+            }
         }
 
         // Log message processing with safe timestamp handling
@@ -1397,6 +1401,9 @@ function processMessageQueue() {
                 handleShapeVolumeProfilesMessage(message);
                 break;
             case 'trade_history':
+                handleTradeHistoryMessage(message);
+                break;
+            case 'trade_update':
                 handleTradeHistoryMessage(message);
                 break;
             case 'trading_sessions':
@@ -2363,9 +2370,6 @@ function handleLiveData(message) {
 
     // Process live data and update chart
     updateChartWithLiveData(message.data, message.symbol);
-
-    // Handle live price line drawing (always enabled now)
-    handleRealtimeKlineForCombined(message.data);
 }
 
 function handleLivePriceUpdate(message) {
@@ -3972,6 +3976,12 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
             });
         }
 
+        // Re-add trade history markers after chart update if trade history data exists
+        if (window.tradeHistoryData && window.tradeHistoryData.length > 0 && window.updateTradeHistoryVisualizations) {
+            console.log('🔄 Re-adding trade history markers after historical data update');
+            window.updateTradeHistoryVisualizations();
+        }
+
         // Apply autoscale after chart update to ensure all data is visible
         // DISABLED: Autoscale after historical data causes infinite loop
         // if (window.applyAutoscale && window.gd) {
@@ -4038,6 +4048,8 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
     }
 
     // Verify event handlers are still attached after Plotly.react
+    // CRITICAL FIX: Ensure scrollZoom is re-enabled after chart updates
+    // This fixes the issue where mouse scrolling stops working after using pinch gestures or chart updates
     delay(100).then(() => {
         if (window.gd && window.gd._ev) {
             const relayoutHandlers = window.gd._ev._events?.plotly_relayout;
@@ -4048,6 +4060,9 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
                 }
             }
         }
+
+        // Fix: Ensure scrollZoom is re-enabled after chart updates
+        ensureScrollZoomEnabled();
     });
 
 }
@@ -4157,6 +4172,7 @@ function updateChartWithLiveData(dataPoint, symbol) {
     }
 
     // DEBUG: Log trace update details
+    /*
     console.log('[DEBUG] Live update for', {
         symbol: symbol || 'unknown',
         timestamp: timestamp.toISOString(),
@@ -4166,6 +4182,7 @@ function updateChartWithLiveData(dataPoint, symbol) {
         existingTracePoints: trace.x ? trace.x.length : 0,
         lastClose: trace.close ? trace.close[trace.close.length - 1] : 'N/A'
     });
+    */
 
     try {
         if (isNewCandle) {
@@ -4759,6 +4776,11 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
     // This call creates new layout domains for the updated active indicators
     Plotly.react(chartElement, updatedTraces, layout);
 
+    // Re-add trade history markers after indicator update
+    if (window.tradeHistoryData && window.tradeHistoryData.length > 0 && window.updateTradeHistoryVisualizations) {
+        window.updateTradeHistoryVisualizations();
+    }
+
     // NOTE: updateCombinedIndicators already called this function, avoid recursive call
 
     // CRITICAL: Immediately notify backend and wait for indicator data response
@@ -4820,7 +4842,7 @@ function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
         },
         showlegend: false,
         hovermode: 'x unified',
-        margin: { l: 50, r: 10, b: 80, t: 40 } // Increased bottom margin to 80px for session shapes below chart
+        margin: { l: 50, r: 10, b: 80, t: 120 } // Increased top margin to 120px for session shapes above chart
     };
 
     if (activeIndicatorIds.length > 0) {
@@ -5046,6 +5068,7 @@ function updateChartWithLiveData(dataPoint, symbol) {
     const lastTimestamp = hasExistingCandles ? trace.x[trace.x.length - 1] : null;
 
     // DEBUG: Log trace update details
+    /*
     console.log('[DEBUG] Live update for', {
         symbol: symbol || 'unknown',
         timestamp: timestamp.toISOString(),
@@ -5055,6 +5078,7 @@ function updateChartWithLiveData(dataPoint, symbol) {
         existingTracePoints: trace.x ? trace.x.length : 0,
         lastClose: trace.close ? trace.close[trace.close.length - 1] : 'N/A'
     });
+    */
 
     try {
         if (!hasExistingCandles) {
@@ -5080,6 +5104,10 @@ function updateChartWithLiveData(dataPoint, symbol) {
 
             Plotly.restyle(gd, updateData, [priceTraceIndex]).then(() => {
                 console.log('[DEBUG] First candle created successfully:', timestamp.toISOString());
+                // Re-add trade history markers after live data update
+                if (window.tradeHistoryData && window.tradeHistoryData.length > 0 && window.updateTradeHistoryVisualizations) {
+                    window.updateTradeHistoryVisualizations();
+                }
             }).catch((error) => {
                 console.warn('⚠️ Restyle failed for first candle:', error);
             });
@@ -5138,6 +5166,10 @@ function updateChartWithLiveData(dataPoint, symbol) {
                 Plotly.restyle(gd, updateData, [priceTraceIndex]).then(() => {
                     console.log('[DEBUG] Latest candle updated successfully - timestamp:' +
                         (isNewTimeframe ? 'changed' : 'unchanged'));
+                    // Re-add trade history markers after live data update
+                    if (window.tradeHistoryData && window.tradeHistoryData.length > 0 && window.updateTradeHistoryVisualizations) {
+                        window.updateTradeHistoryVisualizations();
+                    }
                 }).catch((error) => {
                     console.warn('⚠️ Restyle failed, trying react fallback:', error);
                     // Fallback to Plotly.react
@@ -5270,6 +5302,361 @@ function displayBuySignalDetails(signalData) {
 
 // Make function globally available
 window.displayBuySignalDetails = displayBuySignalDetails;
+
+// Store trade history data globally
+window.tradeHistoryData = [];
+
+// Process and store trade history data
+function processTradeHistoryData(tradeHistoryData, symbol = null) {
+    if (!Array.isArray(tradeHistoryData)) {
+        console.error('Combined WebSocket: processTradeHistoryData expects an array');
+        return [];
+    }
+
+    // Use provided symbol or fallback to global symbol
+    const tradeSymbol = symbol || combinedSymbol;
+
+    console.log('📊 Combined WebSocket: Raw trade history input:', tradeHistoryData);
+
+    // Validate and normalize trade data
+    const processedTrades = tradeHistoryData.map((trade, index) => {
+        // console.log(`📊 Combined WebSocket: Processing trade ${index}:`, trade);
+
+        // Handle both array and object formats
+        if (Array.isArray(trade)) {
+            // Convert array format [price, amount, timestamp, side] to object
+            const processed = {
+                price: parseFloat(trade[0] || trade.price),
+                amount: parseFloat(trade[1] || trade.amount || trade.qty),
+                timestamp: isNaN(trade[2]) ? new Date(trade.timestamp || trade.time).getTime() / 1000 : trade[2],
+                side: (trade[3] || trade.side || '').toUpperCase(),
+                symbol: tradeSymbol
+            };
+            console.log(`📊 Combined WebSocket: Trade ${index} (array format) -> processed:`, processed);
+            return processed;
+        } else {
+            // Already object format
+            const processed = {
+                price: parseFloat(trade.price || trade.p),
+                amount: parseFloat(trade.amount || trade.qty || trade.q || trade.quantity || trade.size || 0),
+                timestamp: isNaN(trade.timestamp) ? new Date(trade.timestamp || trade.time).getTime() / 1000 : trade.timestamp,
+                side: (trade.side || trade.s || '').toUpperCase(),
+                symbol: tradeSymbol
+            };
+            // console.log(`📊 Combined WebSocket: Trade ${index} (object format) -> processed:`, processed);
+            return processed;
+        }
+    }).filter((trade, index) => {
+        // Filter out invalid trades with detailed logging
+        const checks = [
+            { condition: trade.price > 0, description: `price > 0 (${trade.price})` },
+            { condition: trade.amount > 0, description: `amount > 0 (${trade.amount})` },
+            { condition: !isNaN(trade.timestamp), description: `!isNaN(timestamp) (${trade.timestamp})` },
+            { condition: trade.timestamp > 0, description: `timestamp > 0 (${trade.timestamp})` },
+            { condition: trade.side === 'BUY' || trade.side === 'SELL', description: `side is BUY/SELL (${trade.side})` }
+        ];
+
+        const allPass = checks.every(check => check.condition);
+        const failedChecks = checks.filter(check => !check.condition).map(check => check.description);
+
+        if (!allPass) {
+            console.warn(`📊 Combined WebSocket: Trade ${index} FAILED validation:`, {
+                trade: trade,
+                failedChecks: failedChecks,
+                passedChecks: checks.filter(check => check.condition).map(check => check.description)
+            });
+        } else {
+            // console.log(`📊 Combined WebSocket: Trade ${index} PASSED validation:`, trade);
+        }
+
+        return allPass;
+    });
+
+    console.log(`📊 Combined WebSocket: Processed ${processedTrades.length} valid trades out of ${tradeHistoryData.length} total`);
+
+    return processedTrades;
+}
+
+// Add trade history markers to the chart
+function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
+    if (!tradeHistoryData || !Array.isArray(tradeHistoryData) || tradeHistoryData.length === 0) {
+        console.warn('Combined WebSocket: No trade history data to display');
+        return;
+    }
+
+    // Check if chart is ready
+    const chartElement = document.getElementById('chart');
+    if (!chartElement || !window.gd || !window.gd.layout) {
+        console.warn('Combined WebSocket: Chart not ready for trade history markers');
+        return;
+    }
+
+    // Ensure shapes array exists
+    if (!window.gd.layout.shapes) {
+        window.gd.layout.shapes = [];
+    }
+
+    // Remove existing trade history markers
+    window.gd.layout.shapes = window.gd.layout.shapes.filter(shape =>
+        !shape.name || !shape.name.startsWith('trade_')
+    );
+
+    // Also remove any existing trade annotations
+    if (window.gd.layout.annotations) {
+        window.gd.layout.annotations = window.gd.layout.annotations.filter(ann =>
+            !ann.name || !ann.name.startsWith('trade_annotation_')
+        );
+    }
+
+    console.log(`📊 Combined WebSocket: Adding ${tradeHistoryData.length} trade markers to chart`);
+
+    // Calculate marker size scaling based on trade volume and Y-axis range
+    const allVolumes = tradeHistoryData.map(trade => trade.amount);
+    const maxVolume = Math.max(...allVolumes);
+    const minVolume = Math.min(...allVolumes);
+
+    // Get current Y-axis range to scale marker sizes
+    let yAxisMax = 200; // default fallback
+    let yAxisMin = 0;   // default fallback
+    try {
+        if (window.gd && window.gd.layout && window.gd.layout.yaxis && window.gd.layout.yaxis.range) {
+            const yRange = window.gd.layout.yaxis.range;
+            yAxisMax = Math.max(yRange[0], yRange[1]);
+            yAxisMin = Math.min(yRange[0], yRange[1]);
+        }
+    } catch (e) {
+        console.warn('Failed to get Y-axis range for marker scaling, using fallback:', e);
+    }
+
+    const yAxisRange = yAxisMax - yAxisMin;
+    const maxMarkerSize = Math.min(12, yAxisRange * 0.06); // Max marker size = 6% of Y-axis range, capped at 12px
+    const minMarkerSize = 4; // Smaller minimum marker size
+
+    // Function to scale volume to marker size
+    function volumeToMarkerSize(volume) {
+        if (maxVolume === minVolume || maxVolume === 0) {
+            return minMarkerSize; // All same size if no volume variation or all zero
+        }
+        const normalizedVolume = (volume - minVolume) / (maxVolume - minVolume);
+        const markerSize = minMarkerSize + (normalizedVolume * (maxMarkerSize - minMarkerSize));
+        return Math.max(minMarkerSize, Math.min(markerSize, maxMarkerSize)); // Clamp within bounds
+    }
+
+    console.log(`📊 Trade marker scaling: maxVolume=${maxVolume}, yAxisRange=${yAxisRange.toFixed(2)}, maxMarkerSize=${maxMarkerSize.toFixed(2)}`);
+
+    // Process each trade and create markers
+    const buyTrades = tradeHistoryData.filter(trade => trade.side === 'BUY');
+    const sellTrades = tradeHistoryData.filter(trade => trade.side === 'SELL');
+
+    console.log(`📊 Combined WebSocket: ${buyTrades.length} buy trades, ${sellTrades.length} sell trades`);
+
+    if (buyTrades.length > 0) {
+        const buyX = buyTrades.map(trade => new Date(trade.timestamp * 1000));
+        const buyY = buyTrades.map(trade => trade.price);
+        const buySizes = buyTrades.map(trade => volumeToMarkerSize(trade.amount));
+        const buyText = buyTrades.map((trade, index) =>
+            `${trade.symbol} BUY: $${trade.price.toFixed(4)} (${trade.amount.toFixed(6)}) [size: ${buySizes[index].toFixed(1)}]`
+        );
+        const buyCustomData = buyTrades.map((trade, index) => ({
+            price: trade.price,
+            amount: trade.amount,
+            timestamp: trade.timestamp,
+            symbol: trade.symbol,
+            timeDisplay: new Date(trade.timestamp * 1000).toLocaleString(),
+            markerSize: buySizes[index]
+        }));
+
+        const buyTrace = {
+            x: buyX,
+            y: buyY,
+            mode: 'markers',
+            type: 'scatter',
+            name: 'Buy Trades',
+            marker: {
+                symbol: 'triangle-up',
+                size: buySizes,
+                color: 'lime',
+                line: {
+                    color: 'green',
+                    width: 2
+                }
+            },
+            text: buyText,
+            customdata: buyCustomData,
+            hovertemplate: `
+                <b>📈 BUY TRADE</b><br>
+                <b>Symbol:</b> %{customdata.symbol}<br>
+                <b>Price:</b> $%{customdata.price:.4f}<br>
+                <b>Amount:</b> %{customdata.amount:.6f} %{customdata.symbol:/USDT}<br>
+                <b>Time:</b> %{customdata.timeDisplay}<br>
+                <b>Value:</b> $%{customdata.price * customdata.amount:.2f}<br>
+                <b>Marker Size:</b> %{customdata.markerSize:.1f}<br>
+                <extra></extra>
+            `,
+            hoverlabel: {
+                bgcolor: 'rgba(0, 100, 0, 0.9)',
+                bordercolor: 'lime',
+                font: { color: 'white', size: 11 }
+            },
+            xaxis: 'x',
+            yaxis: 'y',
+            showlegend: true
+        };
+
+        // Find existing Buy Trades trace and replace it, or add new one
+        const existingBuyTraceIndex = window.gd.data.findIndex(trace => trace.name === 'Buy Trades');
+        if (existingBuyTraceIndex !== -1) {
+            window.gd.data[existingBuyTraceIndex] = buyTrace;
+        } else {
+            window.gd.data.push(buyTrace);
+        }
+    }
+
+    // SELL trades as red triangles pointing down
+    if (sellTrades.length > 0) {
+        const sellX = sellTrades.map(trade => new Date(trade.timestamp * 1000));
+        const sellY = sellTrades.map(trade => trade.price);
+        const sellSizes = sellTrades.map(trade => volumeToMarkerSize(trade.amount));
+        const sellText = sellTrades.map((trade, index) =>
+            `${trade.symbol} SELL: $${trade.price.toFixed(4)} (${trade.amount.toFixed(6)}) [size: ${sellSizes[index].toFixed(1)}]`
+        );
+        const sellCustomData = sellTrades.map((trade, index) => ({
+            price: trade.price,
+            amount: trade.amount,
+            timestamp: trade.timestamp,
+            symbol: trade.symbol,
+            timeDisplay: new Date(trade.timestamp * 1000).toLocaleString(),
+            markerSize: sellSizes[index]
+        }));
+
+        const sellTrace = {
+            x: sellX,
+            y: sellY,
+            mode: 'markers',
+            type: 'scatter',
+            name: 'Sell Trades',
+            marker: {
+                symbol: 'triangle-down',
+                size: sellSizes,
+                color: 'red',
+                line: {
+                    color: 'darkred',
+                    width: 2
+                }
+            },
+            text: sellText,
+            customdata: sellCustomData,
+            hovertemplate: `
+                <b>📉 SELL TRADE</b><br>
+                <b>Symbol:</b> %{customdata.symbol}<br>
+                <b>Price:</b> $%{customdata.price:.4f}<br>
+                <b>Amount:</b> %{customdata.amount:.6f} %{customdata.symbol:/USDT}<br>
+                <b>Time:</b> %{customdata.timeDisplay}<br>
+                <b>Value:</b> $%{customdata.price * customdata.amount:.2f}<br>
+                <b>Marker Size:</b> %{customdata.markerSize:.1f}<br>
+                <extra></extra>
+            `,
+            hoverlabel: {
+                bgcolor: 'rgba(100, 0, 0, 0.9)',
+                bordercolor: 'red',
+                font: { color: 'white', size: 11 }
+            },
+            xaxis: 'x',
+            yaxis: 'y',
+            showlegend: true
+        };
+
+        // Find existing Sell Trades trace and replace it, or add new one
+        const existingSellTraceIndex = window.gd.data.findIndex(trace => trace.name === 'Sell Trades');
+        if (existingSellTraceIndex !== -1) {
+            window.gd.data[existingSellTraceIndex] = sellTrace;
+        } else {
+            window.gd.data.push(sellTrace);
+        }
+    }
+
+    // Update the chart with new trade markers
+    try {
+        Plotly.react(chartElement, window.gd.data, window.gd.layout, { responsive: true });
+        console.log(`📊 Combined WebSocket: Successfully added trade history markers for ${tradeHistoryData.length} trades`);
+
+        // Adapt Min Volume slider based on received trade markers
+        if (window.updateMinVolumeSliderRange) {
+            window.updateMinVolumeSliderRange();
+        }
+    } catch (error) {
+        console.error('Combined WebSocket: Error updating chart with trade markers:', error);
+    }
+}
+
+// Handle trade history messages from WebSocket
+function handleTradeHistoryMessage(message) {
+    if (!message.data || !Array.isArray(message.data)) {
+        console.warn('Combined WebSocket: Invalid trade history data format');
+        return;
+    }
+
+    // Only display trades if there are actual trades - don't show "No trade history data to display" for empty arrays
+    if (message.data.length === 0) {
+        // Just refresh existing markers without updating global data
+        // This handles chart redraws where no new trade data is needed
+        if (window.tradeHistoryData && window.tradeHistoryData.length > 0) {
+            // Re-apply current filter to existing markers during chart updates
+            updateTradeHistoryVisualizations();
+        }
+        return;
+    }
+
+    console.log(`📊 Combined WebSocket: Received trade history message with ${message.data.length} trades`);
+
+    // Process and store trade history data
+    const processedTrades = processTradeHistoryData(message.data);
+
+    if (processedTrades && processedTrades.length > 0) {
+        // MERGE new trade data with existing data instead of replacing
+        // This prevents losing existing trades when new small batches come in
+        const hadPrevData = window.tradeHistoryData && window.tradeHistoryData.length > 0;
+
+        if (hadPrevData) {
+            // Merge by timestamp - keep existing data unless same timestamp
+            const mergedTrades = [...window.tradeHistoryData];
+            processedTrades.forEach(newTrade => {
+                const existingIndex = mergedTrades.findIndex(existing => existing.timestamp === newTrade.timestamp);
+                if (existingIndex !== -1) {
+                    // Replace existing trade with same timestamp
+                    mergedTrades[existingIndex] = newTrade;
+                } else {
+                    // Add new trade
+                    mergedTrades.push(newTrade);
+                }
+            });
+
+            // Sort by timestamp and limit to reasonable size (keep last 10k trades to prevent memory issues)
+            mergedTrades.sort((a, b) => a.timestamp - b.timestamp);
+            if (mergedTrades.length > 10000) {
+                mergedTrades.splice(0, mergedTrades.length - 10000); // Keep most recent
+            }
+
+            window.tradeHistoryData = mergedTrades;
+            console.log(`📊 Combined WebSocket: Merged ${processedTrades.length} trades into existing ${window.tradeHistoryData.length} total trades`);
+        } else {
+            // No previous data, use new data as-is
+            window.tradeHistoryData = processedTrades;
+            console.log(`📊 Combined WebSocket: Set initial ${processedTrades.length} trades`);
+        }
+
+        // Add trade history markers to the chart (this will re-filter based on current min volume)
+        addTradeHistoryMarkersToChart(processedTrades, message.symbol || combinedSymbol);
+    } else {
+        console.warn('Combined WebSocket: No valid trades processed from message');
+        // Don't clear existing trade data if processing failed
+
+        // Reset markers to empty state if this is legitimate - user might have changed symbols or ranges
+        if (!window.tradeHistoryData || window.tradeHistoryData.length === 0) {
+            addTradeHistoryMarkersToChart([], message.symbol || combinedSymbol);
+        }
+    }
+}
 
 // Export functions to global scope for use by other modules
 window.setupCombinedWebSocket = setupCombinedWebSocket;
@@ -5508,6 +5895,38 @@ window.validateChartRendering = function() {
 
     return validation;
 };
+
+// FIX: Ensure scrollZoom is re-enabled after chart updates
+// This fixes the issue where mouse scrolling stops working after using pinch gestures or chart updates
+function ensureScrollZoomEnabled() {
+    if (window.gd && window.gd._context) {
+        // Force scrollZoom back to true to restore mouse wheel scrolling after touch gestures
+        if (window.gd._context.config && typeof window.gd._context.config.scrollZoom === 'boolean') {
+            window.gd._context.config.scrollZoom = true;
+        }
+
+        // Ensure the plotly modebar zoom buttons are also enabled
+        if (window.gd._context.modeBarButtons) {
+            window.gd._context.modeBarButtons.forEach(category => {
+                if (category && Array.isArray(category)) {
+                    category.forEach(button => {
+                        if (button && button.method && button.method.includes('zoom')) {
+                            button.disabled = false;
+                        }
+                    });
+                }
+            });
+        }
+
+        // Ensure Plotly's internal scroll wheel handler is active
+        if (window.gd._internalEvents && window.gd._internalEvents.scroll) {
+            window.gd._internalEvents.scroll.enabled = true;
+        }
+    }
+}
+
+// Make the function globally accessible
+window.ensureScrollZoomEnabled = ensureScrollZoomEnabled;
 
 // DEBUG: Add functions for testing the new synchronization features
 window.getMessageQueueStatus = function() {
