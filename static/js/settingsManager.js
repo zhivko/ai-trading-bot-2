@@ -3,85 +3,20 @@ let isRestoringIndicators = false;
 let isProgrammaticallySettingResolution = false;
 let isProgrammaticallySettingRange = false;
 
-function saveSettings() {
-    // Prevent saving settings while they're still being loaded
-    if (isLoadingSettings) {
-        return;
-    }
-
-    // Prevent saving settings while indicators are still being restored
-    if (isRestoringIndicators) {
-        return;
-    }
-
-    const currentSymbol = window.symbolSelect.value;
-    if (!currentSymbol) {
-        console.warn("saveSettings: No symbol selected. Cannot save settings.");
-        return;
-    }
-    const settings = {
-        symbol: currentSymbol,
-        resolution: window.resolutionSelect.value,
-        range: window.rangeSelect.value
+// Debounce utility function
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
     };
-
-    if (window.currentXAxisRange) {
-        settings.xAxisMin = window.currentXAxisRange[0];
-        settings.xAxisMax = window.currentXAxisRange[1];
-    } else {
-        settings.xAxisMin = null;
-        settings.xAxisMax = null;
-    }
-    if (window.currentYAxisRange) {
-        settings.yAxisMin = window.currentYAxisRange[0];
-        settings.yAxisMax = window.currentYAxisRange[1];
-    } else {
-        settings.yAxisMin = null;
-        settings.yAxisMax = null;
-    }
-
-    settings.replayFrom = document.getElementById('replay-from').value;
-    settings.replayTo = document.getElementById('replay-to').value;
-    settings.replaySpeed = document.getElementById('replay-speed').value;
-    settings.useLocalOllama = document.getElementById('use-local-ollama-checkbox').checked;
-    settings.localOllamaModelName = document.getElementById('local-ollama-model-select').value;
-
-    const indicatorCheckboxes = document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]');
-    const activeIndicators = [];
-    indicatorCheckboxes.forEach(checkbox => {
-        if (checkbox.checked) {
-            activeIndicators.push(checkbox.value);
-        }
-    });
-    settings.activeIndicators = activeIndicators;
-    settings.liveDataEnabled = true; // Always enabled now
-    settings.showAgentTrades = document.getElementById('showAgentTradesCheckbox').checked;
-
-    // Add streamDeltaTime from the slider
-    if (window.streamDeltaSlider) { // Check if the element exists (it should, from main.js)
-        settings.streamDeltaTime = parseInt(window.streamDeltaSlider.value, 10);
-    } else {
-        console.warn("saveSettings: streamDeltaSlider element not found on window.");
-        settings.streamDeltaTime = 0; // Default if slider not found
-    }
-
-    // Include the last selected symbol in settings
-    settings.last_selected_symbol = currentSymbol;
-
-
-    fetch('/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
-    })
-    .then(response => {
-        if (response.ok) {
-        } else {
-            console.error('[DEBUG settingsManager] Failed to save settings for', currentSymbol, 'Status:', response.status);
-        }
-    })
-    .catch(err => console.error("Error saving settings:", err));
 }
+
+
 
 async function populateDropdowns() {
     try {
@@ -335,6 +270,15 @@ async function loadSettings(symbolOverride = null) {
             window.streamDeltaValueDisplay.textContent = '0';
             window.currentStreamDeltaTime = 0; // Update global state
         }
+
+        // Load min volume filter
+        if (typeof settings.minVolumeFilter === 'number' && window.minValueSlider && window.minValueDisplay) {
+            window.minValueSlider.value = settings.minVolumeFilter;
+            window.minValueDisplay.textContent = settings.minVolumeFilter.toLocaleString();
+        } else if (window.minValueSlider && window.minValueDisplay) { // Default if not in settings
+            window.minValueSlider.value = 0; // Default value - show all trades
+            window.minValueDisplay.textContent = '0';
+        }
         if (settings.last_selected_symbol) {
             const currentUrlSymbol = window.location.pathname.substring(1).toUpperCase() || null;
             if (window.symbolSelect.value != settings.last_selected_symbol) {
@@ -389,6 +333,10 @@ async function loadSettings(symbolOverride = null) {
             window.streamDeltaValueDisplay.textContent = '0';
             window.currentStreamDeltaTime = 0;
         }
+        if (window.minValueSlider && window.minValueDisplay) {
+            window.minValueSlider.value = 0; // Default value - show all trades
+            window.minValueDisplay.textContent = '0';
+        }
     } finally {
         isLoadingSettings = false; // Allow saves again
         isRestoringIndicators = false; // Ensure indicator restoration flag is also reset
@@ -396,3 +344,93 @@ async function loadSettings(symbolOverride = null) {
         // WebSocket will be initialized by main.js after all initialization is complete
     }
 }
+
+// Apply debouncing to saveSettings to prevent rapid calls from spamming the API
+function saveSettingsInner() {
+    // Prevent saving settings while they're still being loaded
+    if (isLoadingSettings) {
+        return;
+    }
+
+    // Prevent saving settings while indicators are still being restored
+    if (isRestoringIndicators) {
+        return;
+    }
+
+    const currentSymbol = window.symbolSelect.value;
+    if (!currentSymbol) {
+        console.warn("saveSettings: No symbol selected. Cannot save settings.");
+        return;
+    }
+    const settings = {
+        symbol: currentSymbol,
+        resolution: window.resolutionSelect.value,
+        range: window.rangeSelect.value
+    };
+
+    if (window.currentXAxisRange) {
+        settings.xAxisMin = window.currentXAxisRange[0];
+        settings.xAxisMax = window.currentXAxisRange[1];
+    } else {
+        settings.xAxisMin = null;
+        settings.xAxisMax = null;
+    }
+    if (window.currentYAxisRange) {
+        settings.yAxisMin = window.currentYAxisRange[0];
+        settings.yAxisMax = window.currentYAxisRange[1];
+    } else {
+        settings.yAxisMin = null;
+        settings.yAxisMax = null;
+    }
+
+    settings.replayFrom = document.getElementById('replay-from').value;
+    settings.replayTo = document.getElementById('replay-to').value;
+    settings.replaySpeed = document.getElementById('replay-speed').value;
+    settings.useLocalOllama = document.getElementById('use-local-ollama-checkbox').checked;
+    settings.localOllamaModelName = document.getElementById('local-ollama-model-select').value;
+
+    const indicatorCheckboxes = document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]');
+    const activeIndicators = [];
+    indicatorCheckboxes.forEach(checkbox => {
+        if (checkbox.checked) {
+            activeIndicators.push(checkbox.value);
+        }
+    });
+    settings.activeIndicators = activeIndicators;
+    settings.liveDataEnabled = true; // Always enabled now
+    settings.showAgentTrades = document.getElementById('showAgentTradesCheckbox').checked;
+
+    // Add streamDeltaTime from the slider
+    if (window.streamDeltaSlider) { // Check if the element exists (it should, from main.js)
+        settings.streamDeltaTime = parseInt(window.streamDeltaSlider.value, 10);
+    } else {
+        console.warn("saveSettings: streamDeltaSlider element not found on window.");
+        settings.streamDeltaTime = 0; // Default if slider not found
+    }
+
+    // Include the last selected symbol in settings
+    settings.last_selected_symbol = currentSymbol;
+
+    // Include min volume filter setting
+    if (window.minValueSlider && window.minValueSlider.value !== undefined) {
+        settings.minVolumeFilter = parseFloat(window.minValueSlider.value);
+    } else {
+        settings.minVolumeFilter = 0; // Default to showing all trades
+    }
+
+    fetch('/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+    })
+    .then(response => {
+        if (response.ok) {
+        } else {
+            console.error('[DEBUG settingsManager] Failed to save settings for', currentSymbol, 'Status:', response.status);
+        }
+    })
+    .catch(err => console.error("Error saving settings:", err));
+}
+
+// Debounced version of saveSettings (500ms delay)
+const saveSettings = debounce(saveSettingsInner, 500);

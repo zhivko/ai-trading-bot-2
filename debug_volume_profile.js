@@ -102,7 +102,7 @@ async function debugVolumeProfile() {
                     hasVolumeProfile: true,
                     volumeProfileCount: window.volumeProfileData.length,
                     volumeProfileCheckbox: document.getElementById('show-volume-profile-checkbox')?.checked,
-                    minVolumeValue: document.getElementById('min-volume-slider')?.value
+                    minVolumeValue: document.getElementById('min-value-slider')?.value
                 };
             }
             return {
@@ -155,11 +155,11 @@ async function debugVolumeProfile() {
             // Check why it might not be created
             const debugInfo = await page.evaluate(() => {
                 const checkbox = document.getElementById('show-volume-profile-checkbox');
-                const minVolumeSlider = document.getElementById('min-volume-slider');
+                const minValueSlider = document.getElementById('min-value-slider');
 
                 return {
                     checkboxChecked: checkbox ? checkbox.checked : false,
-                    minVolumeValue: minVolumeSlider ? parseFloat(minVolumeSlider.value) : 0,
+                    minVolumeValue: minValueSlider ? parseFloat(minValueSlider.value) : 0,
                     volumeProfileDataLength: window.volumeProfileData ? window.volumeProfileData.length : 0,
                     tradeHistoryDataLength: window.tradeHistoryData ? window.tradeHistoryData.length : 0,
                     windowGdData: window.gd?.data?.length || 0

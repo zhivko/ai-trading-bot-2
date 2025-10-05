@@ -646,11 +646,36 @@ function createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRan
         return null;
     }
 
-    // Calculate bar thickness based on bar count and price range
-    // More bars = thinner bars to prevent overlap, fewer bars = thicker bars for visibility
-    const barCount = relevantVolumeData.length;
+    // Calculate bar thickness based on bar count and price range to prevent overlapping
+    // Sort prices to find gaps between consecutive levels
+    const sortedPrices = relevantVolumeData.map(level => typeof level.price === 'string' ? parseFloat(level.price) : level.price).sort((a, b) => a - b);
+
+    // Find the minimum gap between consecutive price levels
+    let minGap = Infinity;
+    for (let i = 1; i < sortedPrices.length; i++) {
+        const gap = sortedPrices[i] - sortedPrices[i - 1];
+        if (gap > 0 && gap < minGap) {
+            minGap = gap;
+        }
+    }
+
+    // Fallback if minGap is still Infinity (shouldn't happen with valid data)
+    if (!isFinite(minGap) || minGap === 0) {
+        const barCount = relevantVolumeData.length;
+        const priceRangeSpan = highPrice - lowPrice;
+        minGap = priceRangeSpan / Math.max(barCount, 1);
+    }
+
+    // Set bar thickness to be less than the minimum gap to prevent overlap
+    // Use 80% of the minimum gap to ensure clear separation
+    let barThickness = minGap * 0.8;
+
+    // Ensure bar thickness is reasonable (not too thin, not too thick)
     const priceRangeSpan = highPrice - lowPrice;
-    const barThickness = Math.min(priceRangeSpan * 0.1, priceRangeSpan / (barCount + 1));
+    const minThickness = priceRangeSpan * 0.001; // Minimum 0.1% of price range
+    const maxThickness = priceRangeSpan * 0.05;  // Maximum 5% of price range
+
+    barThickness = Math.max(minThickness, Math.min(maxThickness, barThickness));
 
     // Create traces for the volume profile bars
     const traces = [];
@@ -707,11 +732,11 @@ function createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRan
                 y: [price, price, price + topPrice, price + topPrice, price], // Create closed rectangle
                 type: 'scatter',
                 fill: 'toself', // Fill the closed shape
-                    fillcolor: 'rgba(0, 255, 0, 0.1)', // Increased transparency
+                    fillcolor: 'rgba(219, 175, 31, 0.3)', // Increased transparency
                 mode: 'lines', // Use only lines mode - no markers
                 line: {
-                    color: 'rgba(0, 255, 0, 1.0)', // Fully opaque
-                    width: 2 // Thicker line
+                    color: 'rgba(219, 175, 31, 0.3)', // Fully opaque
+                    width: 1 // Thicker line
                 },
                     name: `VP-${rectangleId} Buy: ${price.toFixed(2)}`,
                     hovertemplate:
@@ -737,42 +762,7 @@ function createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRan
                 traces.push(buyBarTrace);
             }
 
-            // SELL BAR - positioned below price, extends from left edge based on volume
-            if (sellVol > 0) {
-                const sellBarEndTime = new Date(rectangleStartTime.getTime() + sellBarLengthMs);
-                const sellBarTrace = {
-                    x: [rectangleStartTime, sellBarEndTime, sellBarEndTime, rectangleStartTime, rectangleStartTime], // Create closed rectangle
-                    y: [price, price, price - topPrice, price - topPrice, price], // Create closed rectangle
-                    type: 'scatter',
-                    fill: 'toself', // Fill the closed shape
-                    fillcolor: 'rgba(255, 0, 0, 0.1)', // Increased transparency
-                    mode: 'lines',
-                    line: {
-                        color: 'rgba(255, 0, 0, 0.9)',
-                        width: 1
-                    },
-                    name: `VP-${rectangleId} Sell: ${price.toFixed(2)}`,
-                    hovertemplate:
-                        `<b>Rectangle Volume Profile - SELLERS</b><br>` +
-                        `Rectangle: ${rectangleId}<br>` +
-                        `Symbol: ${symbol}<br>` +
-                        `Price: $${price.toFixed(2)}<br>` +
-                        `Sell Volume: ${sellVol.toFixed(4)}<br>` +
-                        `Total Volume: ${totalVol.toFixed(4)}<br>` +
-                        `Time Range: ${startDate.toLocaleString()} - ${endDate.toLocaleString()}<br>` +
-                        `<extra></extra>`,
-                    xaxis: 'x',
-                    yaxis: 'y',
-                    showlegend: false,
-                    hoverlabel: {
-                        bgcolor: 'rgba(0, 0, 0, 0.8)',
-                        bordercolor: 'rgba(255, 0, 0, 0.9)',
-                        font: { color: 'white', size: 12 }
-                    }
-                };
 
-                traces.push(sellBarTrace);
-            }
 
         });
 
@@ -1201,10 +1191,6 @@ function enqueueMessage(message) {
     } else if (message.type === 'volume_profile') {
         // For volume profile messages, include rectangle ID
         messageId = `${message.type}_${message.symbol || 'unknown'}_${message.rectangle_id || 'unknown'}`;
-    } else if (message.type === 'shape_volume_profiles') {
-        // For shape volume profiles, include drawing IDs
-        const drawingIds = message.data ? Object.keys(message.data).join('_') : 'unknown';
-        messageId = `${message.type}_${message.symbol || 'unknown'}_${drawingIds}`;
     } else if (message.type === 'trading_sessions') {
         // For trading sessions, include date and session count
         const sessionCount = message.data && Array.isArray(message.data) ? message.data.length : 'unknown';
@@ -1397,11 +1383,11 @@ function processMessageQueue() {
             case 'volume_profile':
                 handleVolumeProfileMessage(message);
                 break;
-            case 'shape_volume_profiles':
-                handleShapeVolumeProfilesMessage(message);
-                break;
             case 'trade_history':
                 handleTradeHistoryMessage(message);
+                break;                
+            case 'trading_sessions':
+                handleTradingSessionsMessage(message);
                 break;
             case 'trade_update':
                 handleTradeHistoryMessage(message);
@@ -5410,10 +5396,12 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
 
     console.log(`📊 Combined WebSocket: Adding ${tradeHistoryData.length} trade markers to chart`);
 
-    // Calculate marker size scaling based on trade volume and Y-axis range
-    const allVolumes = tradeHistoryData.map(trade => trade.amount);
-    const maxVolume = Math.max(...allVolumes);
-    const minVolume = Math.min(...allVolumes);
+    // Calculate marker size scaling based on ALL trade data (not just current batch)
+    // This ensures consistent scaling across batches
+    const allTrades = window.tradeHistoryData || [];
+    const allValues = allTrades.map(trade => trade.price * trade.amount).filter(val => val > 0);
+    const maxValue = allValues.length > 0 ? Math.max(...allValues) : 1;
+    const minValue = allValues.length > 0 ? Math.min(...allValues) : 0.001;
 
     // Get current Y-axis range to scale marker sizes
     let yAxisMax = 200; // default fallback
@@ -5429,20 +5417,32 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
     }
 
     const yAxisRange = yAxisMax - yAxisMin;
-    const maxMarkerSize = Math.min(12, yAxisRange * 0.06); // Max marker size = 6% of Y-axis range, capped at 12px
+    const maxMarkerSize = Math.min(20, yAxisRange * 0.20); // Max marker size = 20% of Y-axis range, capped at 20px
     const minMarkerSize = 4; // Smaller minimum marker size
 
-    // Function to scale volume to marker size
-    function volumeToMarkerSize(volume) {
-        if (maxVolume === minVolume || maxVolume === 0) {
-            return minMarkerSize; // All same size if no volume variation or all zero
+    // Function to scale value to marker size
+    function valueToMarkerSize(value) {
+        if (maxValue === minValue || maxValue === 0) {
+            return minMarkerSize; // All same size if no value variation or all zero
         }
-        const normalizedVolume = (volume - minVolume) / (maxVolume - minVolume);
-        const markerSize = minMarkerSize + (normalizedVolume * (maxMarkerSize - minMarkerSize));
+        const normalizedValue = (value - minValue) / (maxValue - minValue);
+        const markerSize = minMarkerSize + (normalizedValue * (maxMarkerSize - minMarkerSize));
         return Math.max(minMarkerSize, Math.min(markerSize, maxMarkerSize)); // Clamp within bounds
     }
 
-    console.log(`📊 Trade marker scaling: maxVolume=${maxVolume}, yAxisRange=${yAxisRange.toFixed(2)}, maxMarkerSize=${maxMarkerSize.toFixed(2)}`);
+    // DEBUG: Log first 5 trades to check price/amount formatting
+    if (tradeHistoryData.length > 0) {
+        console.log('🔍 First 5 trades for price/format checking:', tradeHistoryData.slice(0, 5).map((t, i) => ({
+            index: i,
+            price: t.price,
+            priceType: typeof t.price,
+            amount: t.amount,
+            amountType: typeof t.amount,
+            timestamp: t.timestamp
+        })));
+    }
+
+    console.log(`📊 Trade marker scaling: maxValue=${maxValue}, yAxisRange=${yAxisRange.toFixed(2)}, maxMarkerSize=${maxMarkerSize.toFixed(2)}`);
 
     // Process each trade and create markers
     const buyTrades = tradeHistoryData.filter(trade => trade.side === 'BUY');
@@ -5453,9 +5453,9 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
     if (buyTrades.length > 0) {
         const buyX = buyTrades.map(trade => new Date(trade.timestamp * 1000));
         const buyY = buyTrades.map(trade => trade.price);
-        const buySizes = buyTrades.map(trade => volumeToMarkerSize(trade.amount));
+        const buySizes = buyTrades.map(trade => valueToMarkerSize(trade.price * trade.amount));
         const buyText = buyTrades.map((trade, index) =>
-            `${trade.symbol} BUY: $${trade.price.toFixed(4)} (${trade.amount.toFixed(6)}) [size: ${buySizes[index].toFixed(1)}]`
+            `${trade.symbol} BUY: $${trade.price.toFixed(4)} ($${(trade.price * trade.amount).toFixed(2)}) [size: ${buySizes[index].toFixed(1)}]`
         );
         const buyCustomData = buyTrades.map((trade, index) => ({
             price: trade.price,
@@ -5463,7 +5463,8 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
             timestamp: trade.timestamp,
             symbol: trade.symbol,
             timeDisplay: new Date(trade.timestamp * 1000).toLocaleString(),
-            markerSize: buySizes[index]
+            markerSize: buySizes[index],
+            value: trade.price * trade.amount
         }));
 
         const buyTrace = {
@@ -5489,7 +5490,7 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
                 <b>Price:</b> $%{customdata.price:.4f}<br>
                 <b>Amount:</b> %{customdata.amount:.6f} %{customdata.symbol:/USDT}<br>
                 <b>Time:</b> %{customdata.timeDisplay}<br>
-                <b>Value:</b> $%{customdata.price * customdata.amount:.2f}<br>
+                <b>Value:</b> $%{customdata.value:.2f}<br>
                 <b>Marker Size:</b> %{customdata.markerSize:.1f}<br>
                 <extra></extra>
             `,
@@ -5516,9 +5517,9 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
     if (sellTrades.length > 0) {
         const sellX = sellTrades.map(trade => new Date(trade.timestamp * 1000));
         const sellY = sellTrades.map(trade => trade.price);
-        const sellSizes = sellTrades.map(trade => volumeToMarkerSize(trade.amount));
+        const sellSizes = sellTrades.map(trade => valueToMarkerSize(trade.amount));
         const sellText = sellTrades.map((trade, index) =>
-            `${trade.symbol} SELL: $${trade.price.toFixed(4)} (${trade.amount.toFixed(6)}) [size: ${sellSizes[index].toFixed(1)}]`
+            `${trade.symbol} SELL: $${trade.price.toFixed(4)} ($${(trade.price * trade.amount).toFixed(2)}) [size: ${sellSizes[index].toFixed(1)}]`
         );
         const sellCustomData = sellTrades.map((trade, index) => ({
             price: trade.price,
@@ -5526,7 +5527,8 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
             timestamp: trade.timestamp,
             symbol: trade.symbol,
             timeDisplay: new Date(trade.timestamp * 1000).toLocaleString(),
-            markerSize: sellSizes[index]
+            markerSize: sellSizes[index],
+            value: trade.price * trade.amount
         }));
 
         const sellTrace = {
@@ -5552,7 +5554,7 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
                 <b>Price:</b> $%{customdata.price:.4f}<br>
                 <b>Amount:</b> %{customdata.amount:.6f} %{customdata.symbol:/USDT}<br>
                 <b>Time:</b> %{customdata.timeDisplay}<br>
-                <b>Value:</b> $%{customdata.price * customdata.amount:.2f}<br>
+                <b>Value:</b> $%{customdata.value:.2f}<br>
                 <b>Marker Size:</b> %{customdata.markerSize:.1f}<br>
                 <extra></extra>
             `,
@@ -5581,8 +5583,8 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
         console.log(`📊 Combined WebSocket: Successfully added trade history markers for ${tradeHistoryData.length} trades`);
 
         // Adapt Min Volume slider based on received trade markers
-        if (window.updateMinVolumeSliderRange) {
-            window.updateMinVolumeSliderRange();
+        if (window.updateMinValueSliderRange) {
+            window.updateMinValueSliderRange();
         }
     } catch (error) {
         console.error('Combined WebSocket: Error updating chart with trade markers:', error);

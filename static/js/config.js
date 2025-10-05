@@ -38,29 +38,21 @@ function isMobileDevice() {
 
 const config = {
     responsive: true,
-    displayModeBar: true,
+    displayModeBar: false, // Disable Plotly mode bar/toolbar
     scrollZoom: true, // Keep scroll zoom enabled for mouse wheel zooming
-    modeBarButtonsToRemove: ['zoom2d', 'zoomIn2d', 'zoomOut2d', 'autoscale'], // Remove zoom buttons
-    modeBarButtonsToAdd: [
-        {
-            name: 'Draw Line', // Tooltip for the button
-            icon: Plotly.Icons.drawline, // Use Plotly's standard drawline icon
-            click: function(gd) {
-                // Switch to drawline mode
-                Plotly.relayout(gd, { dragmode: 'drawline' });
-            }
-        }
-    ],
     displaylogo: false, // Hide Plotly logo to save space
     showTips: false, // Disable tips that might interfere on mobile
     editable: false,
     autosize: true, // Keep autosize for responsive behavior, but grid rowheights should take precedence
+    dragmode: 'zoom', // Set default dragmode to zoom for scroll wheel to work
     edits: {
         shapePosition: true,
         annotationPosition: false,
         annotationText: false,
         axisTitleText: false,
+        axisTitleFont: false,
         legendText: false,
+        legendPosition: false,
         titleText: false
     },
     // Enable pinch-to-zoom and other mobile gestures
@@ -80,32 +72,51 @@ function disableMobileHover(gd) {
 
 // Function to enable mobile pinch zoom features
 function enableMobilePinchZoom(gd) {
-    if (isMobileDevice() && gd) {
-        // Ensure the chart responds to touch gestures for pinch-to-zoom
-        Plotly.relayout(gd, {
-            scrollZoom: true,
-            responsive: true,
-            // Ensure double-click resets zoom on mobile
-            doubleClick: 'reset'
-        });
-
-        // Add touch event logging for debugging
-        const chartDiv = document.getElementById('chart');
-        if (chartDiv) {
-            chartDiv.addEventListener('touchstart', function(event) {
-                if (event.touches.length === 2) {
-                }
-            }, { passive: true });
-
-            chartDiv.addEventListener('touchmove', function(event) {
-                if (event.touches.length === 2) {
-                }
-            }, { passive: true });
-
-            chartDiv.addEventListener('touchend', function(event) {
-            }, { passive: true });
-        }
+    if (!isMobileDevice() || !gd) {
+        return; // Only enable on mobile devices, and return early if no chart
     }
+
+    // Ensure the chart responds to touch gestures for pinch-to-zoom without interfering with desktop
+    Plotly.relayout(gd, {
+        scrollZoom: true,
+        responsive: true,
+        dragmode: 'zoom', // Use zoom mode instead of pan for better mobile pinch behavior
+        doubleClick: 'reset'
+    });
+
+    // Add touch event handling specifically for pinch gestures only
+    const chartDiv = document.getElementById('chart');
+    if (!chartDiv) return;
+
+    let pinchInProgress = false;
+
+    chartDiv.addEventListener('touchstart', function(event) {
+        if (event.touches.length === 2) {
+            // Pinch gesture started
+            pinchInProgress = true;
+            // Let Plotly handle pinch zoom naturally - don't change drag mode
+        }
+    }, { passive: true });
+
+    chartDiv.addEventListener('touchmove', function(event) {
+        // Only prevent default on actual pinch gestures (2 touches)
+        if (event.touches.length === 2 && pinchInProgress) {
+            // Prevent default browser pinch handling to let Plotly handle it
+            event.preventDefault();
+        }
+        // Single touch gestures and other interactions should work normally
+    }, { passive: false });
+
+    chartDiv.addEventListener('touchend', function(event) {
+        // Reset pinch state when touches end
+        if (pinchInProgress && event.touches.length === 0) {
+            pinchInProgress = false;
+            // Re-enable mouse wheel zoom after pinch gestures end
+            if (window.ensureScrollZoomEnabled) {
+                window.ensureScrollZoomEnabled();
+            }
+        }
+    }, { passive: true });
 }
 
 // Function to force hide hover elements via CSS

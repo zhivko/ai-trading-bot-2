@@ -97,8 +97,8 @@ function initializePlotlyEventHandlers(gd) {
         }
     });
 
-    let currentDragMode = gd.layout.dragmode || 'pan';
-    let previousDragMode = gd.layout.dragmode || 'pan'; // Store previous mode for restoration
+    let currentDragMode = gd.layout.dragmode || 'zoom';
+    let previousDragMode = gd.layout.dragmode || 'zoom'; // Store previous mode for restoration
     let isDragging = false;
     let shapeWasMoved = false;
     

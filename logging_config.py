@@ -85,6 +85,10 @@ httpcore_connection_logger.setLevel(logging.WARNING)
 httpcore_http11_logger = logging.getLogger('httpcore.http11')
 httpcore_http11_logger.setLevel(logging.WARNING)
 
+# Configure httpx logger to WARNING level to reduce HTTP request debug logs
+httpx_logger = logging.getLogger('httpx')
+httpx_logger.setLevel(logging.WARNING)
+
 # Configure bybit_price_feed logger to INFO level for file output
 bybit_logger = logging.getLogger('bybit_price_feed')
 bybit_logger.setLevel(logging.INFO)

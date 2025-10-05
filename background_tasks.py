@@ -7,7 +7,7 @@ from config import SUPPORTED_SYMBOLS, timeframe_config, TRADING_SYMBOL, TRADING_
 from redis_utils import (
     get_cached_klines, cache_klines, get_cached_open_interest,
     cache_open_interest, publish_resolution_kline, detect_gaps_in_cached_data, fill_data_gaps,
-    get_cached_trades, cache_trades, publish_trade_bar, detect_gaps_in_trade_data,
+    get_cached_trades, publish_trade_bar, detect_gaps_in_trade_data,
     fill_trade_data_gaps, fetch_trades_from_ccxt, aggregate_trades_to_bars, cache_individual_trades,
     get_individual_trades, aggregate_trades_from_redis,
     get_redis_connection
@@ -296,8 +296,6 @@ async def fetch_and_aggregate_trades():
                             trade_bars = await aggregate_trades_from_redis(exchange_name, internal_symbol, start_ts, end_ts, 60)
 
                             if trade_bars:
-                                # Cache the aggregated trade bars
-                                await cache_trades(internal_symbol, exchange_id, trade_bars)
 
                                 # Publish latest bar if it's recent enough (within last 2 minutes)
                                 current_ts = int(current_time_utc.timestamp())
@@ -384,6 +382,145 @@ async def bybit_realtime_feed_listener():
     while True:
         await asyncio.sleep(300)
         logger.debug("bybit_realtime_feed_listener (shared conceptual) placeholder is alive")
+
+async def fill_trade_data_gaps_background_task():
+    """Background task to periodically fill trade data gaps with fresh data from exchanges."""
+    logger.info("🚀 STARTING BACKGROUND TASK: fill_trade_data_gaps_background_task")
+
+    cycle_count = 0
+
+    while True:
+        try:
+            cycle_count += 1
+            current_time_utc = datetime.now(timezone.utc)
+            logger.info(f"🔄 TRADE GAP FILLER: Cycle #{cycle_count} started at {current_time_utc}")
+
+            # Process each supported exchange
+            total_exchanges_processed = 0
+            total_symbols_processed = 0
+            total_gaps_filled = 0
+
+            # Check for gaps in the last 24 hours (more frequent gap filling than the main aggregator)
+            current_time_utc = datetime.now(timezone.utc)
+            end_ts = int(current_time_utc.timestamp())
+            start_ts = end_ts - (24 * 3600)  # Last 24 hours
+
+            for exchange_id, exchange_config in SUPPORTED_EXCHANGES.items():
+                exchange_name = exchange_config.get('name', exchange_id)
+                symbol_mappings = exchange_config.get('symbols', {})
+
+                # Skip exchanges with no symbols configured
+                if not symbol_mappings:
+                    continue
+
+                total_exchanges_processed += 1
+                symbols_in_exchange = 0
+
+                logger.debug(f"🔍 Checking for trade gaps on {exchange_name} ({exchange_id})")
+
+                # Process each symbol supported by this exchange
+                for internal_symbol, exchange_symbol in symbol_mappings.items():
+                    # Only process symbols that are in our SUPPORTED_SYMBOLS list
+                    if internal_symbol not in SUPPORTED_SYMBOLS:
+                        continue
+
+                    symbols_in_exchange += 1
+
+                    try:
+                        # Check if we have any cached trades for this symbol in our target time range
+                        existing_trades = await get_individual_trades(exchange_name, internal_symbol, start_ts, end_ts)
+
+                        if not existing_trades or len(existing_trades) == 0:
+                            # No cached trades found - attempt fresh fetch for entire range
+                            logger.debug(f"No cached trades found in Redis for {internal_symbol} on {exchange_name} in the requested time range")
+                            try:
+                                logger.info(f"Attempting to fetch fresh trade data from {exchange_name} for {internal_symbol}...")
+
+                                # Use CCXT to fetch fresh trade data
+                                import ccxt.async_support as ccxt
+                                exchange_class = getattr(ccxt, exchange_id)
+                                ccxt_exchange = exchange_class({
+                                    'enableRateLimit': True,
+                                    'rateLimit': 1000,
+                                })
+
+                                ccxt_symbol = exchange_symbol
+
+                                # Fetch trades for the entire time range
+                                all_fresh_trades = []
+                                current_fetch_ts = start_ts
+                                limit = 1000
+
+                                while current_fetch_ts < end_ts:
+                                    try:
+                                        if not all_fresh_trades:
+                                            trades_batch = await ccxt_exchange.fetch_trades(ccxt_symbol, limit=limit)
+                                        else:
+                                            since = int(current_fetch_ts * 1000)
+                                            trades_batch = await ccxt_exchange.fetch_trades(ccxt_symbol, since=since, limit=limit)
+
+                                        if not trades_batch:
+                                            break
+
+                                        # Convert timestamps to seconds and filter
+                                        filtered_batch = []
+                                        for t in trades_batch:
+                                            trade_seconds = int(t['timestamp'] / 1000)
+                                            if start_ts <= trade_seconds <= end_ts:
+                                                trade_copy = t.copy()
+                                                trade_copy['timestamp'] = trade_seconds
+                                                filtered_batch.append(trade_copy)
+
+                                        all_fresh_trades.extend(filtered_batch)
+
+                                        if trades_batch:
+                                            last_trade_ts = int(trades_batch[-1]['timestamp'] / 1000)
+                                            if last_trade_ts <= current_fetch_ts:
+                                                break
+                                            current_fetch_ts = last_trade_ts + 1
+                                            if len(trades_batch) < limit:
+                                                break
+
+                                        # Prevent memory issues
+                                        if len(all_fresh_trades) > 10000:
+                                            all_fresh_trades = all_fresh_trades[-10000:]
+                                            break
+
+                                    except Exception as e:
+                                        logger.error(f"❌ Error fetching trade gap-fill batch from {exchange_id}: {e}")
+                                        break
+
+                                await ccxt_exchange.close()
+
+                                if all_fresh_trades and len(all_fresh_trades) > 0:
+                                    # Persist fresh trades to Redis to fill the gap
+                                    await cache_individual_trades(all_fresh_trades, exchange_name, internal_symbol)
+                                    logger.info(f"✅ FILLED TRADE DATA GAP: Added {len(all_fresh_trades)} fresh trades for {internal_symbol} on {exchange_name}")
+                                    total_gaps_filled += 1
+                                else:
+                                    logger.debug(f"⚠️ No fresh trades fetched for gap-filling {internal_symbol} on {exchange_name}")
+
+                            except Exception as e:
+                                logger.warning(f"Failed to fetch fresh trades for gap-filling {internal_symbol} on {exchange_name}: {e}")
+                        else:
+                            logger.debug(f"✅ Trade data exists for {internal_symbol} on {exchange_name} ({len(existing_trades)} trades)")
+
+                    except Exception as e:
+                        logger.error(f"❌ Error processing gap-filling for {internal_symbol} on {exchange_id}: {e}")
+                        continue
+
+                total_symbols_processed += symbols_in_exchange
+
+            logger.info(f"✅ TRADE GAP FILLER COMPLETED: Cycle #{cycle_count} - processed {total_exchanges_processed} exchanges, {total_symbols_processed} symbols, filled {total_gaps_filled} gaps")
+            logger.info("😴 TRADE GAP FILLER: Sleeping for 60 seconds")
+
+            await asyncio.sleep(60)
+
+        except Exception as e:
+            logger.error(f"💥 ERROR in fill_trade_data_gaps_background_task cycle #{cycle_count}: {e}", exc_info=True)
+            logger.error("🔄 RETRYING: Sleeping for 10 seconds before next cycle")
+            await asyncio.sleep(10)
+
 
 def get_timeframe_seconds(timeframe: str) -> int:
     multipliers = {"1m": 60, "5m": 300, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800}

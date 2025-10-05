@@ -42,8 +42,7 @@ from config import SECRET_KEY, STATIC_DIR, TEMPLATES_DIR, PROJECT_ROOT
 from logging_config import logger
 from auth import creds, get_session
 from redis_utils import init_redis
-from background_tasks import fetch_and_publish_klines
-from background_tasks import fetch_and_aggregate_trades
+from background_tasks import fetch_and_publish_klines, fetch_and_aggregate_trades, fill_trade_data_gaps_background_task
 from bybit_price_feed import start_bybit_price_feed
 
 # Import email alert service
@@ -77,6 +76,7 @@ from endpoints.utility_endpoints import (
     get_last_selected_symbol, stream_logs_endpoint, get_live_price
 )
 from endpoints.indicator_endpoints import indicator_history_endpoint
+from endpoints.trade_history_endpoints import trade_history_endpoint
 
 # Import YouTube endpoints
 from endpoints.youtube_endpoints import router as youtube_router
@@ -107,6 +107,10 @@ async def lifespan(app_instance: FastAPI):
         # Start trade aggregator background task
         logger.info("🔧 STARTING BACKGROUND TASK: Creating fetch_and_aggregate_trades task...")
         app_instance.state.trade_aggregator_task = asyncio.create_task(fetch_and_aggregate_trades())
+
+        # Start trade data gap filler background task
+        logger.info("🔧 STARTING BACKGROUND TASK: Creating fill_trade_data_gaps_background_task...")
+        app_instance.state.trade_gap_filler_task = asyncio.create_task(fill_trade_data_gaps_background_task())
         # logger.info("✅ BACKGROUND TASK STARTED: fetch_and_publish_klines task created and running")
         # logger.info(f"📊 TASK STATUS: {app_instance.state.fetch_klines_task}")
 
@@ -125,6 +129,7 @@ async def lifespan(app_instance: FastAPI):
 
 
         # Start YouTube monitor background task
+        '''
         try:
             logger.info("🔧 STARTING BACKGROUND TASK: Creating YouTube monitor task...")
             from youtube_monitor import start_youtube_monitor
@@ -133,6 +138,7 @@ async def lifespan(app_instance: FastAPI):
         except Exception as e:
             logger.error(f"❌ FAILED TO START YOUTUBE MONITOR: {e}")
             app_instance.state.youtube_monitor_task = None
+        '''
         
         # Preload Whisper model for audio transcription
         try:
@@ -164,6 +170,7 @@ async def lifespan(app_instance: FastAPI):
         logger.error(f"Failed to initialize Redis or start background tasks: {e}", exc_info=True)
         app_instance.state.fetch_klines_task = None
         app_instance.state.trade_aggregator_task = None
+        app_instance.state.trade_gap_filler_task = None
         app_instance.state.price_feed_task = None
         app_instance.state.email_alert_task = None
         app_instance.state.whisper_model = None
@@ -180,6 +187,18 @@ async def lifespan(app_instance: FastAPI):
             logger.info("✅ TASK SUCCESSFULLY CANCELLED: trade_aggregator task cancelled cleanly")
         except Exception as e:
             logger.error(f"💥 ERROR DURING TASK SHUTDOWN: trade_aggregator: {e}", exc_info=True)
+
+    trade_gap_filler_task = getattr(app_instance.state, 'trade_gap_filler_task', None)
+    if trade_gap_filler_task:
+        # logger.info("🛑 CANCELLING BACKGROUND TASK: trade_gap_filler...")
+        trade_gap_filler_task.cancel()
+        try:
+            await trade_gap_filler_task
+            logger.info(f"✅ TASK CANCELLED: trade_gap_filler_task status: Done={trade_gap_filler_task.done()}, Cancelled={trade_gap_filler_task.cancelled()}, Exception={trade_gap_filler_task.exception()}")
+        except asyncio.CancelledError:
+            logger.info("✅ TASK SUCCESSFULLY CANCELLED: trade_gap_filler task cancelled cleanly")
+        except Exception as e:
+            logger.error(f"💥 ERROR DURING TASK SHUTDOWN: trade_gap_filler: {e}", exc_info=True)
 
     fetch_klines_task = getattr(app_instance.state, 'fetch_klines_task', None)
     if fetch_klines_task:
@@ -503,6 +522,7 @@ async def background_tasks_health():
     """Check the status of background tasks."""
     fetch_task = getattr(app.state, 'fetch_klines_task', None)
     trade_aggregator_task = getattr(app.state, 'trade_aggregator_task', None)
+    trade_gap_filler_task = getattr(app.state, 'trade_gap_filler_task', None)
     email_task = getattr(app.state, 'email_alert_task', None)
     price_feed_task = getattr(app.state, 'price_feed_task', None)
     youtube_monitor_task = getattr(app.state, 'youtube_monitor_task', None)
@@ -523,6 +543,13 @@ async def background_tasks_health():
                 "done": trade_aggregator_task.done() if trade_aggregator_task else None,
                 "cancelled": trade_aggregator_task.cancelled() if trade_aggregator_task else None,
                 "exception": str(trade_aggregator_task.exception()) if trade_aggregator_task and trade_aggregator_task.exception() else None
+            },
+            "trade_gap_filler_task": {
+                "exists": trade_gap_filler_task is not None,
+                "running": trade_gap_filler_task is not None and not trade_gap_filler_task.done(),
+                "done": trade_gap_filler_task.done() if trade_gap_filler_task else None,
+                "cancelled": trade_gap_filler_task.cancelled() if trade_gap_filler_task else None,
+                "exception": str(trade_gap_filler_task.exception()) if trade_gap_filler_task and trade_gap_filler_task.exception() else None
             },
             "price_feed_task": {
                 "exists": price_feed_task is not None,
@@ -761,6 +788,5 @@ if __name__ == "__main__":
         http="h11",
         timeout_keep_alive=10,
         log_level="info",
-        # Add graceful shutdown timeout to prevent hanging
         timeout_graceful_shutdown=1
     )

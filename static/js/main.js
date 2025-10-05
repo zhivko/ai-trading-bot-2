@@ -28,20 +28,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.streamDeltaValueDisplay = document.getElementById('stream-delta-value-display');
 
     // Trade filter slider elements
-    window.minVolumeSlider = document.getElementById('min-volume-slider');
-    window.minVolumeValueDisplay = document.getElementById('min-volume-value');
+    window.minValueSlider = document.getElementById('min-value-slider');
+    window.minValueDisplay = document.getElementById('min-volume-value');
 
-    // Initialize trade filter slider to 0 by default to show all trades
-    if (window.minVolumeSlider) {
-        // Set slider properties for crypto volumes (0-0.2 range)
-        window.minVolumeSlider.min = 0;
-        window.minVolumeSlider.max = 0.2;
-        window.minVolumeSlider.step = 0.01;
+// Initialize trade filter slider to 0 by default to show all trades
+    if (window.minValueSlider) {
+        // Set slider properties for crypto USD values (range will be updated dynamically)
+        window.minValueSlider.min = 0;
+        window.minValueSlider.max = 10000; // $10k default max
+        window.minValueSlider.step = 100;
+        window.minValueSlider.value = 0; // Always start at 0 to show all trades
+        updateMinValueDisplay(); // Sync display with initial value
+        updateMaxValueDisplay(); // Sync max display with initial range
 
-        // Always start at 0 to show all trades
-        window.minVolumeSlider.value = 0;
-        if (window.minVolumeValueDisplay) {
-            window.minVolumeValueDisplay.textContent = '0';
+        // Trade filter slider event listener
+        if (minValueSlider) {
+            minValueSlider.addEventListener('input', handleMinValueChange);
+            minValueSlider.value = 0; // Set default to 0
+            handleMinValueChange(); // Update display
         }
     }
 
@@ -151,13 +155,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     Plotly.newPlot('chart', [], initialLayout, config).then(function(gd) { // layout & config from config.js
         window.gd = gd; // Make Plotly graph div object global
 
-
-        // Ensure dragmode is set to 'pan' for panning detection
-        Plotly.relayout(gd, { dragmode: 'pan' }).then(() => {
-        }).catch(err => {
-            console.error('[DEBUG] Failed to set dragmode:', err);
-        });
-
         // Initialize Plotly specific event handlers after chart is ready
         initializePlotlyEventHandlers(gd); // From plotlyEventHandlers.js
 
@@ -168,9 +165,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Enable mobile pinch zoom features
         enableMobilePinchZoom(gd);
 
+        // Ensure mouse wheel zoom is enabled after chart creation
+        if (window.ensureScrollZoomEnabled) {
+            window.ensureScrollZoomEnabled();
+        }
+
 
         // Initialize trade history after chart is ready
-        initializeTradeHistory();
+        // initializeTradeHistory();
 
     }).catch(err => {
         console.error('[DEBUG] Plotly initialization error:', err);
@@ -229,6 +231,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.accumulatedHistoricalData = [];
         window.isAccumulatingHistorical = false;
         window.historicalDataSymbol = '';
+
+        // Clear trade history data for the old symbol
+        window.tradeHistoryData = [];
 
         // Update selected shape info
         updateSelectedShapeInfoPanel(null);
@@ -538,7 +543,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                     );
                     if (filteredData.length !== window.gd.data.length) {
                         window.gd.data = filteredData;
-                        Plotly.react(window.gd, window.gd.data, window.gd.layout);
+                        Plotly.react(window.gd, window.gd.data, window.gd.layout).then(() => {
+                            // Re-add trade history markers after shape deletion
+                            if (window.tradeHistoryData && window.tradeHistoryData.length > 0 && window.updateTradeHistoryVisualizations) {
+                                window.updateTradeHistoryVisualizations();
+                            }
+                        });
                     }
                 }
 
@@ -624,10 +634,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Trade filter slider event listener - only if tradeHistory.js hasn't set it up
-    if (window.minVolumeSlider && window.minVolumeValueDisplay && !window.tradeHistoryInitialized) {
-        window.minVolumeSlider.addEventListener('input', () => {
+    if (window.minValueSlider && window.minValueDisplay && !window.tradeHistoryInitialized) {
+        window.minValueSlider.addEventListener('input', () => {
             // Update the display value
-            window.minVolumeValueDisplay.textContent = window.minVolumeSlider.value;
+            window.minValueDisplay.textContent = window.minValueSlider.value;
             // Save settings when slider value changes
             saveSettings();
         });
@@ -766,9 +776,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.combinedToTs = null;
             window.accumulatedHistoricalData = [];
             window.isAccumulatingHistorical = false;
-            window.historicalDataSymbol = '';
+        window.historicalDataSymbol = '';
 
-            updateSelectedShapeInfoPanel(null);
+        // Clear trade history data for the old symbol
+        window.tradeHistoryData = [];
+
+        updateSelectedShapeInfoPanel(null);
             setLastSelectedSymbol(newSymbol);
             loadSettings(newSymbol);
 
@@ -1357,6 +1370,19 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Zoom button
+    const zoomBtn = document.getElementById('zoom-btn');
+    if (zoomBtn) {
+        zoomBtn.addEventListener('click', function() {
+            if (window.gd) {
+                Plotly.relayout(window.gd, { dragmode: 'zoom' });
+
+                // Update button states
+                updateToolbarButtonStates('zoom');
+            }
+        });
+    }
+
     // Draw Line button
     const drawlineBtn = document.getElementById('drawline-btn');
     if (drawlineBtn) {
@@ -1421,19 +1447,23 @@ document.addEventListener('DOMContentLoaded', function() {
 // Function to update toolbar button states based on current dragmode
 function updateToolbarButtonStates(activeMode) {
     const panBtn = document.getElementById('pan-btn');
+    const zoomBtn = document.getElementById('zoom-btn');
     const drawlineBtn = document.getElementById('drawline-btn');
     const drawrectBtn = document.getElementById('drawrect-btn');
 
-    if (!panBtn || !drawlineBtn || !drawrectBtn) return;
+    if (!panBtn || !zoomBtn || !drawlineBtn || !drawrectBtn) return;
 
     // Remove active class from all buttons
     panBtn.classList.remove('active');
+    zoomBtn.classList.remove('active');
     drawlineBtn.classList.remove('active');
     drawrectBtn.classList.remove('active');
 
     // Add active class to current mode button
     if (activeMode === 'pan' || (!activeMode && window.gd && window.gd.layout.dragmode === 'pan')) {
         panBtn.classList.add('active');
+    } else if (activeMode === 'zoom' || (!activeMode && window.gd && window.gd.layout.dragmode === 'zoom')) {
+        zoomBtn.classList.add('active');
     } else if (activeMode === 'drawline' || (!activeMode && window.gd && window.gd.layout.dragmode === 'drawline')) {
         drawlineBtn.classList.add('active');
     } else if (activeMode === 'drawrect' || (!activeMode && window.gd && window.gd.layout.dragmode === 'drawrect')) {
@@ -1447,3 +1477,145 @@ document.addEventListener('plotly_relayout', function(event) {
         updateToolbarButtonStates(event.detail.dragmode);
     }
 });
+
+// Update trade history visualizations based on minimum value filter
+window.updateTradeHistoryVisualizations = function() {
+    if (!window.tradeHistoryData || window.tradeHistoryData.length === 0) {
+        return;
+    }
+
+    // Get current min value filter
+    const minValueSlider = document.getElementById('min-value-slider');
+    const minVolumeInput = document.getElementById('min-volume-value');
+    let minVolume = minValueSlider ? parseFloat(minValueSlider.value) || 0 : 0;
+
+    // Check if user typed a custom value in the display input
+    if (minVolumeInput && minVolumeInput.textContent) {
+        const displayedValue = parseFloat(minVolumeInput.textContent.replace(/,/g, '')) || 0;
+        if (!isNaN(displayedValue)) {
+            minVolume = displayedValue;
+        }
+    }
+
+    // Filter trades based on minimum USD value (price * amount)
+    const filteredTrades = window.tradeHistoryData.filter(trade => {
+        const tradeValue = trade.price * trade.amount;
+        const passesFilter = tradeValue >= minVolume;
+        return passesFilter;
+    });
+
+    console.log(`📊 After filtering: ${filteredTrades.length} trades pass filter`);
+
+    // Always update markers - addTradeHistoryMarkersToChart handles clearing when no trades pass filter
+    addTradeHistoryMarkersToChart(filteredTrades, window.symbolSelect ? window.symbolSelect.value : 'UNKNOWN');
+};
+
+// Update minimum value slider range based on trade data
+function updateMinValueSliderRange() {
+    const minValueSlider = document.getElementById('min-value-slider');
+
+    if (!minValueSlider) return;
+
+    // Check if trade history data exists
+    if (!window.tradeHistoryData || window.tradeHistoryData.length === 0) {
+        // No trade data - use default reasonable range for crypto values
+        minValueSlider.min = 0;
+        minValueSlider.max = 10000; // $10k default max
+        minValueSlider.step = 100;
+        return;
+    }
+
+    // Extract all USD value values from trade history (price * amount)
+    const valueValues = window.tradeHistoryData.map(trade => trade.price * trade.amount).filter(value =>
+        typeof value === 'number' && !isNaN(value) && value > 0
+    );
+
+    if (valueValues.length === 0) {
+        // No valid value data - use default range
+        minValueSlider.min = 0;
+        minValueSlider.max = 10000;
+        minValueSlider.step = 100;
+        return;
+    }
+
+    // Find maximum value
+    const maxValue = Math.max(...valueValues);
+
+    // Calculate slider max as 1.5x the maximum value found
+    let calculatedMax = maxValue * 1.5;
+
+    // Apply caps to prevent extreme values
+    const minAllowedMax = 10; // Minimum max to avoid too small ranges
+    const maxAllowedMax = 1000000; // Maximum max to prevent huge ranges ($1M)
+
+    calculatedMax = Math.max(minAllowedMax, Math.min(maxAllowedMax, calculatedMax));
+
+    // Adjust step based on the scale
+    let step = 100; // $100 default step
+    if (calculatedMax > 100000) {
+        step = 10000; // $10k steps for very large values
+    } else if (calculatedMax > 50000) {
+        step = 5000; // $5k steps for large values
+    } else if (calculatedMax > 10000) {
+        step = 1000; // $1k steps for medium values
+    } else if (calculatedMax > 1000) {
+        step = 100; // $100 steps for smaller values
+    } else {
+        step = 10; // $10 steps for very small values
+    }
+
+    // Update slider properties
+    minValueSlider.min = 0;
+    minValueSlider.max = calculatedMax;
+    minValueSlider.step = step;
+
+    // Update the max value display
+    updateMaxValueDisplay();
+
+    // Ensure current value stays within new range
+    const currentValue = parseFloat(minValueSlider.value);
+    if (currentValue > calculatedMax) {
+        minValueSlider.value = calculatedMax;
+        updateMinVolumeDisplay();
+    } else if (currentValue < 0) {
+        minValueSlider.value = 0;
+        updateMinVolumeDisplay();
+    }
+
+    console.log(`Min Value slider updated: max=$${calculatedMax.toLocaleString()}, step=$${step.toLocaleString()}, trades=${window.tradeHistoryData.length}`);
+}
+
+// Update min volume display value
+function updateMinValueDisplay() {
+    const minValueSlider = document.getElementById('min-value-slider');
+    const minVolumeValue = document.getElementById('min-volume-value');
+
+    if (minValueSlider && minVolumeValue) {
+        const currentValue = parseFloat(minValueSlider.value);
+        minVolumeValue.textContent = currentValue.toLocaleString();
+    }
+}
+
+// Update max volume display value (shows the current slider maximum range)
+function updateMaxValueDisplay() {
+    const minValueSlider = document.getElementById('min-value-slider');
+    const maxVolumeValue = document.getElementById('max-volume-value');
+
+    if (minValueSlider && maxVolumeValue) {
+        const maxValue = parseFloat(minValueSlider.max);
+        maxVolumeValue.textContent = maxValue.toLocaleString();
+    }
+}
+
+// Handle minimum volume slider change
+function handleMinValueChange() {
+    updateMinValueDisplay();
+
+    // Update visualizations
+    updateTradeHistoryVisualizations();
+
+    // Save settings if function exists
+    if (typeof saveSettings === 'function') {
+        saveSettings();
+    }
+}

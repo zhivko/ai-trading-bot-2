@@ -294,7 +294,12 @@ function handleRealtimeKline(klineData) {
             // candleTrace.low = [...candleTrace.low];
             // candleTrace.close = [...candleTrace.close];
 
-            Plotly.react(gd, gd.data, gd.layout);
+            Plotly.react(gd, gd.data, gd.layout).then(() => {
+                // Re-add trade history markers after live data update
+                if (window.tradeHistoryData && window.tradeHistoryData.length > 0 && window.updateTradeHistoryVisualizations) {
+                    window.updateTradeHistoryVisualizations();
+                }
+            });
         } else {
             const message = `Ignored out-of-sequence live tick. Tick time: ${new Date(liveUpdateTimeSec * 1000).toLocaleString()}, Last chart candle: ${new Date(lastCandleOpenTimeSec * 1000).toLocaleString()}`;
             console.warn('[LiveUpdate] ' + message, 'Raw Data:', klineData);

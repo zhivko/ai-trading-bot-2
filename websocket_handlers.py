@@ -306,7 +306,7 @@ async def calculate_trading_sessions(symbol: str, from_ts: int = None, to_ts: in
                     "local_description": "24/7 crypto markets with lower volume"
                 })
 
-        # Filter sessions to the requested time range and clip them if necessary
+        # Filter sessions to the requested time range (without clipping)
         filtered_sessions = []
         for session in sessions:
             session_start = session['start_time']
@@ -314,25 +314,13 @@ async def calculate_trading_sessions(symbol: str, from_ts: int = None, to_ts: in
 
             # Check if session overlaps with requested time range
             if session_start <= to_ts and session_end >= from_ts:
-                # Clip session to the requested time range
-                clipped_start = max(session_start, from_ts)
-                clipped_end = min(session_end, to_ts)
+                # Include the full session without clipping
+                filtered_session = session.copy()
+                filtered_session['duration_minutes'] = int((session_end - session_start) / 60)
 
-                if clipped_end > clipped_start:
-                    clipped_session = session.copy()
-                    clipped_session['start_time'] = clipped_start
-                    clipped_session['end_time'] = clipped_end
-                    clipped_session['duration_minutes'] = int((clipped_end - clipped_start) / 60)
+                filtered_sessions.append(filtered_session)
 
-                    # Add clipping information for debugging
-                    if clipped_start != session_start or clipped_end != session_end:
-                        clipped_session['clipped'] = True
-                        clipped_session['original_start'] = session_start
-                        clipped_session['original_end'] = session_end
-
-                    filtered_sessions.append(clipped_session)
-
-                    logger.debug(f"Added {session['activity_type']} session: {time.strftime('%Y-%m-%d %H:%M GMT', time.gmtime(clipped_start))} to {time.strftime('%Y-%m-%d %H:%M GMT', time.gmtime(clipped_end))}")
+                logger.debug(f"Added {session['activity_type']} session: {time.strftime('%Y-%m-%d %H:%M GMT', time.gmtime(session_start))} to {time.strftime('%Y-%m-%d %H:%M GMT', time.gmtime(session_end))}")
 
         logger.info(f"Generated {len(filtered_sessions)} GMT-based trading sessions within time range")
 
@@ -380,7 +368,7 @@ def _add_trade_to_volume_map(trade_data: Dict[str, Any], volume_map: Dict[float,
     })
 
 
-async def fetch_recent_trade_history(symbol: str, limit: int = 20) -> List[Dict[str, Any]]:
+async def fetch_MY_recent_trade_history(symbol: str, limit: int = 20) -> List[Dict[str, Any]]:
     """
     Fetch recent trade history from the trading service for websocket delivery.
     Returns trade data in the same format as the source service.
@@ -406,19 +394,39 @@ async def fetch_recent_trade_history(symbol: str, limit: int = 20) -> List[Dict[
                     try:
                         # Convert timestamp from string to milliseconds if needed
                         timestamp = trade.get('createdAt', 0)
+                        timestamp_ms = 0  # Default fallback
+
                         if isinstance(timestamp, str):
                             # Try to parse ISO string
                             try:
                                 dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                                 timestamp_ms = int(dt.timestamp() * 1000)
-                            except:
+                            except ValueError:
+                                logger.warning(f"Failed to parse timestamp string: {timestamp}")
                                 timestamp_ms = 0
+                        elif isinstance(timestamp, (int, float)):
+                            # Determine if timestamp is in milliseconds or seconds
+                            if timestamp > 10000000000:  # > 10 billion, likely milliseconds
+                                timestamp_ms = int(timestamp)
+                            else:  # In seconds, convert to milliseconds
+                                timestamp_ms = int(timestamp * 1000)
                         else:
-                            timestamp_ms = int(timestamp)
+                            logger.warning(f"Invalid timestamp type for trade: {type(timestamp)}, value: {timestamp}")
+                            timestamp_ms = 0
+
+                        # Validate timestamp is within reasonable crypto trading range (2021-2035)
+                        if timestamp_ms > 0:
+                            timestamp_seconds = timestamp_ms // 1000
+                            min_valid_ts = 1609459200  # 2021-01-01
+                            max_valid_ts = 2050000000  # 2035-01-01
+                            if not (min_valid_ts <= timestamp_seconds <= max_valid_ts):
+                                logger.warning(f"Trade has invalid timestamp: {timestamp_seconds} seconds (should be between {min_valid_ts} and {max_valid_ts}). Using current time.")
+                                timestamp_ms = int(time.time() * 1000)  # Use current time as fallback
 
                         # Transform to the format expected by tradeHistory.js
+                        zulu_timestamp = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
                         transformed_trade = {
-                            "timestamp": timestamp_ms,  # Timestamp in milliseconds
+                            "timestamp": zulu_timestamp,  # Zulu timestamp
                             "price": float(trade.get('price', 0)),
                             "quantity": float(trade.get('size', 0)),  # Total quantity of the trade
                             "side": trade.get('side', 'BUY').upper(),
@@ -437,6 +445,188 @@ async def fetch_recent_trade_history(symbol: str, limit: int = 20) -> List[Dict[
 
     except Exception as e:
         logger.error(f"Error fetching trade history for websocket: {e}")
+        return []
+
+
+
+async def analyze_trade_data_coverage(exchange_name: str, symbol: str, from_ts: int, to_ts: int, cached_trades: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Analyze cached trade data for gaps and coverage issues.
+    Returns a dictionary with gap analysis results.
+    """
+    if not cached_trades or len(cached_trades) == 0:
+        return {
+            'has_gaps': True,
+            'gap_info': 'No cached data available',
+            'coverage_percentage': 0.0,
+            'gaps_count': 0
+        }
+
+    try:
+        # Sort trades by timestamp for gap analysis
+        sorted_trades = sorted(cached_trades, key=lambda x: x.get('timestamp', 0))
+
+        # Find earliest and latest trade timestamps
+        earliest_trade_ts = sorted_trades[0].get('timestamp', 0)
+        latest_trade_ts = sorted_trades[-1].get('timestamp', 0)
+
+        # Calculate expected coverage (we expect 1-minute aggregated trades)
+        expected_interval_seconds = 60  # 1 minute
+        total_expected_intervals = (to_ts - from_ts) // expected_interval_seconds
+
+        # Check for significant gaps within the cached data range
+        gaps = []
+        significant_gaps_count = 0
+
+        for i in range(1, len(sorted_trades)):
+            current_trade_ts = sorted_trades[i].get('timestamp', 0)
+            previous_trade_ts = sorted_trades[i-1].get('timestamp', 0)
+
+            gap_seconds = current_trade_ts - previous_trade_ts
+            if gap_seconds > expected_interval_seconds * 2:  # More than 2 minutes gap
+                gaps.append({
+                    'from_ts': previous_trade_ts,
+                    'to_ts': current_trade_ts,
+                    'gap_seconds': gap_seconds,
+                    'missing_intervals': int(gap_seconds / expected_interval_seconds) - 1
+                })
+                significant_gaps_count += 1
+
+        # Check if we have data covering the requested time range
+        requested_range_seconds = to_ts - from_ts
+        cached_range_seconds = latest_trade_ts - earliest_trade_ts
+        coverage_percentage = min(100.0, (cached_range_seconds / requested_range_seconds) * 100.0) if requested_range_seconds > 0 else 0.0
+
+        # Check for gaps at the beginning or end of requested range
+        has_start_gap = earliest_trade_ts > from_ts + 300  # More than 5 minutes from start
+        has_end_gap = to_ts > latest_trade_ts + 300  # More than 5 minutes before end
+
+        has_gaps = significant_gaps_count > 0 or has_start_gap or has_end_gap
+
+        gap_info = []
+        if has_start_gap:
+            gap_info.append(f"Start gap: {int((earliest_trade_ts - from_ts) / 60)} minutes")
+        if has_end_gap:
+            gap_info.append(f"End gap: {int((to_ts - latest_trade_ts) / 60)} minutes")
+        if significant_gaps_count > 0:
+            gap_info.append(f"{significant_gaps_count} internal gaps")
+
+        return {
+            'has_gaps': has_gaps,
+            'gap_info': ', '.join(gap_info) if gap_info else 'No significant gaps',
+            'coverage_percentage': coverage_percentage,
+            'gaps_count': significant_gaps_count + (1 if has_start_gap else 0) + (1 if has_end_gap else 0),
+            'earliest_trade': earliest_trade_ts,
+            'latest_trade': latest_trade_ts,
+            'requested_from': from_ts,
+            'requested_to': to_ts
+        }
+
+    except Exception as e:
+        logger.error(f"Error analyzing trade data coverage for {exchange_name}:{symbol}: {e}")
+        return {
+            'has_gaps': True,
+            'gap_info': f'Analysis error: {str(e)}',
+            'coverage_percentage': 0.0,
+            'gaps_count': 0
+        }
+
+
+async def fetch_recent_trade_history(symbol: str, from_ts: int = None, to_ts: int = None) -> List[Dict[str, Any]]:
+    """
+    Fetch trade history from all supported exchanges within date range.
+    Returns trade data ordered by timestamp.
+    """
+    try:
+        from redis_utils import get_individual_trades
+        from config import SUPPORTED_EXCHANGES
+
+        logger.info(f"Fetching trade history from all exchanges for {symbol}, from_ts: {from_ts}, to_ts: {to_ts}")
+
+        # Default to last 24 hours if no time range provided
+        if from_ts is None:
+            from_ts = int(time.time()) - (24 * 60 * 60)
+        if to_ts is None:
+            to_ts = int(time.time())
+
+        all_trades = []
+
+        # Log the requested time range for debugging
+        from_dt = datetime.fromtimestamp(from_ts, timezone.utc)
+        to_dt = datetime.fromtimestamp(to_ts, timezone.utc)
+        logger.info(f"Trade history request: {symbol} from {from_dt.strftime('%Y-%m-%d %H:%M:%S UTC')} to {to_dt.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+
+        # Fetch from all supported exchanges that have this symbol
+        for exchange_id, exchange_config in SUPPORTED_EXCHANGES.items():
+            exchange_name = exchange_config.get('name', exchange_id)
+            if symbol in exchange_config.get('symbols', {}):
+                try:
+                    logger.debug(f"Fetching trades for {symbol} from {exchange_name}")
+                    exchange_trades = await get_individual_trades(exchange_name, symbol, from_ts, to_ts)
+                    logger.debug(f"Retrieved {len(exchange_trades) if exchange_trades else 0} cached trades for {symbol} from {exchange_name}")
+
+                    # Process cached trades
+                    cached_trade_count = 0
+                    if exchange_trades and len(exchange_trades) > 0:
+                        # Log some sample trades for debugging
+                        logger.info(f"Sample trades from {exchange_name}: {min(3, len(exchange_trades))} of {len(exchange_trades)} total")
+                        for i, sample_trade in enumerate(exchange_trades[:3]):
+                            trade_time = datetime.fromtimestamp(sample_trade.get('timestamp', 0), timezone.utc)
+                            logger.info(f"  Trade {i+1}: {sample_trade.get('price', 0)} @ {trade_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+                        # Transform cached trades to the expected format
+                        for trade in exchange_trades:
+                            try:
+                                # Convert timestamp to milliseconds (detect format)
+                                timestamp = trade.get('timestamp', 0)
+                                # Ensure timestamp is numeric
+                                if isinstance(timestamp, str):
+                                    timestamp = int(float(timestamp))  # Handle string timestamps
+                                if timestamp > 1e12:  # Already in milliseconds
+                                    timestamp_ms = int(timestamp)
+                                else:  # In seconds, convert to milliseconds
+                                    timestamp_ms = int(timestamp * 1000)
+
+                                # Validate timestamp in seconds for filtering
+                                timestamp_seconds = timestamp_ms // 1000
+                                min_valid_ts = 1609459200  # 2021-01-01
+                                max_valid_ts = 2050000000  # 2035-01-01
+                                if not (min_valid_ts <= timestamp_seconds <= max_valid_ts):
+                                    logger.warning(f"Skipping trade from {exchange_name} with invalid timestamp: {timestamp_seconds} seconds ({timestamp_ms} ms)")
+                                    continue
+
+                                zulu_timestamp = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
+                                transformed_trade = {
+                                    "timestamp": zulu_timestamp,
+                                    "price": float(trade.get('price', 0)),
+                                    "quantity": float(trade.get('amount', trade.get('size', 0))),
+                                    "side": trade.get('side', 'BUY').upper(),
+                                    "size": float(trade.get('amount', trade.get('size', 0)))
+                                }
+                                all_trades.append(transformed_trade)
+                                cached_trade_count += 1
+                            except Exception as trade_e:
+                                logger.warning(f"Failed to transform cached trade from {exchange_name}: {trade_e}")
+                                continue
+
+                        logger.debug(f"Added {cached_trade_count} cached transformed trades from {exchange_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to fetch trades from {exchange_name}: {e}")
+                    continue
+            else:
+                logger.debug(f"Symbol {symbol} not supported on {exchange_name}")
+
+        # Sort all trades by timestamp
+        if all_trades:
+            all_trades.sort(key=lambda x: x['timestamp'])
+            logger.info(f"Successfully fetched and sorted {len(all_trades)} trades from all exchanges for {symbol}")
+        else:
+            logger.warning(f"No trades found in cached or fresh data for {symbol} in the requested time range. This may indicate data gaps that require background fetching.")
+
+        return all_trades
+
+    except Exception as e:
+        logger.error(f"Error fetching trade history from exchanges: {e}")
         return []
 
 
@@ -1301,6 +1491,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
 
                 elif message_type in ["init", "config"]:
                     # Handle initialization/config message
+                    logger.info(f"🔧 Processing {message_type} message for symbol {active_symbol}")
                     client_state["indicators"] = message.get("indicators", [])
                     client_state["resolution"] = message.get("resolution", "1h")
 
@@ -1335,11 +1526,14 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
 
                     logger.info(f"Client initialization: indicators={client_state['indicators']}, resolution={client_state['resolution']}, from_ts={client_state['from_ts']}, to_ts={client_state['to_ts']}")
 
+                    logger.info(f"DEBUG CONFIG: Parsed timestamps - from_ts={client_state['from_ts']}, to_ts={client_state['to_ts']}")
+
                     # Load settings from Redis and update stream delta
                     try:
                         redis_conn = await get_redis_connection()
                         settings_key = f"settings:{active_symbol}"
                         settings_json = await redis_conn.get(settings_key)
+                        logger.info(f"DEBUG CONFIG: Redis settings key '{settings_key}' - data exists: {settings_json is not None}")
                         if settings_json:
                             symbol_settings = json.loads(settings_json)
                             client_state["stream_delta_seconds"] = int(symbol_settings.get('streamDeltaTime', 1))
@@ -1348,17 +1542,49 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                     except Exception as e:
                         logger.error(f"Error loading settings for {active_symbol}: {e}")
 
+                    logger.info(f"DEBUG CONFIG: About to call send_historical_data() for {active_symbol}")
+
                     # Always send historical data when receiving init/config messages,
                     # as the user may have changed from_ts/to_ts/indicators/resolution
-                    await send_historical_data()
+                    historical_result = await send_historical_data()
+                    logger.info(f"DEBUG CONFIG: send_historical_data() returned {historical_result}")
                     client_state["historical_sent"] = True  # Mark as sent
+
+                    logger.info(f"DEBUG CONFIG: About to fetch trade history")
+
+                    # Send trade history for initialization
+                    try:
+                        trade_history = await fetch_recent_trade_history(active_symbol, client_state["from_ts"], client_state["to_ts"])
+                        trade_count = len(trade_history) if trade_history else 0
+                        logger.info(f"DEBUG CONFIG: trade_history result: {trade_count} trades")
+
+                        if trade_history and len(trade_history) > 0:
+                            trade_message = {
+                                "type": "trade_history",
+                                "symbol": active_symbol,
+                                "data": trade_history,
+                                "timestamp": int(time.time())
+                            }
+                            logger.info(f"DEBUG CONFIG: Sending trade_history message with {len(trade_history)} trades")
+                            await send_to_client(trade_message)
+                            logger.info(f"✅ Sent {len(trade_history)} trade history records for {active_symbol}")
+                        else:
+                            logger.info(f"DEBUG CONFIG: No trade history available for {active_symbol}")
+                    except Exception as e:
+                        logger.warning(f"Failed to send trade history for {active_symbol}: {e}")
+
+                    logger.info(f"DEBUG CONFIG: Enabling live mode and sending 'ready' message")
 
                     # Enable live mode after initialization
                     client_state["live_mode"] = True
                     await websocket.send_json({"type": "ready"})
 
+                    logger.info(f"DEBUG CONFIG: Starting live streaming")
+
                     # Start live streaming when live mode is enabled
                     start_live_streaming()
+
+                    logger.info(f"DEBUG CONFIG: {message_type} message processing completed for {active_symbol}")
 
                 elif message_type == "update_symbol":
                     # Handle symbol change

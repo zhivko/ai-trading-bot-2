@@ -411,6 +411,46 @@ async def notify_clients_of_new_data(symbol: str, resolution: str, kline_data: d
     except Exception as e:
         logger.error(f"Error in notify_clients_of_new_data: {e}", exc_info=True)
 
+async def notify_clients_of_new_trade(symbol: str, exchange: str, trade: dict) -> None:
+    """Notify clients viewing the symbol about new trade data."""
+    try:
+        redis = await get_redis_connection()
+
+        # Find all client keys that match the symbol
+        client_pattern = "client:*"
+        client_keys = []
+        async for key in redis.scan_iter(match=client_pattern):
+            client_keys.append(key)
+
+        if not client_keys:
+            return
+
+        # Check each client to see if they are viewing this symbol
+        for client_key in client_keys:
+            try:
+                client_data = await redis.hgetall(client_key)
+                if not client_data:
+                    continue
+
+                # Check if client is viewing the same symbol
+                if client_data.get("symbol") == symbol:
+                    # Send trade notification to this client
+                    notification_key = f"notify:{client_key}"
+                    await redis.xadd(notification_key, {
+                        "type": "trade_update",
+                        "exchange": exchange,
+                        "data": json.dumps(trade)
+                    }, maxlen=100)
+
+                    logger.debug(f"Sent trade update to client {client_key} for {symbol} on {exchange}")
+
+            except Exception as e:
+                logger.error(f"Error processing client {client_key} for trade notification: {e}")
+                continue
+
+    except Exception as e:
+        logger.error(f"Error in notify_clients_of_new_trade: {e}", exc_info=True)
+
 async def publish_live_data_tick(symbol: str, live_data: dict) -> None:
     try:
         redis = await get_redis_connection()
@@ -889,6 +929,42 @@ async def clear_btc_dominance_data() -> None:
         raise
 
 
+async def clear_trade_data(symbol: str = None, exchange_name: str = None) -> None:
+    """Remove trade data from Redis for fresh start."""
+    try:
+        redis = await get_redis_connection()
+
+        deleted_keys = 0
+
+        if symbol and exchange_name:
+            # Clear specific symbol/exchange
+            pattern = f"trade:individual:{exchange_name}:{symbol}:*"
+            async for key in redis.scan_iter(match=pattern):
+                await redis.delete(key)
+                deleted_keys += 1
+
+            # Clear sorted set
+            sorted_set_key = f"trades:{exchange_name}:{symbol}"
+            result = await redis.delete(sorted_set_key)
+            if result > 0:
+                deleted_keys += 1
+
+            logger.info(f"🗑️ CLEARED TRADE DATA: Deleted {deleted_keys} keys for {symbol} on {exchange_name}")
+        else:
+            # Clear all trade data
+            patterns = ["trade:individual:*", "trades:*"]
+            for pattern in patterns:
+                async for key in redis.scan_iter(match=pattern):
+                    await redis.delete(key)
+                    deleted_keys += 1
+
+            logger.info(f"🗑️ CLEARED ALL TRADE DATA: Deleted {deleted_keys} keys")
+
+    except Exception as e:
+        logger.error(f"❌ Failed to clear trade data: {e}")
+        raise
+
+
 async def download_btc_dominance_from_tvdatafeed() -> str:
     """Download BTC dominance using tvdatafeed and return CSV filename."""
     try:
@@ -1245,78 +1321,17 @@ def get_stream_trade_key(symbol: str, exchange: str) -> str:
     """Generate Redis stream key for trade bars."""
     return f"stream:trade:{exchange}:{symbol}"
 
-async def get_cached_trades(symbol: str, exchange: str, start_ts: int, end_ts: int) -> list[Dict[str, Any]]:
-    """Retrieve cached trade bars from Redis."""
+async def get_cached_trades(symbol: str, exchange_name: str, start_ts: int, end_ts: int) -> list[Dict[str, Any]]:
+    """Retrieve cached trade bars by aggregating from individual cached trades."""
     try:
-        redis = await get_redis_connection()
-        sorted_set_key = get_sorted_set_trade_key(symbol, exchange)
-
-        klines_data_redis = await redis.zrangebyscore(
-            sorted_set_key,
-            min=start_ts,
-            max=end_ts,
-            withscores=False
-        )
-
-        cached_data = []
-        for data_item in klines_data_redis:
-            try:
-                if isinstance(data_item, bytes):
-                    data_str = data_item.decode('utf-8')
-                elif isinstance(data_item, str):
-                    data_str = data_item
-                else:
-                    continue
-                parsed_data = json.loads(data_str)
-                cached_data.append(parsed_data)
-            except json.JSONDecodeError:
-                continue
-
-        logger.info(f"Found {len(cached_data)} cached trade bars for {symbol} on {exchange} between {start_ts} and {end_ts}")
-        return cached_data
+        # Aggregate from cached individual trades
+        trade_bars = await aggregate_trades_from_redis(exchange_name, symbol, start_ts, end_ts, 60)
+        logger.info(f"Aggregated {len(trade_bars)} cached trade bars for {symbol} on {exchange_name} between {start_ts} and {end_ts}")
+        return trade_bars
     except Exception as e:
         logger.error(f"Error in get_cached_trades: {e}", exc_info=True)
         return []
 
-async def cache_trades(symbol: str, exchange: str, trade_bars: list[Dict[str, Any]]) -> None:
-    """Cache trade bars to Redis."""
-    try:
-        redis = await get_redis_connection()
-        expiration = 60 * 60 * 24  # 24 hours for trade bars
-
-        # De-duplicate bars
-        unique_bars = {}
-        for bar in trade_bars:
-            unique_bars[bar['time']] = bar
-
-        bars_to_process = sorted(list(unique_bars.values()), key=lambda x: x['time'])
-        sorted_set_key = get_sorted_set_trade_key(symbol, exchange)
-
-        async with redis.pipeline() as pipe:
-            for bar in bars_to_process:
-                timestamp = bar["time"]
-                data_str = json.dumps(bar)
-
-                # Cache individual trade bar
-                individual_key = get_trade_key(symbol, exchange, timestamp)
-                await pipe.setex(individual_key, expiration, data_str)
-
-                # Add to sorted set
-                await pipe.zremrangebyscore(sorted_set_key, timestamp, timestamp)
-                await pipe.zadd(sorted_set_key, {data_str: timestamp})
-
-                # Pipeline batching
-                if len(pipe) >= 500:
-                    await pipe.execute()
-            await pipe.execute()
-
-        # Trim sorted set to keep manageable size
-        max_entries = 10000
-        await redis.zremrangebyrank(sorted_set_key, 0, -(max_entries + 1))
-
-        # logger.info(f"Successfully cached {len(bars_to_process)} trade bars for {symbol} on {exchange}")
-    except Exception as e:
-        logger.error(f"Error caching trade data: {e}", exc_info=True)
 
 async def publish_trade_bar(symbol: str, exchange: str, trade_bar: dict) -> None:
     """Publish trade bar to Redis stream."""
@@ -1529,8 +1544,7 @@ async def fill_trade_data_gaps(gaps: List[Dict[str, Any]]) -> None:
             missing_bars = await fetch_trades_from_ccxt(exchange_id, symbol, from_ts, to_ts)
 
             if missing_bars:
-                await cache_trades(symbol, exchange_id, missing_bars)
-                logger.info(f"✅ Filled trade gap with {len(missing_bars)} bars for {symbol} on {exchange_id}")
+                logger.info(f"✅ Filled trade gap with {len(missing_bars)} bars for {symbol} on {exchange_id} (individual trades cached)")
             else:
                 logger.warning(f"❌ No trade data received for gap in {symbol} on {exchange_id}")
 
@@ -1573,9 +1587,11 @@ async def cache_individual_trades(trades: list[Dict[str, Any]], exchange_name: s
                     await pipe.execute()
             await pipe.execute()
 
-        # Trim sorted set to keep manageable size (keep most recent trades)
-        max_trades = 50000  # Keep last 50k trades per exchange/symbol
-        await redis.zremrangebyrank(sorted_set_key, 0, -(max_trades + 1))
+        # No trimming applied - unlimited trade storage
+
+        # Notify clients about new trades
+        for trade in trades:
+            await notify_clients_of_new_trade(symbol, exchange_name, trade)
 
         logger.info(f"Successfully cached {len(trades)} individual trades for {symbol} on {exchange_name}")
     except Exception as e:
@@ -1686,9 +1702,9 @@ async def fetch_trades_from_ccxt(exchange_id: str, symbol: str, start_ts: int, e
                         break  # Reached the end
 
                 # Break if too many trades to prevent memory issues
-                if len(all_trades) > 10000:
+                if len(all_trades) > 100000:
                     logger.warning(f"Too many trades ({len(all_trades)}) for {ccxt_symbol} on {exchange_id}, truncating")
-                    all_trades = all_trades[-10000:]
+                    all_trades = all_trades[-100000:]
                     break
 
             except Exception as e:
@@ -1713,6 +1729,12 @@ async def fetch_trades_from_ccxt(exchange_id: str, symbol: str, start_ts: int, e
                 filtered_trades.append(trade_copy)
 
         # logger.info(f"Fetched {len(filtered_trades)} trades for {ccxt_symbol} on {exchange_id} (filtered to time range)")
+
+        # Cache individual trades
+        from config import SUPPORTED_EXCHANGES
+        exchange_config = SUPPORTED_EXCHANGES.get(exchange_id, {})
+        exchange_name = exchange_config.get('name', exchange_id)
+        await cache_individual_trades(filtered_trades, exchange_name, symbol)
 
         # Aggregate trades into 1-minute bars
         trade_bars = aggregate_trades_to_bars(filtered_trades, resolution_seconds=60)
