@@ -2030,6 +2030,7 @@ function validateIndicatorData(data, indicatorName) {
 function handleHistoricalData(message) {
 
     if (!message.data || !Array.isArray(message.data) || message.data.length === 0) {
+        console.warn(JSON.stringify(message, null, 2));
         console.warn('Combined WebSocket: Invalid or empty historical data');
         return;
     }
@@ -4050,7 +4051,6 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         // Fix: Ensure scrollZoom is re-enabled after chart updates
         ensureScrollZoomEnabled();
     });
-
 }
 
 function updateChartWithLiveData(dataPoint, symbol) {
@@ -5898,31 +5898,37 @@ window.validateChartRendering = function() {
     return validation;
 };
 
-// FIX: Ensure scrollZoom is re-enabled after chart updates
-// This fixes the issue where mouse scrolling stops working after using pinch gestures or chart updates
+
+
+// Ensure mouse wheel zoom remains enabled after chart operations
 function ensureScrollZoomEnabled() {
-    if (window.gd && window.gd._context) {
-        // Force scrollZoom back to true to restore mouse wheel scrolling after touch gestures
-        if (window.gd._context.config && typeof window.gd._context.config.scrollZoom === 'boolean') {
-            window.gd._context.config.scrollZoom = true;
-        }
+    // Check if chart exists
+    const gd = document.getElementById('chart');
+    if (!gd) {
+        return;
+    }
 
-        // Ensure the plotly modebar zoom buttons are also enabled
-        if (window.gd._context.modeBarButtons) {
-            window.gd._context.modeBarButtons.forEach(category => {
-                if (category && Array.isArray(category)) {
-                    category.forEach(button => {
-                        if (button && button.method && button.method.includes('zoom')) {
-                            button.disabled = false;
-                        }
-                    });
-                }
-            });
-        }
+    // Get current layout configuration safely
+    const currentConfig = (gd._fullLayout && gd._fullLayout.config) ? gd._fullLayout.config : {};
 
-        // Ensure Plotly's internal scroll wheel handler is active
-        if (window.gd._internalEvents && window.gd._internalEvents.scroll) {
-            window.gd._internalEvents.scroll.enabled = true;
+    // Check if scrollZoom is enabled in current configuration
+    const scrollZoomEnabled = currentConfig.scrollZoom !== false;
+
+    // If scrollZoom is disabled, re-enable it
+    if (!scrollZoomEnabled) {
+        try {
+            Plotly.relayout(gd, { 'config.scrollZoom': true });
+        } catch (error) {
+            console.warn('ensureScrollZoomEnabled: Failed to re-enable scrollZoom via relayout:', error);
+        }
+    }
+
+    // Additional check: Ensure dragmode is set to 'zoom' which enables scroll wheel zooming
+    if (gd.layout && gd.layout.dragmode !== 'zoom') {
+        try {
+            Plotly.relayout(gd, { dragmode: 'zoom' });
+        } catch (error) {
+            console.warn('ensureScrollZoomEnabled: Failed to set dragmode to zoom:', error);
         }
     }
 }

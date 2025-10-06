@@ -165,11 +165,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Enable mobile pinch zoom features
         enableMobilePinchZoom(gd);
 
-        // Ensure mouse wheel zoom is enabled after chart creation
-        if (window.ensureScrollZoomEnabled) {
-            window.ensureScrollZoomEnabled();
-        }
+        // Ensure mouse wheel zoom is ALWAYS enabled after chart creation
+        // FIX: Call ensureScrollZoomEnabled immediately and also ensure it gets called on ALL chart operations
+        window.ensureScrollZoomEnabled();
 
+        // OVERRIDE Plotly.relayout to ensure scrollZoom stays enabled after ALL chart operations
+        const originalRelayout = Plotly.relayout;
+        Plotly.relayout = function(gd, update, layout) {
+            return originalRelayout.apply(this, arguments).then(function(result) {
+                // Always ensure mouse wheel zoom stays enabled after any relayout operation
+                if (window.ensureScrollZoomEnabled) {
+                    window.ensureScrollZoomEnabled();
+                }
+                return result;
+            });
+        };
 
         // Initialize trade history after chart is ready
         // initializeTradeHistory();
@@ -441,7 +451,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
     const indicatorCheckboxes = document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]');
-    indicatorCheckboxes.forEach(checkbox => {
+indicatorCheckboxes.forEach(checkbox => {
         checkbox.addEventListener('change', () => {
             saveSettings();
 
@@ -453,8 +463,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (symbol && resolution) {
                 // CRITICAL FIX: Always update chart layout when indicators change
                 // This ensures subplots are created/destroyed immediately when indicators are selected/deselected
-                if (window.gd) {
-                    const layout = createLayoutForIndicators(activeIndicators);
+                if (window.gd && window.createLayoutForIndicators) {
+                    const layout = window.createLayoutForIndicators(activeIndicators);
                     Plotly.relayout(window.gd, layout);
                 }
 
@@ -735,8 +745,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
 
         // Initialize chart subplots layout before WebSocket messages arrive
-        if (activeIndicators.length > 0 && window.gd) {
-            const layout = createLayoutForIndicators(activeIndicators);
+        if (activeIndicators.length > 0 && window.gd && window.createLayoutForIndicators) {
+            const layout = window.createLayoutForIndicators(activeIndicators);
             Plotly.relayout(window.gd, layout);
         }
 
@@ -1088,6 +1098,8 @@ async function populateShapePropertiesDialog(activeShape) {
     const buyOnCross = document.getElementById('buy-on-cross');
     const sellOnCross = document.getElementById('sell-on-cross');
     const amount = document.getElementById('amount');
+    const amountPercent = document.getElementById('amount-percent');
+    const amountUsdt = document.getElementById('amount-usdt');
     const sendEmailOnCross = document.getElementById('send-email-on-cross');
     const emailSent = document.getElementById('email-sent');
     const emailDateDisplay = document.getElementById('email-date-display');
@@ -1101,6 +1113,8 @@ async function populateShapePropertiesDialog(activeShape) {
     if (buyOnCross) buyOnCross.checked = false;
     if (sellOnCross) sellOnCross.checked = false;
     if (amount) amount.value = '';
+    if (amountPercent) amountPercent.value = '';
+    if (amountUsdt) amountUsdt.value = '';
     if (sendEmailOnCross) sendEmailOnCross.checked = true;
     if (emailSent) emailSent.checked = false;
     if (emailDateDisplay) emailDateDisplay.textContent = 'Not sent yet';
@@ -1138,6 +1152,12 @@ async function populateShapePropertiesDialog(activeShape) {
             }
             if (amount && properties.amount !== undefined) {
                 amount.value = properties.amount;
+            }
+            if (amountPercent && properties.amountPercent !== undefined) {
+                amountPercent.value = properties.amountPercent;
+            }
+            if (amountUsdt && properties.amountUsdt !== undefined) {
+                amountUsdt.value = properties.amountUsdt;
             }
             if (sendEmailOnCross && properties.sendEmailOnCross !== undefined) {
                 sendEmailOnCross.checked = properties.sendEmailOnCross;
@@ -1227,6 +1247,9 @@ async function saveShapeProperties() {
     const sellSent = document.getElementById('sell-sent') ? document.getElementById('sell-sent').checked : false;
     const emailSent = document.getElementById('email-sent') ? document.getElementById('email-sent').checked : false;
 
+    const amountPercentInput = document.getElementById('amount-percent').value;
+    const amountUsdtInput = document.getElementById('amount-usdt').value;
+
     // Handle amount - convert to number if provided
     if (amountInput.trim() !== '') {
         const amount = parseFloat(amountInput);
@@ -1235,6 +1258,26 @@ async function saveShapeProperties() {
             return;
         }
         properties.amount = amount;
+    }
+
+    // Handle amount in % - convert to number if provided
+    if (amountPercentInput.trim() !== '') {
+        const amountPercent = parseFloat(amountPercentInput);
+        if (isNaN(amountPercent) || amountPercent <= 0) {
+            alert('Please enter a valid positive amount in %.');
+            return;
+        }
+        properties.amountPercent = amountPercent;
+    }
+
+    // Handle amount in USDT - convert to number if provided
+    if (amountUsdtInput.trim() !== '') {
+        const amountUsdt = parseFloat(amountUsdtInput);
+        if (isNaN(amountUsdt) || amountUsdt <= 0) {
+            alert('Please enter a valid positive amount in USDT.');
+            return;
+        }
+        properties.amountUsdt = amountUsdt;
     }
 
     // Add the special fields

@@ -460,6 +460,32 @@ class EmailAlertService:
                 cross_info = await self.detect_cross(redis, drawing, latest_kline, prev_kline)
                 # logger.info(f"Cross detection result: {cross_info}")
 
+                # If no cross detected, check for cross using live price for the last live candle
+                if not cross_info:
+                    live_price_key = f"live:{symbol}"
+                    live_price_raw = await redis.get(live_price_key)
+                    if live_price_raw:
+                        try:
+                            live_price = float(live_price_raw)
+                            bar_time = latest_kline['time']
+                            subplot_name = drawing.get('subplot_name', symbol)
+
+                            if subplot_name == symbol:
+                                # Price crossing: check if live price crossed the line
+                                t1, p1, t2, p2 = drawing['start_time'], drawing['start_price'], drawing['end_time'], drawing['end_price']
+                                line_start = min(t1, t2)
+                                line_end = max(t1, t2)
+                                if line_start <= bar_time <= line_end:
+                                    slope = (p2 - p1) / (t2 - t1) if t2 != t1 else 0
+                                    line_price_at_bar_time = p1 + slope * (bar_time - t1)
+                                    previous_close = prev_kline['close'] if prev_kline else latest_kline['open']
+                                    if (previous_close < line_price_at_bar_time and live_price > line_price_at_bar_time) or \
+                                       (previous_close > line_price_at_bar_time and live_price < line_price_at_bar_time):
+                                        cross_info = {"type": "price", "value": line_price_at_bar_time}
+                                        logger.info(f"Live price cross detected for {symbol}: live_price={live_price}, previous_close={previous_close}, line={line_price_at_bar_time}")
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Error parsing live price for cross detection: {e}")
+
                 if cross_info:
                     logger.info(f"Cross detected for {symbol} by {user_email}: {cross_info}")
                     alert_details = {

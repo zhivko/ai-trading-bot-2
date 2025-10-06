@@ -39,7 +39,6 @@
         #chart {
             flex-grow: 1;
             flex-basis: 0;
-            touch-action: none; /* Disable browser touch handling to let Plotly handle pinch-to-zoom */
             -webkit-touch-callout: none; /* Prevent iOS from showing copy/share menu on long press */
             -webkit-user-select: none; /* Prevent text selection */
             user-select: none;
@@ -624,6 +623,12 @@
         <label for="amount">Amount:</label>
         <input type="number" id="amount"><br><br>
 
+        <label for="amount-percent">Amount in %:</label>
+        <input type="number" id="amount-percent" step="0.01"><br><br>
+
+        <label for="amount-usdt">Amount in USDT:</label>
+        <input type="number" id="amount-usdt" step="0.000001"><br><br>
+
         <label for="send-email-on-cross">Send an email on cross:</label>
         <input type="checkbox" id="send-email-on-cross"><br><br>
 
@@ -674,7 +679,7 @@
     <!-- Main application logic last - This should be fine if dependent logic is within functions -->
     <script src="/static/js/main.js"></script>
 
-    <!-- Mobile panel toggle functionality -->
+    <!-- Mobile panel toggle functionality and mouse wheel zoom fix -->
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const toggleBtn = document.getElementById('toggle-right-panel');
@@ -699,6 +704,7 @@
             } else {
                 console.log('Toggle button or right panel not found');
             }
+
         });
     </script>
 </body>
