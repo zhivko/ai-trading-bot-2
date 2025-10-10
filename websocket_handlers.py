@@ -532,7 +532,7 @@ async def analyze_trade_data_coverage(exchange_name: str, symbol: str, from_ts: 
         }
 
 
-async def fetch_recent_trade_history(symbol: str, from_ts: int = None, to_ts: int = None) -> List[Dict[str, Any]]:
+async def fetch_recent_trade_history(symbol: str, from_ts: int = None, to_ts: int = None, value_filter: float = None) -> List[Dict[str, Any]]:
     """
     Fetch trade history from all supported exchanges within date range.
     Returns trade data ordered by timestamp.
@@ -599,10 +599,10 @@ async def fetch_recent_trade_history(symbol: str, from_ts: int = None, to_ts: in
                                 transformed_trade = {
                                     "timestamp": zulu_timestamp,
                                     "price": float(trade.get('price', 0)),
-                                    "quantity": float(trade.get('amount', trade.get('size', 0))),
-                                    "side": trade.get('side', 'BUY').upper(),
-                                    "size": float(trade.get('amount', trade.get('size', 0)))
-                                }
+                                    "amount": float(trade.get('amount',0)),
+                                    "side": trade.get('side', 'BUY').upper()
+                                    }
+                                
                                 all_trades.append(transformed_trade)
                                 cached_trade_count += 1
                             except Exception as trade_e:
@@ -616,10 +616,15 @@ async def fetch_recent_trade_history(symbol: str, from_ts: int = None, to_ts: in
             else:
                 logger.debug(f"Symbol {symbol} not supported on {exchange_name}")
 
-        # Sort all trades by timestamp
+        # Sort all trades by timestamp descending (newest first)
         if all_trades:
-            all_trades.sort(key=lambda x: x['timestamp'])
+            all_trades.sort(key=lambda x: x['timestamp'], reverse=True)
             logger.info(f"Successfully fetched and sorted {len(all_trades)} trades from all exchanges for {symbol}")
+
+            # Filter trades based on value filter
+            if value_filter is not None and value_filter > 0:
+                all_trades = [trade for trade in all_trades if trade.get('price', 0) * trade.get('amount', 0) > value_filter]
+                logger.info(f"Filtered trades: {len(all_trades)} remain after filtering with value filter {value_filter}")
         else:
             logger.warning(f"No trades found in cached or fresh data for {symbol} in the requested time range. This may indicate data gaps that require background fetching.")
 
@@ -1564,7 +1569,7 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                             "email": email,
                             "data": {
                                 "ohlcv": combined_data,
-                                "trades": trades or [],
+                                "trades": (trades or [])[:1000],
                                 "indicators": list(indicators_data.keys())
                             },
                             "timestamp": int(time.time())

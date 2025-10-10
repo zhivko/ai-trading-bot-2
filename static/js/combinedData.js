@@ -5077,9 +5077,7 @@ function updateChartWithLiveData(dataPoint, symbol) {
 function updateCombinedResolution(newResolution) {
     const oldResolution = combinedResolution;
     combinedResolution = newResolution;
-    if (window.wsAPI && window.wsAPI.connected) {
-        sendCombinedConfig(oldResolution);
-    }
+    // Removed config message send - only saveSettings() will trigger config now
 }
 
 // Helper function to get timeframe seconds (assuming it's defined elsewhere)
@@ -5219,7 +5217,7 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
     // Calculate marker size scaling based on ALL trade data (not just current batch)
     // This ensures consistent scaling across batches
     const allTrades = window.tradeHistoryData || [];
-    const allValues = allTrades.map(trade => trade.price * trade.amount).filter(val => val > 0 && isFinite(val) && !isNaN(val));
+    const allValues = allTrades.map(trade => trade.price * trade.amount);
     const maxValue = allValues.length > 0 ? Math.max(...allValues) : 1;
     const minValue = allValues.length > 0 ? Math.min(...allValues) : 0.001;
 
@@ -5282,15 +5280,41 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
 
     console.log(`📊 Combined WebSocket: ${buyTrades.length} buy trades, ${sellTrades.length} sell trades`);
 
+    // Debug timestamp format
     if (buyTrades.length > 0) {
-        const buyX = buyTrades.map(trade => new Date(trade.timestamp * 1000));
+        console.log('🔍 BUY TRADE TIMESTAMP SAMPLE:', {
+            raw: buyTrades[0].timestamp,
+            type: typeof buyTrades[0].timestamp,
+            isISO: typeof buyTrades[0].timestamp === 'string' && buyTrades[0].timestamp.includes('T'),
+            parsed: new Date(buyTrades[0].timestamp)
+        });
+    }
+
+    if (buyTrades.length > 0) {
+        const buyX = buyTrades.map(trade => {
+            if (typeof trade.timestamp === 'string' && trade.timestamp.includes('T')) {
+                // ISO timestamp string
+                return new Date(trade.timestamp);
+            } else {
+                // Numeric timestamp (legacy)
+                return new Date(trade.timestamp * 1000);
+            }
+        });
         const buyY = buyTrades.map(trade => trade.price);
         const buySizes = buyTrades.map(trade => valueToMarkerSize(trade.price * trade.amount));
         const buyCustomData = buyTrades.map((trade, index) => {
             const amount = trade.amount && !isNaN(trade.amount) ? trade.amount : 0;
             const value = trade.price && amount ? trade.price * amount : 0;
             const timestamp = trade.timestamp && !isNaN(trade.timestamp) ? trade.timestamp : Date.now() / 1000;
-            const timeDisplay = new Date(timestamp * 1000).toLocaleString();
+            const timeDisplay = (() => {
+                if (typeof trade.timestamp === 'string' && trade.timestamp.includes('T')) {
+                    // ISO timestamp string
+                    return new Date(trade.timestamp).toLocaleString();
+                } else {
+                    // Numeric timestamp (legacy)
+                    return new Date(timestamp * 1000).toLocaleString();
+                }
+            })();
             const symbol = trade.symbol || 'UNKNOWN';
             const price = trade.price || 0;
             return {
@@ -5354,14 +5378,37 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
 
     // SELL trades as red triangles pointing down
     if (sellTrades.length > 0) {
-        const sellX = sellTrades.map(trade => new Date(trade.timestamp * 1000));
+        console.log('🔍 SELL TRADE TIMESTAMP SAMPLE:', {
+            raw: sellTrades[0].timestamp,
+            type: typeof sellTrades[0].timestamp,
+            isISO: typeof sellTrades[0].timestamp === 'string' && sellTrades[0].timestamp.includes('T'),
+            parsed: new Date(sellTrades[0].timestamp)
+        });
+
+        const sellX = sellTrades.map(trade => {
+            if (typeof trade.timestamp === 'string' && trade.timestamp.includes('T')) {
+                // ISO timestamp string
+                return new Date(trade.timestamp);
+            } else {
+                // Numeric timestamp (legacy)
+                return new Date(trade.timestamp * 1000);
+            }
+        });
         const sellY = sellTrades.map(trade => trade.price);
         const sellSizes = sellTrades.map(trade => valueToMarkerSize(trade.price * trade.amount));
         const sellCustomData = sellTrades.map((trade, index) => {
             const amount = trade.amount && !isNaN(trade.amount) ? trade.amount : 0;
             const value = trade.price && amount ? trade.price * amount : 0;
             const timestamp = trade.timestamp && !isNaN(trade.timestamp) ? trade.timestamp : Date.now() / 1000;
-            const timeDisplay = new Date(timestamp * 1000).toLocaleString();
+            const timeDisplay = (() => {
+                if (typeof trade.timestamp === 'string' && trade.timestamp.includes('T')) {
+                    // ISO timestamp string
+                    return new Date(trade.timestamp).toLocaleString();
+                } else {
+                    // Numeric timestamp (legacy)
+                    return new Date(timestamp * 1000).toLocaleString();
+                }
+            })();
             const symbol = trade.symbol || 'UNKNOWN';
             const price = trade.price || 0;
             return {
@@ -5434,71 +5481,8 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
 
 // Handle trade history messages from WebSocket
 function handleTradeHistoryMessage(message) {
-    if (!message.data || !Array.isArray(message.data)) {
-        console.warn('Combined WebSocket: Invalid trade history data format');
-        return;
-    }
-
-    // Only display trades if there are actual trades - don't show "No trade history data to display" for empty arrays
-    if (message.data.length === 0) {
-        // Just refresh existing markers without updating global data
-        // This handles chart redraws where no new trade data is needed
-        if (window.tradeHistoryData && window.tradeHistoryData.length > 0) {
-            // Re-apply current filter to existing markers during chart updates
-            updateTradeHistoryVisualizations();
-        }
-        return;
-    }
-
     console.log(`📊 Combined WebSocket: Received trade history message with ${message.data.length} trades`);
-
-    // Process and store trade history data
-    const processedTrades = processTradeHistoryData(message.data);
-
-    if (processedTrades && processedTrades.length > 0) {
-        // MERGE new trade data with existing data instead of replacing
-        // This prevents losing existing trades when new small batches come in
-        const hadPrevData = window.tradeHistoryData && window.tradeHistoryData.length > 0;
-
-        if (hadPrevData) {
-            // Merge by timestamp - keep existing data unless same timestamp
-            const mergedTrades = [...window.tradeHistoryData];
-            processedTrades.forEach(newTrade => {
-                const existingIndex = mergedTrades.findIndex(existing => existing.timestamp === newTrade.timestamp);
-                if (existingIndex !== -1) {
-                    // Replace existing trade with same timestamp
-                    mergedTrades[existingIndex] = newTrade;
-                } else {
-                    // Add new trade
-                    mergedTrades.push(newTrade);
-                }
-            });
-
-            // Sort by timestamp and limit to reasonable size (keep last 10k trades to prevent memory issues)
-            mergedTrades.sort((a, b) => a.timestamp - b.timestamp);
-            if (mergedTrades.length > 10000) {
-                mergedTrades.splice(0, mergedTrades.length - 10000); // Keep most recent
-            }
-
-            window.tradeHistoryData = mergedTrades;
-            console.log(`📊 Combined WebSocket: Merged ${processedTrades.length} trades into existing ${window.tradeHistoryData.length} total trades`);
-        } else {
-            // No previous data, use new data as-is
-            window.tradeHistoryData = processedTrades;
-            console.log(`📊 Combined WebSocket: Set initial ${processedTrades.length} trades`);
-        }
-
-        // Add trade history markers to the chart (this will re-filter based on current min volume)
-        addTradeHistoryMarkersToChart(processedTrades, message.symbol || combinedSymbol);
-    } else {
-        console.warn('Combined WebSocket: No valid trades processed from message');
-        // Don't clear existing trade data if processing failed
-
-        // Reset markers to empty state if this is legitimate - user might have changed symbols or ranges
-        if (!window.tradeHistoryData || window.tradeHistoryData.length === 0) {
-            addTradeHistoryMarkersToChart([], message.symbol || combinedSymbol);
-        }
-    }
+    addTradeHistoryMarkersToChart(message.data, message.symbol);
 }
 
 // Export functions to global scope for use by other modules

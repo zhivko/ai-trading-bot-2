@@ -152,6 +152,11 @@ async def get_oldest_cached_timestamp(symbol: str, resolution: str) -> Optional[
 
 async def get_cached_klines(symbol: str, resolution: str, start_ts: int, end_ts: int) -> list[Dict[str, Any]]:
     from config import KlineData
+    # Defensive check: if timestamps are None, return empty list as we can't proceed with None values
+    if start_ts is None or end_ts is None:
+        logger.warning(f"get_cached_klines called with None timestamps - start_ts: {start_ts}, end_ts: {end_ts}. Returning empty list.")
+        return []
+
     try:
         redis = await get_redis_connection()
         sorted_set_key = get_sorted_set_key(symbol, resolution)

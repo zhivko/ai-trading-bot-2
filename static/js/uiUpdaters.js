@@ -203,14 +203,26 @@ function updateTradeHistoryVisualizations() {
         return;
     }
 
-    // Get current symbol
-    const symbol = window.symbolSelect ? window.symbolSelect.value : 'UNKNOWN';
+    // Prevent re-entrant calls that cause infinite recursion
+    if (window.isUpdatingTradeHistoryVisualizations) {
+        console.log('📊 Skipping trade history visualization update - already in progress');
+        return;
+    }
 
-    console.log(`📊 Updating trade history visualizations: ${window.tradeHistoryData.length} trades`);
+    window.isUpdatingTradeHistoryVisualizations = true;
 
-    // Re-add trade history markers to chart with all data
-    if (window.addTradeHistoryMarkersToChart) {
-        window.addTradeHistoryMarkersToChart(window.tradeHistoryData, symbol);
+    try {
+        // Get current symbol
+        const symbol = window.symbolSelect ? window.symbolSelect.value : 'UNKNOWN';
+
+        console.log(`📊 Updating trade history visualizations: ${window.tradeHistoryData.length} trades`);
+
+        // Re-add trade history markers to chart with all data
+        if (window.addTradeHistoryMarkersToChart) {
+            window.addTradeHistoryMarkersToChart(window.tradeHistoryData, symbol);
+        }
+    } finally {
+        window.isUpdatingTradeHistoryVisualizations = false;
     }
 }
 

@@ -499,6 +499,7 @@ async def handle_config_message(data: dict, websocket: WebSocket, request_id: st
 
     # Fetch trades
     trades = await fetch_recent_trade_history(config_symbol, config_from_ts, config_to_ts)
+    logger.info(f"CONFIG: Fetched {len(trades) if trades else 0} trades for symbol {config_symbol}, from_ts={config_from_ts}, to_ts={config_to_ts}")
 
     # Fetch drawings
     drawings = await get_drawings(config_symbol, None, resolution, email)
@@ -540,7 +541,7 @@ async def handle_config_message(data: dict, websocket: WebSocket, request_id: st
         "email": email,
         "data": {
             "ohlcv": combined_data,
-            "trades": trades or [],
+            "trades": (trades or [])[:1000],
             "active_indicators": list(indicators_data.keys()),
             "drawings": drawings or []
         },
@@ -1468,6 +1469,15 @@ async def handle_history_message(data: dict, websocket: WebSocket, request_id: s
 
         # Fetch and filter trades based on min value percentage
         trades = await fetch_recent_trade_history(symbol, from_ts, to_ts)
+        logger.info(f"HISTORY: Fetched {len(trades) if trades else 0} trades for symbol {symbol}, from_ts={from_ts}, to_ts={to_ts}")
+
+        if trades:
+            trades = sorted(trades, key=lambda trade: trade.get('price', 0) * trade.get('quantity', 0), reverse=True)
+            trades = trades[:1000]
+            logger.info(f"TRADE_HISTORY: Sorted and limited trades to {len(trades)}")
+
+        if trades and len(trades) > 0:
+            logger.info(f"HISTORY: First trade sample: {json.dumps(trades[0])}")
         if trades and len(trades) > 0 and min_value_percentage > 0:
             # Calculate max trade value for filtering
             trade_values = [trade['price'] * trade['quantity'] for trade in trades if 'price' in trade and 'quantity' in trade]
@@ -1475,7 +1485,7 @@ async def handle_history_message(data: dict, websocket: WebSocket, request_id: s
                 max_trade_value = max(trade_values)
                 min_volume = min_value_percentage * max_trade_value
                 trades = [trade for trade in trades if (trade.get('price', 0) * trade.get('quantity', 0)) >= min_volume]
-                logger.info(f"Filtered trades: {len(trades)} remain after filtering with {min_value_percentage*100}% min value")
+                logger.info(f"HISTORY: Filtered trades: {len(trades)} remain after filtering with {min_value_percentage*100}% min value")
 
         # Fetch drawings
         drawings = await get_drawings(symbol, None, resolution, email)
@@ -1517,7 +1527,7 @@ async def handle_history_message(data: dict, websocket: WebSocket, request_id: s
             "email": email,
             "data": {
                 "ohlcv": combined_data,
-                "trades": trades or [],
+                "trades": (trades or [])[:1000],
                 "active_indicators": list(indicators_data.keys()),
                 "drawings": drawings or []
             },
@@ -1542,11 +1552,11 @@ async def handle_trade_history_message(data: dict, websocket: WebSocket, request
         # Get parameters from message data
         symbol = data.get("symbol", "BTCUSDT")
         email = data.get("email") or session.get('email')
-        min_value_percentage = data.get("minValuePercentage", 0)
+        value_filter = data.get("minValuePercentage", 0)
         from_ts = data.get("from_ts")
         to_ts = data.get("to_ts")
 
-        logger.info(f"Processing trade_history request for symbol {symbol}, email {email}, minValuePercentage {min_value_percentage}")
+        logger.info(f"Processing trade_history request for symbol {symbol}, email {email}, valueFilter {value_filter}")
 
         if not from_ts or not to_ts:
             return {
@@ -1555,16 +1565,12 @@ async def handle_trade_history_message(data: dict, websocket: WebSocket, request
                 "request_id": request_id
             }
 
-        # Fetch and filter trades based on min value percentage
-        trades = await fetch_recent_trade_history(symbol, from_ts, to_ts)
-        if trades and len(trades) > 0 and min_value_percentage > 0:
-            # Calculate max trade value for filtering
-            trade_values = [trade['price'] * trade['quantity'] for trade in trades if 'price' in trade and 'quantity' in trade]
-            if trade_values:
-                max_trade_value = max(trade_values)
-                min_volume = min_value_percentage * max_trade_value
-                trades = [trade for trade in trades if (trade.get('price', 0) * trade.get('quantity', 0)) >= min_volume]
-                logger.info(f"Filtered trades: {len(trades)} remain after filtering with {min_value_percentage*100}% min value")
+        # Fetch and filter trades based on value filter
+        trades = await fetch_recent_trade_history(symbol, from_ts, to_ts, value_filter)
+        logger.info(f"TRADE_HISTORY: Fetched {len(trades) if trades else 0} trades for symbol {symbol}, from_ts={from_ts}, to_ts={to_ts}, value_filter={value_filter}")
+
+        if trades and len(trades) > 0:
+            logger.info(f"TRADE_HISTORY: First trade sample: {json.dumps(trades[0])}")
 
         # Return trade_history_success message
         return {
@@ -1572,7 +1578,7 @@ async def handle_trade_history_message(data: dict, websocket: WebSocket, request
             "symbol": symbol,
             "email": email,
             "data": {
-                "trades": trades or []
+                "trades": (trades or [])[:1000]
             },
             "timestamp": int(time.time()),
             "request_id": request_id
