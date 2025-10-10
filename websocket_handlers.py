@@ -1361,19 +1361,9 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                                 logger.warning(f"No klines available for rectangle {drawing_id}")
                                 continue
 
-                            # Filter klines that intersect with the rectangle's price range
-                            filtered_klines = [
-                                k for k in rect_klines
-                                if k.get('high', 0) >= price_min and k.get('low', 0) <= price_max
-                            ]
-                            logger.debug(f"Filtered to {len(filtered_klines)} klines within price range [{price_min}, {price_max}] for rectangle {drawing_id}")
-
-                            if not filtered_klines:
-                                logger.warning(f"No klines within price range for rectangle {drawing_id}")
-                                continue
-
-                            # Calculate volume profile for the filtered data
-                            volume_profile_data = calculate_volume_profile(filtered_klines)
+                            # Calculate volume profile for all klines in the time range
+                            # Client-side filtering will handle price range display
+                            volume_profile_data = calculate_volume_profile(rect_klines)
                             logger.info(f"Calculated volume profile for rectangle {drawing_id} with {len(volume_profile_data.get('volume_profile', []))} price levels")
 
                             # Send volume profile data for this rectangle

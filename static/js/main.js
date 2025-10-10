@@ -1069,7 +1069,7 @@ function handleTradingSessionsData(message) {
 
 // Handle volume profile data from WebSocket
 function handleVolumeProfileData(message) {
-    console.log('📊 Received volume profile data:', message);
+    console.log('📊 Received volume profile data:', JSON.stringify(message));
 
     // Use the existing handleVolumeProfileMessage function from combinedData.js
     if (window.handleVolumeProfileMessage) {
@@ -1263,6 +1263,24 @@ function handleHistorySuccess(message) {
     // Update chart in the correct order to preserve shapes
     updateChartWithOHLCVAndIndicators(ohlcv, data.active_indicators || []);
     updateChartShapes(drawings, symbol);
+
+    // Process volume profiles from rectangle drawings
+    if (drawings && drawings.length > 0) {
+        drawings.forEach(drawing => {
+            if ((drawing.type === 'rect' || drawing.type === 'rectangle') && drawing.volume_profile) {
+                const volumeProfileMessage = {
+                    type: 'volume_profile',
+                    data: {
+                        volume_profile: drawing.volume_profile.volume_profile,
+                        rectangle_id: drawing.id,
+                        symbol: symbol
+                    }
+                };
+                handleVolumeProfileData(volumeProfileMessage);
+            }
+        });
+    }
+
     window.updateTradeHistoryVisualizations();
 
     console.log('✅ History data processed and chart updated');
@@ -1291,6 +1309,24 @@ function handleConfigSuccess(message) {
 
     updateChartWithOHLCVAndIndicators(ohlcv, data.active_indicators || []);
     updateChartShapes(drawings, symbol);
+
+    // Process volume profiles from rectangle drawings
+    if (drawings && drawings.length > 0) {
+        drawings.forEach(drawing => {
+            if ((drawing.type === 'rect' || drawing.type === 'rectangle') && drawing.volume_profile) {
+                const volumeProfileMessage = {
+                    type: 'volume_profile',
+                    data: {
+                        volume_profile: drawing.volume_profile,
+                        rectangle_id: drawing.id,
+                        symbol: symbol
+                    }
+                };
+                handleVolumeProfileData(volumeProfileMessage);
+            }
+        });
+    }
+
     updateTradeHistoryVisualizations();
 
     console.log('✅ Config data processed and chart updated');

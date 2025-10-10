@@ -18,9 +18,23 @@ let globalTraces = [];
 
 function handleVolumeProfileMessage(message) {
 
-    // Validate message format
-    if (!message.data || !message.data.volume_profile || !Array.isArray(message.data.volume_profile)) {
-        console.warn('💹 Combined WebSocket: Invalid volume profile data format - message.data or volume_profile missing/invalid');
+    // Validate message format - handle nested volume_profile structure
+    if (!message.data || !message.data.volume_profile) {
+        console.warn('💹 Combined WebSocket: Invalid volume profile data format - message.data.volume_profile missing');
+        return;
+    }
+
+    // Extract the volume profile array from the nested structure
+    let volumeProfileArray = message.data.volume_profile;
+
+    // If it's an object with a volume_profile property, get the array
+    if (typeof volumeProfileArray === 'object' && !Array.isArray(volumeProfileArray) && volumeProfileArray.volume_profile) {
+        volumeProfileArray = volumeProfileArray.volume_profile;
+    }
+
+    // Now validate that we have an array
+    if (!Array.isArray(volumeProfileArray)) {
+        console.warn('💹 Combined WebSocket: Invalid volume profile data format - volume_profile is not an array');
         return;
     }
 
@@ -28,10 +42,10 @@ function handleVolumeProfileMessage(message) {
 window.handleVolumeProfileMessage = handleVolumeProfileMessage;
 
     // Process empty volume profile arrays - this might indicate clearing/resetting
-    if (message.data.volume_profile.length === 0) {
+    if (volumeProfileArray.length === 0) {
         // Still call the update function with empty array to allow clearing logic in tradeHistory.js
         if (window.updateVolumeProfileFromWebSocket) {
-            window.updateVolumeProfileFromWebSocket(message.data.volume_profile, message.symbol, message.rectangle_id);
+            window.updateVolumeProfileFromWebSocket([], message.data.symbol || 'BTCUSDT', message.data.rectangle_id);
         } else {
             console.warn('💹 Combined WebSocket: updateVolumeProfileFromWebSocket function not available from tradeHistory.js');
         }
@@ -39,7 +53,7 @@ window.handleVolumeProfileMessage = handleVolumeProfileMessage;
     }
 
     // Process non-empty volume profile data within rectangle bounds
-    renderVolumeProfileWithinRectangle(message.data.volume_profile, message.symbol, message.rectangle_id);
+    renderVolumeProfileWithinRectangle(volumeProfileArray, message.data.symbol || 'BTCUSDT', message.data.rectangle_id);
 }
 
 // Render volume profile bars within a rectangle's bounds

@@ -505,6 +505,65 @@ async def handle_config_message(data: dict, websocket: WebSocket, request_id: st
     drawings = await get_drawings(config_symbol, None, resolution, email)
     logger.info(f"Fetched {len(drawings) if drawings else 0} drawings for config")
 
+    # Calculate volume profile for rectangle drawings if we have a time range
+    if drawings and config_from_ts is not None and config_to_ts is not None:
+        logger.info(f"Processing {len(drawings)} drawings for volume profile calculation in config")
+        for drawing in drawings:
+            drawing_id = drawing.get('id')
+            drawing_type = drawing.get('type')
+            logger.info(f"Processing drawing {drawing_id}, type: {drawing_type}")
+            if drawing_type == 'rect':
+                start_time_val = drawing.get('start_time')
+                end_time_val = drawing.get('end_time')
+                start_price = drawing.get('start_price')
+                end_price = drawing.get('end_price')
+                logger.info(f"Rectangle {drawing_id}: start_time={start_time_val}, end_time={end_time_val}, start_price={start_price}, end_price={end_price}")
+                if all([start_time_val, end_time_val, start_price is not None, end_price is not None]):
+                    # Convert timestamps from milliseconds to seconds if needed
+                    if start_time_val > 1e12:  # > 1 trillion, likely milliseconds
+                        start_time = int(start_time_val / 1000)
+                        logger.info(f"Converted start_time from ms to s: {start_time}")
+                    else:
+                        start_time = int(start_time_val)
+                    if end_time_val > 1e12:  # > 1 trillion, likely milliseconds
+                        end_time = int(end_time_val / 1000)
+                        logger.info(f"Converted end_time from ms to s: {end_time}")
+                    else:
+                        end_time = int(end_time_val)
+
+                    logger.info(f"Rectangle {drawing_id} time range: {start_time} to {end_time}")
+
+                    price_min = min(float(start_price), float(end_price))
+                    price_max = max(float(start_price), float(end_price))
+                    logger.info(f"Rectangle {drawing_id} price range: {price_min} to {price_max}")
+
+                    # Only calculate volume profile if rectangle time range intersects with config time range
+                    intersects = start_time <= config_to_ts and end_time >= config_from_ts
+                    logger.info(f"Rectangle {drawing_id} intersects with config range ({config_from_ts} to {config_to_ts}): {intersects}")
+                    if intersects:
+                        # Fetch klines for rectangle time range
+                        rect_klines = await get_cached_klines(config_symbol, resolution, start_time, end_time)
+                        logger.info(f"Fetched {len(rect_klines) if rect_klines else 0} klines for rectangle {drawing_id}")
+                        if rect_klines:
+                            # Filter klines within price range
+                            filtered_klines = [
+                                k for k in rect_klines
+                                if k.get('high', 0) >= price_min and k.get('low', 0) <= price_max
+                            ]
+                            logger.info(f"Filtered to {len(filtered_klines)} klines within price range for rectangle {drawing_id}")
+                            if filtered_klines:
+                                volume_profile_data = calculate_volume_profile(filtered_klines)
+                                drawing['volume_profile'] = volume_profile_data
+                                logger.info(f"Added volume profile to rectangle {drawing_id} with {len(volume_profile_data.get('volume_profile', []))} levels")
+                            else:
+                                logger.info(f"No klines in price range for rectangle {drawing_id}")
+                        else:
+                            logger.info(f"No klines for rectangle {drawing_id} time range")
+                else:
+                    logger.info(f"Incomplete rectangle data for drawing {drawing_id}")
+            else:
+                logger.info(f"Skipping non-rectangle drawing {drawing_id}, type: {drawing_type}")
+
     # Prepare combined data
     combined_data = []
     if klines:
@@ -1450,7 +1509,7 @@ async def handle_history_message(data: dict, websocket: WebSocket, request_id: s
         resolution = data.get("resolution", "1h")
         indicators = data.get("active_indicators", [])
 
-        logger.info(f"Processing history request for symbol {symbol}, email {email}, minValuePercentage {min_value_percentage}")
+        logger.info(f"Processing history request for symbol {symbol}, email {email}, minValuePercentage {min_value_percentage}, from_ts={from_ts}, to_ts={to_ts}")
 
         if not from_ts or not to_ts:
             return {
@@ -1491,6 +1550,65 @@ async def handle_history_message(data: dict, websocket: WebSocket, request_id: s
         drawings = await get_drawings(symbol, None, resolution, email)
         logger.info(f"Fetched {len(drawings) if drawings else 0} drawings for history")
 
+        # Calculate volume profile for rectangle drawings
+        if drawings:
+            logger.info(f"Processing {len(drawings)} drawings for volume profile calculation")
+            for drawing in drawings:
+                drawing_id = drawing.get('id')
+                drawing_type = drawing.get('type')
+                logger.info(f"Processing drawing {drawing_id}, type: {drawing_type}")
+                if drawing_type == 'rect':
+                    start_time_val = drawing.get('start_time')
+                    end_time_val = drawing.get('end_time')
+                    start_price = drawing.get('start_price')
+                    end_price = drawing.get('end_price')
+                    logger.info(f"Rectangle {drawing_id}: start_time={start_time_val}, end_time={end_time_val}, start_price={start_price}, end_price={end_price}")
+                    if all([start_time_val, end_time_val, start_price is not None, end_price is not None]):
+                        # Convert timestamps from milliseconds to seconds if needed
+                        if start_time_val > 1e12:  # > 1 trillion, likely milliseconds
+                            start_time = int(start_time_val / 1000)
+                            logger.info(f"Converted start_time from ms to s: {start_time}")
+                        else:
+                            start_time = int(start_time_val)
+                        if end_time_val > 1e12:  # > 1 trillion, likely milliseconds
+                            end_time = int(end_time_val / 1000)
+                            logger.info(f"Converted end_time from ms to s: {end_time}")
+                        else:
+                            end_time = int(end_time_val)
+
+                        logger.info(f"Rectangle {drawing_id} time range: {start_time} to {end_time}")
+
+                        price_min = min(float(start_price), float(end_price))
+                        price_max = max(float(start_price), float(end_price))
+                        logger.info(f"Rectangle {drawing_id} price range: {price_min} to {price_max}")
+
+                        # Only calculate volume profile if rectangle time range intersects with history time range
+                        intersects = start_time <= to_ts and end_time >= from_ts
+                        logger.info(f"Rectangle {drawing_id} intersects with history range ({from_ts} to {to_ts}): {intersects}")
+                        if intersects:
+                            # Fetch klines for rectangle time range
+                            rect_klines = await get_cached_klines(symbol, resolution, start_time, end_time)
+                            logger.info(f"Fetched {len(rect_klines) if rect_klines else 0} klines for rectangle {drawing_id}")
+                            if rect_klines:
+                                # Filter klines within price range
+                                filtered_klines = [
+                                    k for k in rect_klines
+                                    if k.get('high', 0) >= price_min and k.get('low', 0) <= price_max
+                                ]
+                                logger.info(f"Filtered to {len(filtered_klines)} klines within price range for rectangle {drawing_id}")
+                                if filtered_klines:
+                                    volume_profile_data = calculate_volume_profile(filtered_klines)
+                                    drawing['volume_profile'] = volume_profile_data
+                                    logger.info(f"Added volume profile to rectangle {drawing_id} with {len(volume_profile_data.get('volume_profile', []))} levels")
+                                else:
+                                    logger.info(f"No klines in price range for rectangle {drawing_id}")
+                            else:
+                                logger.info(f"No klines for rectangle {drawing_id} time range")
+                    else:
+                        logger.info(f"Incomplete rectangle data for drawing {drawing_id}")
+                else:
+                    logger.info(f"Skipping non-rectangle drawing {drawing_id}, type: {drawing_type}")
+
         # Prepare combined data
         combined_data = []
         if klines:
@@ -1519,6 +1637,9 @@ async def handle_history_message(data: dict, websocket: WebSocket, request_id: s
                             data_point["indicators"][indicator_id] = temp_indicator
 
                 combined_data.append(data_point)
+
+        # Debug: output drawings JSON
+        logger.info(f"HISTORY DRAWINGS: {json.dumps(drawings or [], default=str)}")
 
         # Return history_success message
         return {
