@@ -208,6 +208,29 @@ async def get_cached_klines(symbol: str, resolution: str, start_ts: int, end_ts:
                     if len(all_members_with_scores) > 5: logger.info(f"  ... and {len(all_members_with_scores) - 5} more members.")
                 else:
                     logger.warning(f"'{sorted_set_key}' exists with cardinality {cardinality}, but zrange returned no members. This is unexpected.")
+
+            # Check if the requested range is recent and we should try to fetch missing data
+            current_ts = int(datetime.now(timezone.utc).timestamp())
+            days_since_end = (current_ts - end_ts) / (24 * 60 * 60)
+            if days_since_end <= 7:  # Within last 7 days
+                logger.info(f"Queried range is recent ({days_since_end:.1f} days ago). Attempting to fetch missing data from Bybit...")
+                try:
+                    missing_klines = fetch_klines_from_bybit(symbol, resolution, start_ts, end_ts)
+                    if missing_klines:
+                        logger.info(f"Fetched {len(missing_klines)} klines from Bybit for missing range")
+                        await cache_klines(symbol, resolution, missing_klines)
+                        # Retry the Redis query after caching
+                        klines_data_redis = await redis.zrangebyscore(
+                            sorted_set_key,
+                            min=start_ts,
+                            max=end_ts,
+                            withscores=False
+                        )
+                        logger.info(f"After fetching and caching, zrangebyscore now returns {len(klines_data_redis)} klines")
+                    else:
+                        logger.warning("Bybit fetch returned no data for the requested range")
+                except Exception as e:
+                    logger.error(f"Failed to fetch missing data from Bybit: {e}")
         cached_data = []
         for data_item in klines_data_redis:
             try:
