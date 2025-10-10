@@ -1,8 +1,6 @@
 // Combined data WebSocket handler for historical OHLC + indicators + live data
 
-// WebSocket connection object - made global for inter-module access
-window.combinedWebSocket = null;
-let combinedWebSocket = null;
+// WebSocket connection now uses window.wsAPI - no local connection variables needed
 let combinedSymbol = '';
 let combinedIndicators = [];
 let combinedResolution = '1h';
@@ -25,6 +23,9 @@ function handleVolumeProfileMessage(message) {
         console.warn('💹 Combined WebSocket: Invalid volume profile data format - message.data or volume_profile missing/invalid');
         return;
     }
+
+// Make function globally available for main.js
+window.handleVolumeProfileMessage = handleVolumeProfileMessage;
 
     // Process empty volume profile arrays - this might indicate clearing/resetting
     if (message.data.volume_profile.length === 0) {
@@ -1551,7 +1552,7 @@ function setupCombinedWebSocket(symbol, indicators = [], resolution = '1h', from
         resolution,
         fromTs,
         toTs,
-        currentState: combinedWebSocket ? combinedWebSocket.readyState : 'none'
+        wsAPIConnected: window.wsAPI ? window.wsAPI.connected : false
     });
 
     // Check if this is a duplicate call (same parameters)
@@ -1563,9 +1564,9 @@ function setupCombinedWebSocket(symbol, indicators = [], resolution = '1h', from
         combinedToTs === toTs
     );
 
-    if (isDuplicateCall && combinedWebSocket && combinedWebSocket.readyState === WebSocket.OPEN) {
+    if (isDuplicateCall && window.wsAPI && window.wsAPI.connected) {
         logWebSocketEvent('duplicate_call_skipped', {
-            reason: 'Same parameters, WebSocket already open'
+            reason: 'Same parameters, wsAPI already connected'
         });
         return;
     }
@@ -1576,212 +1577,74 @@ function setupCombinedWebSocket(symbol, indicators = [], resolution = '1h', from
         websocketSetupDebounceTimer = null;
     }
 
-    // Debounce the WebSocket setup
+    // Debounce the WebSocket setup - just set flags, message handlers will be set up when wsAPI is fully connected
     websocketSetupDebounceTimer = setTimeout(() => {
-        // Check if we're already connecting
-        if (isWebSocketConnecting) {
-            logWebSocketEvent('connection_in_progress', {
-                reason: 'Another connection attempt in progress'
-            });
-            return;
-        }
-
-        isWebSocketConnecting = true;
-
-        try {
-            _setupCombinedWebSocketInternal(symbol, indicators, resolution, fromTs, toTs);
-        } finally {
-            isWebSocketConnecting = false;
-        }
+        logWebSocketEvent('websocket_setup_debounced', {
+            symbol,
+            indicatorsCount: indicators.length,
+            resolution,
+            fromTs,
+            toTs
+        });
     }, WEBSOCKET_SETUP_DEBOUNCE_DELAY);
-}
-
-function _setupCombinedWebSocketInternal(symbol, indicators = [], resolution = '1h', fromTs = null, toTs = null) {
-    logWebSocketEvent('internal_setup_started', {
-        symbol,
-        indicatorsCount: indicators.length,
-        resolution
-    });
-
-    // Close existing connection if symbol changed or connection is in error state
-    if (combinedWebSocket && (combinedSymbol !== symbol || combinedWebSocket.readyState === WebSocket.CLOSED || combinedWebSocket.readyState === WebSocket.CLOSING)) {
-        closeCombinedWebSocket("Switching to new symbol or cleaning up failed connection");
-    }
-
-    // Store old resolution for change detection
-    const oldResolution = combinedResolution;
-
-    // Check if this is a time range update (panning)
-    const isTimeRangeUpdate = (combinedSymbol === symbol &&
-                                combinedResolution === resolution &&
-                                JSON.stringify(combinedIndicators) === JSON.stringify(indicators) &&
-                                (combinedFromTs !== fromTs || combinedToTs !== toTs));
-
-    combinedSymbol = symbol;
-    combinedIndicators = indicators;
-    combinedResolution = resolution;
-    combinedFromTs = fromTs;
-    combinedToTs = toTs || Math.floor(Date.now() / 1000);
-
-    // Reset processed message tracking for new connection
-    processedMessageIds.clear();
-    lastProcessedTimestampRange = null;
-
-    logWebSocketEvent('parameters_updated', {
-        symbol: combinedSymbol,
-        indicatorsCount: combinedIndicators.length,
-        resolution: combinedResolution,
-        fromTs: combinedFromTs,
-        toTs: combinedToTs,
-        isTimeRangeUpdate
-    });
-
-    // If WebSocket is already open and parameters haven't changed significantly, just send config update
-    if (combinedWebSocket && combinedWebSocket.readyState === WebSocket.OPEN) {
-        logWebSocketEvent('config_update_only', {
-            reason: 'WebSocket open, sending config update',
-            isTimeRangeUpdate
-        });
-        sendCombinedConfig(oldResolution);
-        return;
-    }
-
-    // If WebSocket is connecting, wait for it to open
-    if (combinedWebSocket && combinedWebSocket.readyState === WebSocket.CONNECTING) {
-        logWebSocketEvent('waiting_for_connection', {
-            reason: 'WebSocket is connecting, will send config when open'
-        });
-        // The onopen handler will send the config
-        return;
-    }
-
-    // If WebSocket is in error state, close it first
-    if (combinedWebSocket && combinedWebSocket.readyState === WebSocket.CLOSING) {
-        logWebSocketEvent('closing_existing_connection', {
-            reason: 'WebSocket is closing, waiting to create new connection'
-        });
-        // Wait a bit for the close to complete
-        setTimeout(() => {
-            _setupCombinedWebSocketInternal(symbol, indicators, resolution, fromTs, toTs);
-        }, 100);
-        return;
-    }
-
-    // Close any existing connection before creating new one
-    if (combinedWebSocket) {
-        closeCombinedWebSocket("Creating new connection for updated parameters");
-    }
-
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = window.location.host;
-    // Always use the current URL path symbol for WebSocket connection
-    const currentUrlSymbol = window.location.pathname.substring(1).toUpperCase() || symbol;
-    const streamUrl = `${wsProtocol}//${wsHost}/data/${currentUrlSymbol}`;
-
-    logWebSocketEvent('creating_connection', {
-        streamUrl,
-        currentUrlSymbol,
-        requestedSymbol: symbol
-    });
-
-    combinedWebSocket = window.combinedWebSocket = new WebSocket(streamUrl);
-
-    combinedWebSocket.onopen = () => {
-        logWebSocketEvent('connection_opened', {
-            streamUrl,
-            symbol: combinedSymbol
-        });
-
-        // CRITICAL FIX: Set up message handler IMMEDIATELY after connection opens
-        setupWebSocketMessageHandler();
-
-        // Send initial configuration
-        sendCombinedConfig(oldResolution);
-    };
-
-    combinedWebSocket.onerror = (error) => {
-        logWebSocketEvent('connection_error', {
-            error: error.message || 'Unknown error',
-            symbol: combinedSymbol
-        });
-    };
-
-    combinedWebSocket.onclose = (event) => {
-        logWebSocketEvent('connection_closed', {
-            code: event.code,
-            reason: event.reason,
-            symbol: combinedSymbol,
-            wasClean: event.wasClean
-        });
-
-        // Attempt to reconnect if not a clean close and symbol hasn't changed
-        if (event.code !== 1000 && window.symbolSelect && window.symbolSelect.value === symbol) {
-            logWebSocketEvent('scheduling_reconnect', {
-                delay: 5000,
-                symbol
-            });
-
-            setTimeout(() => {
-                if (window.symbolSelect && window.symbolSelect.value === symbol) {
-                    setupCombinedWebSocket(symbol, indicators, resolution, fromTs, toTs);
-                }
-            }, 5000);
-        }
-    };
 }
 
 function setupWebSocketMessageHandler() {
 
-    if (!combinedWebSocket) {
-        console.warn('Combined WebSocket: Cannot setup message handler - WebSocket not initialized');
+    if (!window.wsAPI) {
+        console.warn('Combined WebSocket: Cannot setup message handler - wsAPI not available');
         return;
     }
 
-    if (combinedWebSocket.readyState !== WebSocket.OPEN) {
-        console.warn('Combined WebSocket: Cannot setup message handler - WebSocket not open. Current state:', combinedWebSocket.readyState);
+    if (!window.wsAPI.connected) {
+        console.warn('Combined WebSocket: Cannot setup message handler - wsAPI not connected');
         return;
     }
 
+    // Register message handlers for all message types we expect
+    const messageTypes = [
+        'historical', 'live', 'live_price', 'positions_update', 'drawings',
+        'buy_signals', 'history_update', 'youtube_videos', 'volume_profile',
+        'trade_history', 'trading_sessions', 'ready'
+    ];
 
-    combinedWebSocket.onmessage = (event) => {
-        try {
+    messageTypes.forEach(messageType => {
+        window.wsAPI.onMessage(messageType, (message) => {
+            try {
+                // console.log('Received message:', message);
 
-            const message = JSON.parse(event.data);
-            // console.log('Received message:', message);
-
-            // Enqueue message for sequential processing
-            enqueueMessage(message);
-        } catch (e) {
-            console.error('❌ Combined WebSocket: Error parsing message:', e.message);
-            console.error('❌ Raw message data:', event.data.substring(0, 200));
-        }
-    };
+                // Enqueue message for sequential processing
+                enqueueMessage(message);
+            } catch (e) {
+                console.error('❌ Combined WebSocket: Error processing message:', e.message);
+                console.error('❌ Raw message data:', message);
+            }
+        });
+    });
 
 }
 
 function sendCombinedConfig(oldResolution = null) {
-    if (!combinedWebSocket || combinedWebSocket.readyState !== WebSocket.OPEN) {
-        console.warn('Combined WebSocket: Cannot send config - connection not open');
+    if (!window.wsAPI || !window.wsAPI.connected) {
+        console.warn('Combined WebSocket: Cannot send config - wsAPI not connected');
         return;
     }
 
     const config = {
         type: 'config',
         symbol: combinedSymbol,  // Include symbol for redundancy and clarity
-        indicators: combinedIndicators,
+        active_indicators: combinedIndicators,
         resolution: combinedResolution,
         from_ts: combinedFromTs,  // Now ISO timestamp string
         to_ts: combinedToTs,      // Now ISO timestamp string
         old_resolution: oldResolution  // Include old resolution for change detection
     };
 
-
     // Detailed timestamp logging for server comparison
     const fromDate = new Date(combinedFromTs);
     const toDate = new Date(combinedToTs);
     const rangeMs = toDate.getTime() - fromDate.getTime();
     const rangeHours = rangeMs / (1000 * 60 * 60);
-
 
     // Store server range for comparison with client range
     window.lastServerRange = {
@@ -1796,7 +1659,11 @@ function sendCombinedConfig(oldResolution = null) {
     };
 
     try {
-        combinedWebSocket.send(JSON.stringify(config));
+        // Send message through wsAPI instead of direct WebSocket
+        const success = window.wsAPI.sendMessage({ type: "config", data: config });
+        if (!success) {
+            console.warn('Combined WebSocket: Failed to send config message via wsAPI');
+        }
     } catch (error) {
         console.error('Combined WebSocket: Error sending config:', error);
     }
@@ -2029,9 +1896,24 @@ function validateIndicatorData(data, indicatorName) {
 
 function handleHistoricalData(message) {
 
-    if (!message.data || !Array.isArray(message.data) || message.data.length === 0) {
+    if (!message.data || !Array.isArray(message.data)) {
         console.warn(JSON.stringify(message, null, 2));
         console.warn('Combined WebSocket: Invalid or empty historical data');
+        return;
+    }
+
+    // Check if historical data contains drawings and process them
+    if (message.data.drawings && Array.isArray(message.data.drawings)) {
+        console.log('Combined WebSocket: Found drawings in historical data, processing...', message.data.drawings.length);
+        const drawingsMessage = {
+            drawings: message.data.drawings,
+            symbol: message.symbol
+        };
+        handleDrawingsData(drawingsMessage);
+    }
+
+    if (!Array.isArray(message.data) || message.data.length === 0) {
+        console.warn('Combined WebSocket: No valid OHLC data in historical message');
         return;
     }
 
@@ -3928,7 +3810,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
 
     } else {
         // Create new layout only if we don't have one
-        layout = createLayoutForIndicators(indicatorTypes, Object.keys(indicatorsData));
+        layout = updateLayoutForIndicators(indicatorTypes, Object.keys(indicatorsData));
     }
 
     // Layout configuration is now handled above in the reuse/create logic
@@ -4321,8 +4203,8 @@ function updateCombinedIndicators(newIndicators) {
     // Determine which indicators are new
     const newIndicatorIds = newIndicators.filter(ind => !oldIndicators.includes(ind));
 
-    // Send new config to WebSocket
-    if (combinedWebSocket && combinedWebSocket.readyState === WebSocket.OPEN) {
+    // Send new config via wsAPI
+    if (window.wsAPI && window.wsAPI.connected) {
         sendCombinedConfig();
     }
 
@@ -4378,7 +4260,7 @@ function calculateIndicatorsClientSide(newIndicatorIds) {
     if (calculatedTraces.length > 0) {
         // Add calculated traces to the chart
         const updatedData = [...window.gd.data, ...calculatedTraces];
-        const updatedLayout = createLayoutForIndicators([...new Set([...getCurrentActiveIndicators(), ...newIndicatorIds])], getCurrentActiveIndicators());
+        const updatedLayout = updateLayoutForIndicators([...new Set([...getCurrentActiveIndicators(), ...newIndicatorIds])], getCurrentActiveIndicators());
 
         Plotly.react(chartElement, updatedData, updatedLayout);
     }
@@ -4751,7 +4633,7 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
 
 
     // Create layout for updated traces with correct domain ordering
-    const layout = createLayoutForIndicators(activeIndicatorIds, Object.keys(tracesByIndicator));
+    const layout = updateLayoutForIndicators(activeIndicatorIds, Object.keys(tracesByIndicator));
 
     // Preserve existing shapes when updating indicators
     if (window.gd && window.gd.layout && window.gd.layout.shapes) {
@@ -4782,8 +4664,8 @@ function updateChartIndicatorsDisplay(oldIndicators, newIndicators) {
 
 }
 
-function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) {
-    // Populate activeIndicatorsState with the correct yAxisRef mapping
+function updateLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) {
+    // Populate active_indicatorsState with the correct yAxisRef mapping
     window.populateActiveIndicatorsState(activeIndicatorIds);
 
     // Calculate price chart height here, before creating the layout
@@ -4799,6 +4681,7 @@ function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
         title: `${combinedSymbol} - ${combinedResolution.toUpperCase()}`,
         // Remove fixed height to allow full viewport height
         autosize: true, // Enable autosizing
+        dragmode: 'pan', // Set default dragmode to pan for chart navigation
         xaxis: {
             rangeslider: { visible: false },
             type: 'date',
@@ -4938,6 +4821,11 @@ function createLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
         // No indicators - let Plotly handle domain automatically
     }
 
+
+    // Update the plotly chart layout without removing data
+    if (window.gd && window.gd.data) {
+        Plotly.relayout(window.gd, baseLayout);
+    }
 
     return baseLayout;
 }
@@ -5189,7 +5077,7 @@ function updateChartWithLiveData(dataPoint, symbol) {
 function updateCombinedResolution(newResolution) {
     const oldResolution = combinedResolution;
     combinedResolution = newResolution;
-    if (combinedWebSocket && combinedWebSocket.readyState === WebSocket.OPEN) {
+    if (window.wsAPI && window.wsAPI.connected) {
         sendCombinedConfig(oldResolution);
     }
 }
@@ -5293,75 +5181,7 @@ window.displayBuySignalDetails = displayBuySignalDetails;
 window.tradeHistoryData = [];
 
 // Process and store trade history data
-function processTradeHistoryData(tradeHistoryData, symbol = null) {
-    if (!Array.isArray(tradeHistoryData)) {
-        console.error('Combined WebSocket: processTradeHistoryData expects an array');
-        return [];
-    }
 
-    // Use provided symbol or fallback to global symbol
-    const tradeSymbol = symbol || combinedSymbol;
-
-    console.log('📊 Combined WebSocket: Raw trade history input:', tradeHistoryData);
-
-    // Validate and normalize trade data
-    const processedTrades = tradeHistoryData.map((trade, index) => {
-        // console.log(`📊 Combined WebSocket: Processing trade ${index}:`, trade);
-
-        // Handle both array and object formats
-        if (Array.isArray(trade)) {
-            // Convert array format [price, amount, timestamp, side] to object
-            const processed = {
-                price: parseFloat(trade[0] || trade.price),
-                amount: parseFloat(trade[1] || trade.amount || trade.qty),
-                timestamp: isNaN(trade[2]) ? new Date(trade.timestamp || trade.time).getTime() / 1000 : trade[2],
-                side: (trade[3] || trade.side || '').toUpperCase(),
-                symbol: tradeSymbol
-            };
-            console.log(`📊 Combined WebSocket: Trade ${index} (array format) -> processed:`, processed);
-            return processed;
-        } else {
-            // Already object format
-            const processed = {
-                price: parseFloat(trade.price || trade.p),
-                amount: parseFloat(trade.amount || trade.qty || trade.q || trade.quantity || trade.size || 0),
-                timestamp: isNaN(trade.timestamp) ? new Date(trade.timestamp || trade.time).getTime() / 1000 : trade.timestamp,
-                side: (trade.side || trade.s || '').toUpperCase(),
-                symbol: tradeSymbol
-            };
-            // console.log(`📊 Combined WebSocket: Trade ${index} (object format) -> processed:`, processed);
-            return processed;
-        }
-    }).filter((trade, index) => {
-        // Filter out invalid trades with detailed logging
-        const checks = [
-            { condition: trade.price > 0, description: `price > 0 (${trade.price})` },
-            { condition: trade.amount > 0, description: `amount > 0 (${trade.amount})` },
-            { condition: !isNaN(trade.timestamp), description: `!isNaN(timestamp) (${trade.timestamp})` },
-            { condition: trade.timestamp > 0, description: `timestamp > 0 (${trade.timestamp})` },
-            { condition: trade.side === 'BUY' || trade.side === 'SELL', description: `side is BUY/SELL (${trade.side})` }
-        ];
-
-        const allPass = checks.every(check => check.condition);
-        const failedChecks = checks.filter(check => !check.condition).map(check => check.description);
-
-        if (!allPass) {
-            console.warn(`📊 Combined WebSocket: Trade ${index} FAILED validation:`, {
-                trade: trade,
-                failedChecks: failedChecks,
-                passedChecks: checks.filter(check => check.condition).map(check => check.description)
-            });
-        } else {
-            // console.log(`📊 Combined WebSocket: Trade ${index} PASSED validation:`, trade);
-        }
-
-        return allPass;
-    });
-
-    console.log(`📊 Combined WebSocket: Processed ${processedTrades.length} valid trades out of ${tradeHistoryData.length} total`);
-
-    return processedTrades;
-}
 
 // Add trade history markers to the chart
 function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
@@ -5399,7 +5219,7 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
     // Calculate marker size scaling based on ALL trade data (not just current batch)
     // This ensures consistent scaling across batches
     const allTrades = window.tradeHistoryData || [];
-    const allValues = allTrades.map(trade => trade.price * trade.amount).filter(val => val > 0);
+    const allValues = allTrades.map(trade => trade.price * trade.amount).filter(val => val > 0 && isFinite(val) && !isNaN(val));
     const maxValue = allValues.length > 0 ? Math.max(...allValues) : 1;
     const minValue = allValues.length > 0 ? Math.min(...allValues) : 0.001;
 
@@ -5422,10 +5242,22 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
 
     // Function to scale value to marker size
     function valueToMarkerSize(value) {
+        // Handle invalid values
+        if (isNaN(value) || !isFinite(value) || value <= 0) {
+            return minMarkerSize;
+        }
+        // Handle invalid max/min values
+        if (isNaN(maxValue) || !isFinite(maxValue) || isNaN(minValue) || !isFinite(minValue)) {
+            return minMarkerSize;
+        }
         if (maxValue === minValue || maxValue === 0) {
             return minMarkerSize; // All same size if no value variation or all zero
         }
         const normalizedValue = (value - minValue) / (maxValue - minValue);
+        // Handle case where normalization results in NaN (e.g., division by zero)
+        if (isNaN(normalizedValue)) {
+            return minMarkerSize;
+        }
         const markerSize = minMarkerSize + (normalizedValue * (maxMarkerSize - minMarkerSize));
         return Math.max(minMarkerSize, Math.min(markerSize, maxMarkerSize)); // Clamp within bounds
     }
@@ -5454,18 +5286,25 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
         const buyX = buyTrades.map(trade => new Date(trade.timestamp * 1000));
         const buyY = buyTrades.map(trade => trade.price);
         const buySizes = buyTrades.map(trade => valueToMarkerSize(trade.price * trade.amount));
-        const buyText = buyTrades.map((trade, index) =>
-            `${trade.symbol} BUY: $${trade.price.toFixed(4)} ($${(trade.price * trade.amount).toFixed(2)}) [size: ${buySizes[index].toFixed(1)}]`
-        );
-        const buyCustomData = buyTrades.map((trade, index) => ({
-            price: trade.price,
-            amount: trade.amount,
-            timestamp: trade.timestamp,
-            symbol: trade.symbol,
-            timeDisplay: new Date(trade.timestamp * 1000).toLocaleString(),
-            markerSize: buySizes[index],
-            value: trade.price * trade.amount
-        }));
+        const buyCustomData = buyTrades.map((trade, index) => {
+            const amount = trade.amount && !isNaN(trade.amount) ? trade.amount : 0;
+            const value = trade.price && amount ? trade.price * amount : 0;
+            const timestamp = trade.timestamp && !isNaN(trade.timestamp) ? trade.timestamp : Date.now() / 1000;
+            const timeDisplay = new Date(timestamp * 1000).toLocaleString();
+            const symbol = trade.symbol || 'UNKNOWN';
+            const price = trade.price || 0;
+            return {
+                price: price,
+                amount: amount,
+                timestamp: timestamp,
+                symbol: symbol,
+                timeDisplay: timeDisplay,
+                markerSize: buySizes[index],
+                value: value,
+                text: `${symbol} BUY: $${price.toFixed(4)} ($${value.toFixed(2)}) [size: ${buySizes[index].toFixed(1)}]`
+            };
+        });
+        const buyText = buyCustomData.map(data => data.text);
 
         const buyTrace = {
             x: buyX,
@@ -5517,19 +5356,26 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
     if (sellTrades.length > 0) {
         const sellX = sellTrades.map(trade => new Date(trade.timestamp * 1000));
         const sellY = sellTrades.map(trade => trade.price);
-        const sellSizes = sellTrades.map(trade => valueToMarkerSize(trade.amount));
-        const sellText = sellTrades.map((trade, index) =>
-            `${trade.symbol} SELL: $${trade.price.toFixed(4)} ($${(trade.price * trade.amount).toFixed(2)}) [size: ${sellSizes[index].toFixed(1)}]`
-        );
-        const sellCustomData = sellTrades.map((trade, index) => ({
-            price: trade.price,
-            amount: trade.amount,
-            timestamp: trade.timestamp,
-            symbol: trade.symbol,
-            timeDisplay: new Date(trade.timestamp * 1000).toLocaleString(),
-            markerSize: sellSizes[index],
-            value: trade.price * trade.amount
-        }));
+        const sellSizes = sellTrades.map(trade => valueToMarkerSize(trade.price * trade.amount));
+        const sellCustomData = sellTrades.map((trade, index) => {
+            const amount = trade.amount && !isNaN(trade.amount) ? trade.amount : 0;
+            const value = trade.price && amount ? trade.price * amount : 0;
+            const timestamp = trade.timestamp && !isNaN(trade.timestamp) ? trade.timestamp : Date.now() / 1000;
+            const timeDisplay = new Date(timestamp * 1000).toLocaleString();
+            const symbol = trade.symbol || 'UNKNOWN';
+            const price = trade.price || 0;
+            return {
+                price: price,
+                amount: amount,
+                timestamp: timestamp,
+                symbol: symbol,
+                timeDisplay: timeDisplay,
+                markerSize: sellSizes[index],
+                value: value,
+                text: `${symbol} SELL: $${price.toFixed(4)} ($${value.toFixed(2)}) [size: ${sellSizes[index].toFixed(1)}]`
+            };
+        });
+        const sellText = sellCustomData.map(data => data.text);
 
         const sellTrace = {
             x: sellX,
@@ -5581,11 +5427,6 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
     try {
         Plotly.react(chartElement, window.gd.data, window.gd.layout, { responsive: true });
         console.log(`📊 Combined WebSocket: Successfully added trade history markers for ${tradeHistoryData.length} trades`);
-
-        // Adapt Min Volume slider based on received trade markers
-        if (window.updateMinValueSliderRange) {
-            window.updateMinValueSliderRange();
-        }
     } catch (error) {
         console.error('Combined WebSocket: Error updating chart with trade markers:', error);
     }
@@ -5668,7 +5509,7 @@ window.updateCombinedResolution = updateCombinedResolution;
 window.setupWebSocketMessageHandler = setupWebSocketMessageHandler;
 window.mergeDataPoints = mergeDataPoints;
 window.mergeDataPointsWithIndicators = mergeDataPointsWithIndicators;
-window.createLayoutForIndicators = createLayoutForIndicators;
+window.updateLayoutForIndicators = updateLayoutForIndicators;
 function cleanupVolumeProfileForRectangle(rectangleId) {
 
     if (!window.gd || !window.gd.data) {
@@ -5900,7 +5741,7 @@ window.validateChartRendering = function() {
 
 
 
-// Ensure mouse wheel zoom remains enabled after chart operations
+// Ensure mouse wheel zoom remains enabled and dragmode is set to pan after chart operations
 function ensureScrollZoomEnabled() {
     // Check if chart exists
     const gd = document.getElementById('chart');
@@ -5923,12 +5764,12 @@ function ensureScrollZoomEnabled() {
         }
     }
 
-    // Additional check: Ensure dragmode is set to 'zoom' which enables scroll wheel zooming
-    if (gd.layout && gd.layout.dragmode !== 'zoom') {
+    // Additional check: Ensure dragmode is set to 'pan' for default panning behavior
+    if (gd.layout && gd.layout.dragmode !== 'pan') {
         try {
-            Plotly.relayout(gd, { dragmode: 'zoom' });
+            Plotly.relayout(gd, { dragmode: 'pan' });
         } catch (error) {
-            console.warn('ensureScrollZoomEnabled: Failed to set dragmode to zoom:', error);
+            console.warn('ensureScrollZoomEnabled: Failed to set dragmode to pan:', error);
         }
     }
 }
@@ -6509,4 +6350,8 @@ window.validateCandlestickMode = function() {
     }
 
     return validation;
+// Define global function to process historical data for chart updates
+window.processHistoricalDataForChart = function(dataPoints, symbol) {
+    updateChartWithHistoricalData(dataPoints, symbol);
+};
 };

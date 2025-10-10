@@ -30,7 +30,7 @@ async def delete_drawing_api_endpoint(symbol: str, drawing_id: str, request: Req
         return JSONResponse({"status": "error", "message": f"Unsupported symbol: {symbol}"}, status_code=400)
     deleted = await delete_drawing(symbol, drawing_id, request)
     if not deleted:
-        return JSONResponse({"status": "error", "message": "Drawing not found"}, status_code=404)
+        logger.warning(f"Drawing {drawing_id} not found for deletion (symbol: {symbol}) - treating as successful")
     return JSONResponse({"status": "success"})
 
 async def update_drawing_api_endpoint(symbol: str, drawing_id: str, drawing_data: DrawingData, request: Request):

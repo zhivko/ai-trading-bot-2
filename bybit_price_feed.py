@@ -120,18 +120,16 @@ async def bybit_price_feed_task():
     try:
         while True:
             await asyncio.sleep(60)  # Check every minute
-            logger.debug("Bybit price feed task is alive")
-    except asyncio.CancelledError:
-        logger.info("Bybit price feed task cancelled")
+            # logger.debug("Bybit price feed task is alive")
     except Exception as e:
         logger.error(f"Error in Bybit price feed task: {e}")
     finally:
         # Clean up WebSocket connection
         try:
             if hasattr(bybit_ws_client, 'exit') and callable(bybit_ws_client.exit):
-                logger.info("Attempting to close Bybit WebSocket connection...")
+                # logger.info("Attempting to close Bybit WebSocket connection...")
                 bybit_ws_client.exit()
-                logger.info("Bybit WebSocket connection closed successfully")
+                # logger.info("Bybit WebSocket connection closed successfully")
             else:
                 logger.warning("Bybit WebSocket client does not have exit method")
         except Exception as e:

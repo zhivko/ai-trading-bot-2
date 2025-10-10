@@ -1,20 +1,166 @@
-async function getDrawings(symbol) {
+// WebSocket-based API client for AppTradingView2
+// This replaces HTTP calls with WebSocket message passing
+
+class WebSocketAPI {
+    constructor() {
+        this.ws = null;
+        this.connected = false;
+        this.messageHandlers = new Map();
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 5;
+        this.messageQueue = [];
+        this.isSending = false;
+    }
+
+    connect() {
+        if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+            return Promise.resolve();
+        }
+
+        return new Promise((resolve, reject) => {
+            try {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws`;
+                console.log('Connecting to WebSocket:', wsUrl);
+
+                this.ws = new WebSocket(wsUrl);
+
+                this.ws.onopen = (event) => {
+                    console.log('WebSocket connected');
+                    this.connected = true;
+                    this.reconnectAttempts = 0;
+                    resolve(event);
+                };
+
+                this.ws.onmessage = (event) => {
+                    this.handleMessage(event);
+                };
+
+                this.ws.onclose = (event) => {
+                    console.log('WebSocket closed:', event.code, event.reason);
+                    this.connected = false;
+                    if (!event.wasClean && this.reconnectAttempts < this.maxReconnectAttempts) {
+                        this.attemptReconnect();
+                    }
+                };
+
+                this.ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    reject(error);
+                };
+
+            } catch (error) {
+                console.error('WebSocket connection failed:', error);
+                reject(error);
+            }
+        });
+    }
+
+    attemptReconnect() {
+        this.reconnectAttempts++;
+        const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+
+        console.log(`Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+
+        setTimeout(() => {
+            this.connect().catch(() => {
+                if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+                    console.error('Max reconnection attempts reached');
+                }
+            });
+        }, delay);
+    }
+
+    disconnect() {
+        if (this.ws) {
+            this.ws.close(1000, 'Client disconnecting');
+        }
+    }
+
+    sendMessage(message) {
+        if (!this.connected || !this.ws) {
+            throw new Error('WebSocket not connected');
+        }
+
+        this.messageQueue.push(message);
+        this.processQueue();
+    }
+
+    processQueue() {
+        if (this.isSending || this.messageQueue.length === 0) {
+            return;
+        }
+
+        this.isSending = true;
+        const message = this.messageQueue.shift();
+        const messageStr = JSON.stringify(message);
+        this.ws.send(messageStr);
+        console.debug('Sent WS message:', message.type);
+        this.isSending = false;
+
+        // Process next message if any
+        if (this.messageQueue.length > 0) {
+            setTimeout(() => this.processQueue(), 10);
+        }
+    }
+
+
+    handleMessage(event) {
+        try {
+            const message = JSON.parse(event.data);
+
+            console.debug('Received WS message:', message.type, message.action || '');
+
+            // Dispatch all messages to handlers
+            this.dispatchMessage(message);
+
+        } catch (error) {
+            console.error('Error parsing WebSocket message:', error, event.data);
+        }
+    }
+
+    dispatchMessage(message) {
+        // Dispatch to any registered handlers
+        const handlers = this.messageHandlers.get(message.type) || [];
+        handlers.forEach(handler => {
+            try {
+                handler(message);
+            } catch (error) {
+                console.error('Error in message handler:', error);
+            }
+        });
+    }
+
+    onMessage(type, handler) {
+        if (!this.messageHandlers.has(type)) {
+            this.messageHandlers.set(type, []);
+        }
+        this.messageHandlers.get(type).push(handler);
+    }
+
+    offMessage(type, handler) {
+        const handlers = this.messageHandlers.get(type) || [];
+        const index = handlers.indexOf(handler);
+        if (index > -1) {
+            handlers.splice(index, 1);
+        }
+    }
+}
+
+// Global WebSocket API instance
+window.wsAPI = new WebSocketAPI();
+
+// Legacy API functions - now using WebSocket
+
+function getDrawings(symbol) {
     try {
-        const response = await fetch(`/get_drawings/${symbol}`);
-        if (!response.ok) {
-            const errorBody = await response.text().catch(() => "Could not read error body");
-            throw new Error(`Failed to fetch drawings: ${response.status} - ${errorBody}`);
-        }
-        const result = await response.json();
-        if (result.status === 'success' && Array.isArray(result.drawings)) {
-            return result.drawings;
-        } else {
-            console.warn("Unexpected response format for get_drawings:", result);
-            return [];
-        }
+        window.wsAPI.sendMessage({
+            type: 'config',
+            action: 'get_drawings',
+            data: { symbol }
+        });
     } catch (error) {
-        console.error(`Error fetching drawings for ${symbol}:`, error);
-        throw error;
+        console.error(`Error sending get_drawings for ${symbol}:`, error);
     }
 }
 
@@ -31,6 +177,7 @@ async function sendShapeUpdateToServer(shapeToUpdate, symbol) {
     const end_time_ms = (shapeToUpdate.x1 instanceof Date) ? shapeToUpdate.x1.getTime() : new Date(shapeToUpdate.x1).getTime();
 
     const drawingData = {
+        drawing_id: shapeToUpdate.id,
         symbol: symbol,
         type: shapeToUpdate.type,
         start_time: Math.floor(start_time_ms / 1000),
@@ -38,18 +185,52 @@ async function sendShapeUpdateToServer(shapeToUpdate, symbol) {
         start_price: parseFloat(shapeToUpdate.y0),
         end_price: parseFloat(shapeToUpdate.y1),
         subplot_name: determineSubplotNameForShape(shapeToUpdate), // Assumes determineSubplotNameForShape is global
-        resolution: resolution
+        resolution: resolution,
+        properties: shapeToUpdate.properties || {
+            sendEmailOnCross: true,
+            buyOnCross: false,
+            sellOnCross: false
+        }
     };
 
     try {
-        const response = await fetch(`/update_drawing/${symbol}/${shapeToUpdate.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(drawingData)
-        });
+        // Send shape update via WebSocket using wsAPI
+        if (window.wsAPI && window.wsAPI.connected) {
+            const shapeMessage = {
+                type: 'shape',
+                data: drawingData,
+                request_id: Date.now().toString()
+            };
 
-        if (!response.ok) throw new Error(`Failed to update drawing ${shapeToUpdate.id} on server: ${response.status} ${await response.text()}`);
-        return true;
+            return new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('Timeout waiting for shape update response'));
+                }, 10000); // 10 second timeout
+
+                const messageHandler = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        if (message.type === 'shape_success' && message.request_id === shapeMessage.request_id) {
+                            clearTimeout(timeout);
+                            window.wsAPI.ws.removeEventListener('message', messageHandler);
+                            resolve(true);
+                        } else if (message.type === 'error' && message.request_id === shapeMessage.request_id) {
+                            clearTimeout(timeout);
+                            window.wsAPI.ws.removeEventListener('message', messageHandler);
+                            reject(new Error(message.message || 'Failed to update shape'));
+                        }
+                    } catch (e) {
+                        console.error('Error parsing WebSocket response:', e);
+                    }
+                };
+
+                // Listen for messages directly on the WebSocket
+                window.wsAPI.ws.addEventListener('message', messageHandler);
+                window.wsAPI.sendMessage(shapeMessage);
+            });
+        } else {
+            throw new Error('WebSocket not connected');
+        }
     } catch (error) {
         console.error(`Error in sendShapeUpdateToServer for drawing ${shapeToUpdate.id}:`, error);
         alert(`Failed to update drawing on server: ${error.message}`);
@@ -61,7 +242,7 @@ window.sendShapeUpdateToServer = sendShapeUpdateToServer; // Export to global sc
 
 function getPlotlyRefsFromSubplotName(subplotName) {
     const currentSymbol = window.symbolSelect.value; // Assumes symbolSelect is global
-    const hasActiveIndicators = window.activeIndicatorsState && window.activeIndicatorsState.length > 0;
+    const hasActiveIndicators = window.active_indicatorsState && window.active_indicatorsState.length > 0;
 
     if (!subplotName || subplotName === currentSymbol) {
         // This is for a drawing on the main chart.
@@ -82,12 +263,12 @@ function getPlotlyRefsFromSubplotName(subplotName) {
     const parts = subplotName.split('-');
     if (parts.length >= 2) {
         const indicatorId = parts.slice(1).join('-');
-        const indicator = window.activeIndicatorsState && window.activeIndicatorsState.find(ind => ind.id === indicatorId);
+        const indicator = window.active_indicatorsState && window.active_indicatorsState.find(ind => ind.id === indicatorId);
 
         if (indicator && indicator.xAxisRef && indicator.yAxisRef) {
             return { xref: indicator.xAxisRef, yref: indicator.yAxisRef };
         } else {
-             //console.warn(`[getPlotlyRefsFromSubplotName] Indicator '${indicatorId}' (from subplotName '${subplotName}') is not currently active or its refs are missing. Active state:`, JSON.parse(JSON.stringify(window.activeIndicatorsState)));
+             //console.warn(`[getPlotlyRefsFromSubplotName] Indicator '${indicatorId}' (from subplotName '${subplotName}') is not currently active or its refs are missing. Active state:`, JSON.parse(JSON.stringify(window.active_indicatorsState)));
              return null; // Explicitly return null if indicator not active for this drawing
         }
     }
@@ -95,25 +276,99 @@ function getPlotlyRefsFromSubplotName(subplotName) {
     // This should only be hit if subplotName is malformed or for a context not anticipated.
     // For the main chart without indicators, actualMainChartYAxisRef would be 'y', handled by the first 'if'.
     console.warn(`[getPlotlyRefsFromSubplotName] Fallback for subplotName '${subplotName}'. This might indicate an issue. Defaulting to x/y.`);
-    return { xref: 'x', yref: 'y' }; 
+    return { xref: 'x', yref: 'y' };
 }
 
-async function getOrderHistory(symbol) {
+function getOrderHistory(symbol) {
     try {
-        const response = await fetch(`/get_order_history/${symbol}`);
-        if (!response.ok) {
-            const errorBody = await response.text().catch(() => "Could not read error body");
-            throw new Error(`Failed to fetch open trades: ${response.status} - ${errorBody}`);
-        }
-        const result = await response.json();
-        if (result.status === 'success' && Array.isArray(result["order history"])) {
-            return result["order history"];
-        } else {
-            console.warn("Unexpected response format for get_order_history:", result);
-            return [];
-        }
+        window.wsAPI.sendMessage({
+            type: 'config',
+            action: 'get_order_history',
+            data: { symbol, email: window.userEmail || '' }
+        });
     } catch (error) {
-        console.error(`Error fetching open trades for ${symbol}:`, error);
-        throw error;
+        console.error(`Error sending get_order_history for ${symbol}:`, error);
     }
 }
+
+// Additional WebSocket-based API functions
+
+function getAgentTrades() {
+    try {
+        window.wsAPI.sendMessage({
+            type: 'config',
+            action: 'get_agent_trades',
+            data: { email: window.userEmail || '' }
+        });
+    } catch (error) {
+        console.error('Error sending get_agent_trades:', error);
+    }
+}
+
+function getBuySignals(symbol) {
+    try {
+        window.wsAPI.sendMessage({
+            type: 'config',
+            action: 'get_buy_signals',
+            data: { symbol, email: window.userEmail || '' }
+        });
+    } catch (error) {
+        console.error(`Error sending get_buy_signals for ${symbol}:`, error);
+    }
+}
+
+function getSettings() {
+    try {
+        window.wsAPI.sendMessage({
+            type: 'config',
+            action: 'get_settings',
+            data: { email: window.userEmail || '' }
+        });
+    } catch (error) {
+        console.error('Error sending get_settings:', error);
+    }
+}
+
+function getLivePrice() {
+    try {
+        window.wsAPI.sendMessage({
+            type: 'config',
+            action: 'get_live_price',
+            data: { email: window.userEmail || '' }
+        });
+    } catch (error) {
+        console.error('Error sending get_live_price:', error);
+    }
+}
+
+function getAvailableIndicators() {
+    try {
+        window.wsAPI.sendMessage({
+            type: 'config',
+            action: 'get_available_indicators',
+            data: { email: window.userEmail || '' }
+        });
+    } catch (error) {
+        console.error('Error sending get_available_indicators:', error);
+    }
+}
+
+function getAIResponse(aiRequestData) {
+    try {
+        window.wsAPI.sendMessage({
+            type: 'config',
+            action: 'ai_suggestion',
+            data: { ...aiRequestData, email: window.userEmail || '' }
+        });
+    } catch (error) {
+        console.error('Error sending ai_suggestion:', error);
+    }
+}
+
+// Export new WebSocket-based functions
+window.getAgentTrades = getAgentTrades;
+window.getBuySignals = getBuySignals;
+window.getSettings = getSettings;
+window.getLivePrice = getLivePrice;
+window.getAvailableIndicators = getAvailableIndicators;
+window.getAIResponse = getAIResponse;

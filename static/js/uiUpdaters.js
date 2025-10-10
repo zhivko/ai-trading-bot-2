@@ -1,6 +1,11 @@
 function updateSelectedShapeInfoPanel(activeShape) {
-    // Assumes selectedShapeInfoDiv is globally available or passed as an argument
-    if (!window.selectedShapeInfoDiv) {
+    // Get the element directly to ensure it works across all contexts
+    let selectedShapeInfoDiv = window.selectedShapeInfoDiv;
+    if (!selectedShapeInfoDiv) {
+        selectedShapeInfoDiv = document.getElementById('selected-shape-info');
+        window.selectedShapeInfoDiv = selectedShapeInfoDiv; // Cache it globally
+    }
+    if (!selectedShapeInfoDiv) {
         return;
     }
 
@@ -11,6 +16,26 @@ function updateSelectedShapeInfoPanel(activeShape) {
     const isHovering = activeShape && activeShape.id;
     const hasSelection = selectedCount > 0;
 
+    function formatShapeInfo(shape, prefix = '') {
+        let info = `<p><strong>${prefix}Type:</strong> ${shape.type}</p>`;
+        info += `<p><strong>${prefix}ID:</strong> ${shape.id}</p>`;
+
+        // Format coordinates
+        const x0 = shape.x0 ? (shape.x0 instanceof Date ? shape.x0.toISOString() : shape.x0) : 'N/A';
+        const y0 = shape.y0 !== undefined ? Number(shape.y0).toFixed(6) : 'N/A';
+        const x1 = shape.x1 ? (shape.x1 instanceof Date ? shape.x1.toISOString() : shape.x1) : 'N/A';
+        const y1 = shape.y1 !== undefined ? Number(shape.y1).toFixed(6) : 'N/A';
+
+        info += `<p><strong>${prefix}Start:</strong> (${x0}, ${y0})</p>`;
+        info += `<p><strong>${prefix}End:</strong> (${x1}, ${y1})</p>`;
+
+        // Add other relevant properties
+        if (shape.xref) info += `<p><strong>${prefix}X Reference:</strong> ${shape.xref}</p>`;
+        if (shape.yref) info += `<p><strong>${prefix}Y Reference:</strong> ${shape.yref}</p>`;
+        if (shape.line && shape.line.color) info += `<p><strong>${prefix}Color:</strong> ${shape.line.color}</p>`;
+
+        return info;
+    }
 
     if (hasSelection || isHovering) {
         let infoHtml = '';
@@ -19,18 +44,25 @@ function updateSelectedShapeInfoPanel(activeShape) {
             infoHtml += `<p><strong>${selectedCount} shape${selectedCount > 1 ? 's' : ''} selected</strong></p>`;
 
             if (selectedCount === 1 && activeShape && activeShape.id) {
-                infoHtml += `<p><strong>ID:</strong> ${activeShape.id}</p>`;
+                infoHtml += formatShapeInfo(activeShape.shape);
             } else if (selectedCount > 1) {
-                infoHtml += '<p><strong>IDs:</strong></p><ul>';
+                infoHtml += '<p><strong>Selected Shapes:</strong></p><ul>';
                 selectedIds.forEach(id => {
                     const isLastSelected = id === window.lastSelectedShapeId;
-                    infoHtml += `<li${isLastSelected ? ' style="font-weight: bold; color: #00FF00;"' : ''}>${id}${isLastSelected ? ' (last selected)' : ''}</li>`;
+                    const shape = window.gd && window.gd.layout.shapes ? window.gd.layout.shapes.find(s => s.id === id) : null;
+                    const shapeInfo = shape ? `${shape.type} (${shape.x0 ? '...' : 'rect'})` : 'Unknown';
+                    infoHtml += `<li${isLastSelected ? ' style="font-weight: bold; color: #00FF00;"' : ''}>${id} - ${shapeInfo}${isLastSelected ? ' (last selected)' : ''}</li>`;
                 });
                 infoHtml += '</ul>';
+                if (activeShape && activeShape.shape) {
+                    infoHtml += '<p><strong>Last Selected Shape Details:</strong></p>';
+                    infoHtml += formatShapeInfo(activeShape.shape);
+                }
             }
         } else if (isHovering) {
             // Handle hovered shape (no shapes selected but hovering over one)
-            infoHtml = `<p><strong>ID:</strong> ${activeShape.id}</p>`;
+            infoHtml = `<p><strong>Hovered Shape:</strong></p>`;
+            infoHtml += formatShapeInfo(activeShape.shape, 'Hovered ');
         }
 
         window.selectedShapeInfoDiv.innerHTML = infoHtml;
@@ -165,3 +197,22 @@ function logEventToPanel(message, type = 'INFO') {
     window.eventOutput.scrollTop = 0; // Scroll to top to see the latest (prepended) message
 }
 
+// Update trade history visualizations
+function updateTradeHistoryVisualizations() {
+    if (!window.tradeHistoryData || window.tradeHistoryData.length === 0) {
+        return;
+    }
+
+    // Get current symbol
+    const symbol = window.symbolSelect ? window.symbolSelect.value : 'UNKNOWN';
+
+    console.log(`📊 Updating trade history visualizations: ${window.tradeHistoryData.length} trades`);
+
+    // Re-add trade history markers to chart with all data
+    if (window.addTradeHistoryMarkersToChart) {
+        window.addTradeHistoryMarkersToChart(window.tradeHistoryData, symbol);
+    }
+}
+
+// Make function globally available
+window.updateTradeHistoryVisualizations = updateTradeHistoryVisualizations;

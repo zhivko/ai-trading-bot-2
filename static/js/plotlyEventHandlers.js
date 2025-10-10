@@ -26,19 +26,57 @@ async function handleNewShapeSave(shapeObject) {
                     sellOnCross: false
                 }
             };
-            const response = await fetch(`/save_drawing/${symbol}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(drawingData)
-            });
 
-            if (!response.ok) throw new Error(`Failed to save drawing: ${response.status} ${await response.text()}`);
-            const result = await response.json();
+            // Send shape data via WebSocket using wsAPI
+            if (window.wsAPI) {
+                // If WebSocket is not connected yet, wait for it to connect
+                if (!window.wsAPI.connected) {
+                    console.log('WebSocket not connected yet, waiting for connection...');
+                    // Wait for connection with timeout
+                    let connectionAttempts = 0;
+                    while (!window.wsAPI.connected && connectionAttempts < 50) { // 5 seconds max
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        connectionAttempts++;
+                    }
 
-            // Request volume profile calculation for rectangles immediately after saving
-            if (shapeObject.type === 'rect') {
+                    if (!window.wsAPI.connected) {
+                        throw new Error('WebSocket connection timeout - please refresh the page');
+                    }
+                }
+                const shapeMessage = {
+                    type: 'shape',
+                    data: drawingData,
+                    request_id: Date.now().toString()
+                };
 
-                if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
+                // Set up a promise to wait for the shape_success response
+                const shapeSavePromise = new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => {
+                        reject(new Error('Timeout waiting for shape save confirmation'));
+                    }, 5000); // 5 second timeout
+
+                    const messageHandler = (message) => {
+                        if (message.type === 'shape_success' && message.request_id === shapeMessage.request_id) {
+                            clearTimeout(timeout);
+                            window.wsAPI.offMessage('shape_success', messageHandler);
+                            resolve(message.data);
+                        } else if (message.type === 'error' && message.request_id === shapeMessage.request_id) {
+                            clearTimeout(timeout);
+                            window.wsAPI.offMessage('error', messageHandler);
+                            reject(new Error(message.message || 'Failed to save shape'));
+                        }
+                    };
+
+                    // Listen for both success and error messages
+                    window.wsAPI.onMessage('shape_success', messageHandler);
+                    window.wsAPI.onMessage('error', messageHandler);
+                });
+
+                window.wsAPI.sendMessage(shapeMessage);
+                const result = await shapeSavePromise;
+
+                // Request volume profile calculation for rectangles immediately after saving
+                if (shapeObject.type === 'rect' && result.id) {
                     const volumeProfileRequest = {
                         type: 'get_volume_profile',
                         rectangle_id: result.id,
@@ -46,22 +84,20 @@ async function handleNewShapeSave(shapeObject) {
                         resolution: window.resolutionSelect ? window.resolutionSelect.value : '1h'
                     };
                     try {
-                        window.combinedWebSocket.send(JSON.stringify(volumeProfileRequest));
+                        window.wsAPI.sendMessage(volumeProfileRequest);
                     } catch (error) {
                         console.error('📊 Failed to send volume profile request:', error);
-                        console.error('📊 WebSocket state at error:', window.combinedWebSocket ? window.combinedWebSocket.readyState : 'undefined');
                     }
-                } else {
-                    const wsState = window.combinedWebSocket ? window.combinedWebSocket.readyState : 'undefined';
-                    console.warn('⚠️ WebSocket not available/ready for volume profile calculation request. WebSocket state:', wsState);
-                    console.warn('⚠️ window.combinedWebSocket:', window.combinedWebSocket);
                 }
-            }
 
-            return result.id;
+                return result.id;
+            } else {
+                throw new Error('WebSocket API not available');
+            }
         } catch (error) {
+            console.error('Failed to save drawing:', error);
             alert(`Failed to save drawing: ${error.message}`);
-            loadDrawingsAndRedraw(symbol); // Assumes loadDrawingsAndRedraw is global
+            // Note: loadDrawingsAndRedraw is not defined, so we skip this call
             return null;
         }
     }
@@ -127,6 +163,9 @@ function initializePlotlyEventHandlers(gd) {
     */
     
     gd.on('plotly_shapedrawn', async function(eventShapeData) {
+        console.log('[SHAPE DRAWN] plotly_shapedrawn event fired');
+        console.log('[SHAPE DRAWN] eventShapeData:', eventShapeData);
+        console.log('[SHAPE DRAWN] Current dragmode:', gd.layout.dragmode);
 
         // The shape drawn is usually the last one added to gd.layout.shapes
         // and it won't have an id yet.
@@ -309,26 +348,6 @@ function initializePlotlyEventHandlers(gd) {
                 return; // Don't process as a regular drawing shape
             }
 
-            // Handle regular drawing shapes
-            const currentShapes = gd.layout.shapes || [];
-
-            for (let i = 0; i < currentShapes.length; i++) {
-                const shape = currentShapes[i];
-                if ((shape.type === 'line' || shape.type === 'rect') && shape.id && !shape.isSystemShape) {
-
-                    // For now, let's just assume any line or rect shape that exists is clickable
-                    // This is a simplified approach to test if the event handling works
-                    const clickedShapeId = shape.id;
-
-                    // Update UI for click (selection) - handled by handleShapeClick in chartInteractions.js
-                    // findAndupdateSelectedShapeInfoPanel(clickedShapeId); // Removed to avoid conflict
-                    if (typeof updateShapeVisuals === 'function') {
-                        updateShapeVisuals();
-                    }
-
-                    break; // Stop after finding first shape
-                }
-            }
         }
     });
 
@@ -722,7 +741,7 @@ function debouncedSaveSettingsForResize() {
                 const symbol = window.symbolSelect ? window.symbolSelect.value : null;
                 const resolution = window.resolutionSelect ? window.resolutionSelect.value : '1h';
                 if (symbol && resolution && window.currentXAxisRange) {
-                    const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+                    const active_indicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
                     // currentXAxisRange is in milliseconds, convert to seconds for checkIfHistoricalDataNeeded
                     const fromTsSeconds = Math.floor(window.currentXAxisRange[0] / 1000);
                     const toTsSeconds = Math.floor(window.currentXAxisRange[1] / 1000);
@@ -741,7 +760,7 @@ function debouncedSaveSettingsForResize() {
                         const bufferedFromTs = new Date(bufferedFromMs).toISOString();
                         const bufferedToTs = new Date(bufferedToMs).toISOString();
 
-                        setupCombinedWebSocket(symbol, activeIndicators, resolution, bufferedFromTs, bufferedToTs);
+                        setupCombinedWebSocket(symbol, active_indicators, resolution, bufferedFromTs, bufferedToTs);
                     } else {
                         // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use ISO timestamp strings with timezone
                         // window.currentXAxisRange is in milliseconds, convert to ISO strings
@@ -756,11 +775,11 @@ function debouncedSaveSettingsForResize() {
                                 sendCombinedConfig();
                             } else {
                                 console.warn('[plotly_relayout] sendCombinedConfig function not available, falling back to setupCombinedWebSocket');
-                                setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+                                setupCombinedWebSocket(symbol, active_indicators, resolution, wsFromTs, wsToTs);
                             }
                         } else {
                             delay(100).then(() => {
-                                setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+                                setupCombinedWebSocket(symbol, active_indicators, resolution, wsFromTs, wsToTs);
                             });
                         }
                     }
@@ -828,8 +847,69 @@ function debouncedSaveSettingsForResize() {
         if (removedShape && removedShape.id) {
             const symbol = window.symbolSelect.value;
             try {
-                const response = await fetch(`/delete_drawing/${symbol}/${removedShape.id}`, { method: 'DELETE' });
-                if (!response.ok) throw new Error(`Backend delete failed: ${response.status} ${await response.text()}`);
+                if (window.wsAPI && window.wsAPI.connected) {
+                    await new Promise((resolve, reject) => {
+                        const timeout = setTimeout(() => {
+                            reject(new Error('Timeout waiting for delete response'));
+                        }, 5000); // 5 second timeout
+
+                        const requestId = Date.now().toString();
+
+                        const messageHandler = (message) => {
+                            if ((message.type === 'shape_success' || message.type === 'error') && message.request_id === requestId) {
+                                clearTimeout(timeout);
+                                window.wsAPI.offMessage(message.type, messageHandler);
+                                if (message.type === 'shape_success' && message.data && message.data.id === removedShape.id) {
+                                    resolve();
+                                } else if (message.type === 'error') {
+                                    reject(new Error(message.message || 'Failed to delete shape'));
+                                }
+                            }
+                        };
+
+                        // Listen for both success and error messages with the same request ID
+                        window.wsAPI.onMessage('shape_success', messageHandler);
+                        window.wsAPI.onMessage('error', messageHandler);
+
+                        // Send delete shape message
+                        window.wsAPI.sendMessage({
+                            type: 'shape',
+                            action: 'delete',
+                            data: {
+                                drawing_id: removedShape.id,
+                                symbol: symbol
+                            },
+                            request_id: requestId
+                        });
+                    });
+                } else {
+                    throw new Error('WebSocket not connected');
+                }
+
+                const shapeId = removedShape.id;
+                // Remove the shape from the chart
+                if (window.gd && window.gd.layout && window.gd.layout.shapes) {
+                    const shapes = window.gd.layout.shapes.filter(shape => shape.id !== shapeId);
+                    Plotly.relayout(window.gd, { shapes: shapes });
+                }
+
+                // Remove associated volume profile traces for rectangles
+                if (window.gd && window.gd.data) {
+                    const filteredData = window.gd.data.filter(trace =>
+                        !trace.name || !trace.name.startsWith(`VP-${shapeId}`)
+                    );
+                    if (filteredData.length !== window.gd.data.length) {
+                        window.gd.data = filteredData;
+                        Plotly.react(window.gd, window.gd.data, window.gd.layout).then(() => {
+                            // Re-add trade history markers after shape deletion
+                            if (window.tradeHistoryData && window.tradeHistoryData.length > 0 && window.updateTradeHistoryVisualizations) {
+                                window.updateTradeHistoryVisualizations();
+                            }
+                        });
+                    }
+                }
+
+                // Clear the active shape state
                 if (window.activeShapeForPotentialDeletion && window.activeShapeForPotentialDeletion.id === removedShape.id) {
                     window.activeShapeForPotentialDeletion = null;
                     updateSelectedShapeInfoPanel(null);
@@ -838,7 +918,6 @@ function debouncedSaveSettingsForResize() {
             } catch (error) {
                 console.error(`Error deleting drawing ${removedShape.id} via plotly_remove_shape:`, error);
                 alert(`Failed to delete drawing: ${error.message}`);
-                loadDrawingsAndRedraw(symbol); // Sync with backend
             }
         }
     });

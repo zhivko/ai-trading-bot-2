@@ -442,7 +442,7 @@ async def notify_clients_of_new_trade(symbol: str, exchange: str, trade: dict) -
                         "data": json.dumps(trade)
                     }, maxlen=100)
 
-                    logger.debug(f"Sent trade update to client {client_key} for {symbol} on {exchange}")
+                    # logger.debug(f"Sent trade update to client {client_key} for {symbol} on {exchange}")
 
             except Exception as e:
                 logger.error(f"Error processing client {client_key} for trade notification: {e}")
@@ -620,7 +620,7 @@ async def fill_data_gaps(gaps: List[Dict[str, Any]]) -> None:
     if not gaps:
         return
 
-    logger.info(f"🔧 Starting gap filling for {len(gaps)} gaps")
+    # logger.info(f"🔧 Starting gap filling for {len(gaps)} gaps")
 
     for gap in gaps:
         try:
@@ -629,7 +629,7 @@ async def fill_data_gaps(gaps: List[Dict[str, Any]]) -> None:
             from_ts = gap['from_ts']
             to_ts = gap['to_ts']
 
-            logger.info(f"� Fetching gap data for {symbol} {resolution}: {datetime.fromtimestamp(from_ts, timezone.utc)} to {datetime.fromtimestamp(to_ts, timezone.utc)}")
+            # logger.info(f"� Fetching gap data for {symbol} {resolution}: {datetime.fromtimestamp(from_ts, timezone.utc)} to {datetime.fromtimestamp(to_ts, timezone.utc)}")
 
             # 📈 ROUTE TO CORRECT DATA SOURCE BASED ON SYMBOL
             if symbol == "BTCDOM":
@@ -642,7 +642,7 @@ async def fill_data_gaps(gaps: List[Dict[str, Any]]) -> None:
             if missing_klines:
                 # Cache the fetched data (works for all symbols)
                 await cache_klines(symbol, resolution, missing_klines)
-                logger.info(f"✅ Filled gap with {len(missing_klines)} klines for {symbol} {resolution}")
+                # logger.info(f"✅ Filled gap with {len(missing_klines)} klines for {symbol} {resolution}")
             else:
                 logger.warning(f"❌ No data received for gap in {symbol} {resolution}")
 
@@ -650,7 +650,7 @@ async def fill_data_gaps(gaps: List[Dict[str, Any]]) -> None:
             logger.error(f"Error filling gap for {gap['symbol']} {gap['resolution']}: {e}", exc_info=True)
             continue
 
-    logger.info("🎉 Gap filling completed")
+    # logger.info("🎉 Gap filling completed")
 
 async def fetch_btc_dominance(symbol: str, resolution: str, start_ts: int, end_ts: int) -> list[Dict[str, Any]]:
     """Fetches BTC dominance data from CoinMarketCap current endpoint (free tier - real current data only)."""
@@ -1624,7 +1624,7 @@ async def get_individual_trades(exchange_name: str, symbol: str, start_ts: int, 
             except json.JSONDecodeError:
                 continue
 
-        logger.info(f"Retrieved {len(trades)} individual trades for {symbol} on {exchange_name} between {start_ts} and {end_ts}")
+        # logger.info(f"Retrieved {len(trades)} individual trades for {symbol} on {exchange_name} between {start_ts} and {end_ts}")
         return trades
     except Exception as e:
         logger.error(f"Error retrieving individual trades: {e}", exc_info=True)

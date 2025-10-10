@@ -24,6 +24,9 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
+# Prevent double initialization
+_initialized = False
+
 # Diagnostic log to confirm module import
 logger.info("Email alert service module imported successfully.")
 
@@ -76,7 +79,7 @@ class EmailAlertService:
         redis = await get_redis_connection()
         settings_key = f"settings:{user_email}:{symbol}"
         settings_json = await redis.get(settings_key)
-        active_indicators = json.loads(settings_json).get('activeIndicators', []) if settings_json else []
+        active_indicators = json.loads(settings_json).get('active_indicators', []) if settings_json else []
 
         num_subplots = 1 + len(active_indicators)
         row_heights = [0.7] + [0.3] * len(active_indicators) if active_indicators else [1.0]
@@ -448,6 +451,11 @@ class EmailAlertService:
                 start_time = drawing.get('start_time')
                 end_time = drawing.get('end_time')
 
+                # Skip drawings with None start_time or end_time
+                if start_time is None or end_time is None:
+                    logger.warning(f"Skipping drawing {drawing.get('id')} with None start_time or end_time")
+                    continue
+
                 # Filter drawings where the current bar time is not between the start and end time of the drawing
                 # Handle cases where end_time might be smaller than start_time (drawings drawn right-to-left)
                 line_start = min(start_time, end_time)
@@ -793,21 +801,20 @@ class EmailAlertService:
             self.active_alerts[symbol].remove(line_id)
 
     async def monitor_alerts(self):
-        logger.info("Email alert service monitor_alerts started.")
+        # logger.info("Email alert service monitor_alerts started.")
         while True:
             # Start check_price_alerts in background to ensure exact 60-second intervals
             asyncio.create_task(self.check_price_alerts())
             await asyncio.sleep(20)
 
 def get_smtp_config() -> SMTPConfig:
-    logger.info("Loading SMTP config...")
+    # logger.info("Loading SMTP config...")
     try:
         creds = BybitCredentials.from_file(Path("c:/git/VidWebServer/authcreds.json"))
-        logger.info(f"SMTP config loaded successfully: server={creds.SMTP_SERVER}, port={creds.SMTP_PORT}, user={creds.gmailEmail}")
+        # logger.info(f"SMTP config loaded successfully: server={creds.SMTP_SERVER}, port={creds.SMTP_PORT}, user={creds.gmailEmail}")
     except (FileNotFoundError, json.JSONDecodeError) as e:
-        logger.error(f"Failed to load credentials: {e}")
+        # logger.error(f"Failed to load credentials: {e}")
         raise
     return SMTPConfig(server=creds.SMTP_SERVER, port=creds.SMTP_PORT, username=creds.gmailEmail, password=creds.gmailPwd, from_email=creds.gmailEmail)
 
-smtp_config = get_smtp_config()
-alert_service = EmailAlertService(smtp_config)
+# Note: alert_service is now created in AppTradingView2.py lifespan manager

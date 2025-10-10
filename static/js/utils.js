@@ -34,9 +34,9 @@ function determineSubplotNameForShape(shape) {
         return currentSymbol;
     }
 
-    // Indicators will have yAxisRef like 'y2', 'y3' in activeIndicatorsState
+    // Indicators will have yAxisRef like 'y2', 'y3' in active_indicatorsState
     // (matching the yrefFromShape directly)
-    const indicator = window.activeIndicatorsState && window.activeIndicatorsState.find(ind => ind.yAxisRef === yrefFromShape);
+    const indicator = window.active_indicatorsState && window.active_indicatorsState.find(ind => ind.yAxisRef === yrefFromShape);
     if (indicator) {
         return `${currentSymbol}-${indicator.id}`;
     }
@@ -45,9 +45,9 @@ function determineSubplotNameForShape(shape) {
 }
 
 window.populateActiveIndicatorsState = function(activeIndicatorIds) {
-    // Populate activeIndicatorsState with correct yAxisRef mapping
+    // Populate active_indicatorsState with correct yAxisRef mapping
     // This should be called whenever indicators change and layout is created
-    window.activeIndicatorsState = activeIndicatorIds.map((indicatorId, index) => ({
+    window.active_indicatorsState = activeIndicatorIds.map((indicatorId, index) => ({
         id: indicatorId,
         yAxisRef: `y${index + 2}` // y2, y3, y4, etc. matching Plotly layout
     }));

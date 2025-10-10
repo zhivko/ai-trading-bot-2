@@ -78,14 +78,14 @@ async def fetch_and_publish_klines():
                     last_fetch_times[resolution] = current_time_utc
 
             # 🔍 GAP DETECTION AND FILLING: Check for and fill data gaps
-            logger.info("🔍 STARTING GAP DETECTION: Scanning for data gaps across all symbols and resolutions")
+            # logger.info("🔍 STARTING GAP DETECTION: Scanning for data gaps across all symbols and resolutions")
 
             # Prioritize 1-minute data gaps as they are most critical
             prioritized_resolutions = ["1m"] + [r for r in timeframe_config.supported_resolutions if r != "1m"]
             all_gaps = []
 
             for resolution in prioritized_resolutions:
-                logger.info(f"🔍 Scanning {resolution} data for gaps...")
+                # logger.info(f"🔍 Scanning {resolution} data for gaps...")
 
                 # Define time range for gap detection (last 7 days to catch historical gaps)
                 current_time_utc = datetime.now(timezone.utc)
@@ -108,16 +108,14 @@ async def fetch_and_publish_klines():
 
             # Fill all detected gaps
             if all_gaps:
-                logger.info(f"🔧 FILLING {len(all_gaps)} DETECTED GAPS")
+                # logger.info(f"🔧 FILLING {len(all_gaps)} DETECTED GAPS")
                 await fill_data_gaps(all_gaps)
-            else:
-                logger.info("✅ No data gaps detected across all symbols and resolutions")
 
             # logger.info(f"😴 BACKGROUND TASK: Cycle #{cycle_count} kline fetching completed, sleeping for 60 seconds")
             await asyncio.sleep(60)
 
             # Also fetch and cache Open Interest data
-            logger.info("📊 STARTING OPEN INTEREST: Data fetch cycle")
+            # logger.info("📊 STARTING OPEN INTEREST: Data fetch cycle")
             oi_symbols_processed = 0
             oi_total_entries = 0
 
@@ -166,9 +164,9 @@ async def fetch_and_aggregate_trades():
             last_fetch_times = {}
             for exchange_id, timestamp_str in persisted_times.items():
                 last_fetch_times[exchange_id] = datetime.fromtimestamp(float(timestamp_str), timezone.utc)
-            logger.info(f"📋 Restored last fetch times from Redis: {len(last_fetch_times)} exchanges")
+            # logger.info(f"📋 Restored last fetch times from Redis: {len(last_fetch_times)} exchanges")
         except Exception as e:
-            logger.warning(f"Failed to load persisted fetch times: {e}, starting fresh")
+            # logger.warning(f"Failed to load persisted fetch times: {e}, starting fresh")
             last_fetch_times = {}
     else:
         logger.info("📋 No persisted fetch times found, starting fresh")
@@ -393,7 +391,7 @@ async def fill_trade_data_gaps_background_task():
         try:
             cycle_count += 1
             current_time_utc = datetime.now(timezone.utc)
-            logger.info(f"🔄 TRADE GAP FILLER: Cycle #{cycle_count} started at {current_time_utc}")
+            # logger.info(f"🔄 TRADE GAP FILLER: Cycle #{cycle_count} started at {current_time_utc}")
 
             # Process each supported exchange
             total_exchanges_processed = 0
@@ -432,9 +430,9 @@ async def fill_trade_data_gaps_background_task():
 
                         if not existing_trades or len(existing_trades) == 0:
                             # No cached trades found - attempt fresh fetch for entire range
-                            logger.debug(f"No cached trades found in Redis for {internal_symbol} on {exchange_name} in the requested time range")
+                            # logger.debug(f"No cached trades found in Redis for {internal_symbol} on {exchange_name} in the requested time range")
                             try:
-                                logger.info(f"Attempting to fetch fresh trade data from {exchange_name} for {internal_symbol}...")
+                                # logger.info(f"Attempting to fetch fresh trade data from {exchange_name} for {internal_symbol}...")
 
                                 # Use CCXT to fetch fresh trade data
                                 import ccxt.async_support as ccxt
@@ -495,13 +493,13 @@ async def fill_trade_data_gaps_background_task():
                                 if all_fresh_trades and len(all_fresh_trades) > 0:
                                     # Persist fresh trades to Redis to fill the gap
                                     await cache_individual_trades(all_fresh_trades, exchange_name, internal_symbol)
-                                    logger.info(f"✅ FILLED TRADE DATA GAP: Added {len(all_fresh_trades)} fresh trades for {internal_symbol} on {exchange_name}")
+                                    logger.debug(f"✅ FILLED TRADE DATA GAP: Added {len(all_fresh_trades)} fresh trades for {internal_symbol} on {exchange_name}")
                                     total_gaps_filled += 1
                                 else:
                                     logger.debug(f"⚠️ No fresh trades fetched for gap-filling {internal_symbol} on {exchange_name}")
 
                             except Exception as e:
-                                logger.warning(f"Failed to fetch fresh trades for gap-filling {internal_symbol} on {exchange_name}: {e}")
+                                logger.debug(f"Failed to fetch fresh trades for gap-filling {internal_symbol} on {exchange_name}: {e}")
                         else:
                             logger.debug(f"✅ Trade data exists for {internal_symbol} on {exchange_name} ({len(existing_trades)} trades)")
 
@@ -511,8 +509,8 @@ async def fill_trade_data_gaps_background_task():
 
                 total_symbols_processed += symbols_in_exchange
 
-            logger.info(f"✅ TRADE GAP FILLER COMPLETED: Cycle #{cycle_count} - processed {total_exchanges_processed} exchanges, {total_symbols_processed} symbols, filled {total_gaps_filled} gaps")
-            logger.info("😴 TRADE GAP FILLER: Sleeping for 60 seconds")
+            # logger.info(f"✅ TRADE GAP FILLER COMPLETED: Cycle #{cycle_count} - processed {total_exchanges_processed} exchanges, {total_symbols_processed} symbols, filled {total_gaps_filled} gaps")
+            # logger.info("😴 TRADE GAP FILLER: Sleeping for 60 seconds")
 
             await asyncio.sleep(60)
 
@@ -521,6 +519,19 @@ async def fill_trade_data_gaps_background_task():
             logger.error("🔄 RETRYING: Sleeping for 10 seconds before next cycle")
             await asyncio.sleep(10)
 
+
+async def monitor_email_alerts():
+    """Background task to monitor email alerts."""
+    logger.info("🚀 STARTING BACKGROUND TASK: monitor_email_alerts")
+
+    from email_alert_service import EmailAlertService, get_smtp_config
+
+    # Create the email alert service instance
+    smtp_config = get_smtp_config()
+    alert_service = EmailAlertService(smtp_config)
+
+    # Run the monitoring loop
+    await alert_service.monitor_alerts()
 
 def get_timeframe_seconds(timeframe: str) -> int:
     multipliers = {"1m": 60, "5m": 300, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800}

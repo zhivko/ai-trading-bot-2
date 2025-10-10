@@ -85,7 +85,7 @@ BYBIT_RESOLUTION_MAP = {
 }
 
 # Redis keys
-REDIS_LAST_SELECTED_SYMBOL_KEY = "global_settings:last_selected_symbol"
+REDIS_LAST_SELECTED_SYMBOL_KEY = "last_selected_symbol"
 REDIS_OPEN_INTEREST_KEY_PREFIX = f"zset:open_interest:{TRADING_SYMBOL}:{TRADING_TIMEFRAME}"
 
 # Default symbol settings
@@ -96,7 +96,7 @@ DEFAULT_SYMBOL_SETTINGS = {
     'xAxisMax': None,
     'yAxisMin': None,
     'yAxisMax': None,
-    'activeIndicators': [],
+    'active_indicators': [],
     'liveDataEnabled': True,
     'streamDeltaTime': 1,  # New default for live stream update interval (seconds)
     'useLocalOllama': False,

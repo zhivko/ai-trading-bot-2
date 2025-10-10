@@ -39,19 +39,17 @@ function updateOrAddCrosshairVLine(gd, xDataValue, doRelayout = true) {
 
 function colorTheLine(eventParam)
 {
-
-
         // Reset newHoveredShapeId at the start of each call
         window.newHoveredShapeId = null;
+
+        // Add detailed event logging
 
         // Skip if a shape is currently being dragged
         if (window.isDraggingShape) {
             return;
         }
 
-        // Allow hover detection even when mouse is down for selection updates
-        // The original check was intended to prevent interference during drag operations,
-        // but it also prevented hover updates after shape selection changes
+
 
         // Use the passed event or fall back to global event
         const currentEvent = eventParam || event;
@@ -116,7 +114,6 @@ function colorTheLine(eventParam)
             }
         }
 
-
         if (!window.gd._fullLayout || typeof window.gd._fullLayout.height === 'undefined' || !window.gd._fullLayout.yaxis || typeof window.gd._fullLayout.yaxis._length === 'undefined') {
             return;
         }
@@ -124,9 +121,8 @@ function colorTheLine(eventParam)
         // Convert DOM coordinates to Plotly paper coordinates
         // Paper coordinates are relative to the full chart area (including margins)
         const plotMargin = window.gd._fullLayout.margin;
-        const mouseX_paper = mouseX_div ;
-        const mouseY_paper = mouseY_div ;
-
+    const mouseX_paper = mouseX_div ;
+    const mouseY_paper = mouseY_div ;
 
         // Check if mouse is within the chart's plotting area (with some tolerance for edge cases)
         const tolerance = 10; // Allow 10px tolerance for edge cases
@@ -178,7 +174,6 @@ function colorTheLine(eventParam)
             if ((shape.type === 'line' || shape.type === 'rect' || shape.type === 'rectangle' || shape.type === 'box') && shape.id && !shape.isSystemShape) { // Ignore system shapes
                 // Process all valid shapes for hover detection, regardless of selection state
                 // Selected shapes should still show hover effects when hovered over
-                //console.group(`[colorTheLine] Processing Shape ${i} (ID: ${shape.id})`);
                 const xrefKeyForFilter = getAxisLayoutKey(shape.xref, 'xaxis'); // Assumes getAxisLayoutKey is global
                 const yrefKeyForFilter = getAxisLayoutKey(shape.yref, 'yaxis');
                 const shapeXaxisForFilter = window.gd._fullLayout[xrefKeyForFilter];
@@ -217,7 +212,7 @@ function colorTheLine(eventParam)
                 // Handle line shapes with segment distance calculation
                 if (isNaN(p0.x) || isNaN(p0.y) || isNaN(p1.x) || isNaN(p1.y) || !isFinite(p0.x) || !isFinite(p0.y) || !isFinite(p1.x) || !isFinite(p1.y)) {
                     /*console.warn(`[NativeMousemove DEBUG] Shape ${i} (ID: ${shape.id}) had NaN/Infinite pixel coordinates. Skipping.`);
-                    console.groupEnd();
+
                     */
                     continue;
                 }
@@ -250,25 +245,18 @@ function colorTheLine(eventParam)
             }
             }
         }
-        console.groupEnd(); // End group for this shape
+        // End group for this shape
 
         if (window.hoveredShapeBackendId !== window.newHoveredShapeId) {
                 window.hoveredShapeBackendId = window.newHoveredShapeId;
-                if(window.hoveredShapeBackendId) {
-                    findAndupdateSelectedShapeInfoPanel(window.hoveredShapeBackendId);
-                }
-                /*
-                */
 
                 // Call updateShapeVisuals directly for immediate color changes
                 if (typeof updateShapeVisuals === 'function') {
                     updateShapeVisuals();
                 } else {
-                    //console.warn('[DEBUG] colorTheLine - updateShapeVisuals not available!');
+                    console.warn('[DEBUG] colorTheLine - updateShapeVisuals not available!');
                 }
-        } else {
         }
-
         // Only clear shape ID if we're sure no shape should be hovered (mouse outside chart area)
         if (isOutsideBounds && window.hoveredShapeBackendId !== null) {
             window.hoveredShapeBackendId = null;
@@ -329,7 +317,7 @@ function colorTheLine(eventParam)
             if (window.cursorTimeDisplay) window.cursorTimeDisplay.textContent = 'N/A';
             if (window.cursorPriceDisplay) window.cursorPriceDisplay.textContent = 'N/A';
         }
-        console.groupEnd(); // Close group at the end of the function
+
 }
 
 function getSubplotRefsAtPaperCoords(paperX, paperY, fullLayout) {
@@ -449,9 +437,8 @@ function handleShapeClick(event) {
         const mouseX_div = event.clientX - rect.left;
         const mouseY_div = event.clientY - rect.top;
         const plotMargin = window.gd._fullLayout.margin;
-        const mouseX_paper = mouseX_div - plotMargin.l;
-        const mouseY_paper = mouseY_div - plotMargin.t;
-
+        const mouseX_paper = mouseX_div;
+        const mouseY_paper = mouseY_div;
 
         // Look for buy signal shapes specifically
         for (let i = 0; i < currentShapes.length; i++) {
@@ -591,7 +578,6 @@ function handleShapeClick(event) {
     let minDistance = Infinity;
     const CLICK_THRESHOLD = 20; // pixels
 
-    //console.groupCollapsed("handleShapeClick");
     for (let i = 0; i < currentShapes.length; i++) {
         const shape = currentShapes[i];
         if (((shape.type === 'line' || shape.type === 'rect' || shape.type === 'rectangle' || shape.type === 'box') && shape.id && !shape.isSystemShape) ||
@@ -689,9 +675,6 @@ function handleShapeClick(event) {
             }
         }
 
-        // Log selection state after update
-
-
         // Update visual feedback by calling updateShapeVisuals directly for immediate selection color change
         if (typeof updateShapeVisuals === 'function') {
             updateShapeVisuals();
@@ -699,8 +682,17 @@ function handleShapeClick(event) {
             console.error('[DEBUG] handleShapeClick - updateShapeVisuals not available!');
         }
 
-        // Update info panel
-        updateSelectedShapeInfoPanel(window.activeShapeForPotentialDeletion);
+        // Update info panel with the currently selected shape object
+        const currentShapes = window.gd.layout.shapes || [];
+        const selectedShape = currentShapes.find(s => s.id === shapeId);
+        if (selectedShape) {
+            const selectedShapeObject = {
+                id: selectedShape.id,
+                index: currentShapes.indexOf(selectedShape),
+                shape: selectedShape
+            };
+            updateSelectedShapeInfoPanel(selectedShapeObject);
+        }
 
         // Prevent event bubbling to avoid conflicts
         event.stopPropagation();
@@ -740,6 +732,11 @@ function initializeChartInteractions() {
     }, { capture: true, passive: true });
 
     window.chartDiv.addEventListener('mouseup', function() {
+        isMouseDown = false;
+    }, { capture: true, passive: true });
+
+    // Global mouseup handler to ensure isMouseDown is reset even if mouse is released outside chart
+    document.addEventListener('mouseup', function() {
         isMouseDown = false;
     }, { capture: true, passive: true });
 
@@ -834,7 +831,35 @@ function initializeChartInteractions() {
             mousemoveThrottleTimer = null;
         }
 
-        // Optional: Clear hover state when touch ends
+        // On mobile, if a shape was being hovered (touched), select it before clearing hover
+        if (window.hoveredShapeBackendId !== null) {
+            // Select the shape on tap
+            window.selectShape(window.hoveredShapeBackendId, false); // false for single select
+
+            // Update the info panel with the selected shape details
+            if (!window.selectedShapeInfoDiv) {
+                window.selectedShapeInfoDiv = document.getElementById('selected-shape-info');
+            }
+            if (window.selectedShapeInfoDiv) {
+                const currentShapes = window.gd.layout.shapes || [];
+                const selectedShape = currentShapes.find(s => s.id === window.hoveredShapeBackendId);
+                if (selectedShape) {
+                    const selectedShapeObject = {
+                        id: selectedShape.id,
+                        index: currentShapes.indexOf(selectedShape),
+                        shape: selectedShape
+                    };
+                    updateSelectedShapeInfoPanel(selectedShapeObject);
+                }
+            }
+
+            // Update visuals for the new selection
+            if (typeof updateShapeVisuals === 'function') {
+                updateShapeVisuals();
+            }
+        }
+
+        // Clear hover state when touch ends
         // This prevents shapes from staying highlighted after touch ends
         if (window.hoveredShapeBackendId !== null) {
             window.hoveredShapeBackendId = null;
@@ -973,15 +998,48 @@ function initializeChartInteractions() {
                     return;
                 }
 
-                // Delete all selected shapes
+                // Delete all selected shapes via WebSocket
                 const deletePromises = selectedShapeIds.map(async (drawingId) => {
                     try {
-                        const response = await fetch(`/delete_drawing/${symbol}/${drawingId}`, { method: 'DELETE' });
-                        if (!response.ok) {
-                            const errorBody = await response.text().catch(() => "Could not read error body");
-                            throw new Error(`Failed to delete drawing ${drawingId} from backend: ${response.status} - ${errorBody}`);
+                        if (window.wsAPI && window.wsAPI.connected) {
+                            await new Promise((resolve, reject) => {
+                                const timeout = setTimeout(() => {
+                                    reject(new Error('Timeout waiting for delete response'));
+                                }, 5000); // 5 second timeout
+
+                                const requestId = Date.now().toString();
+
+                                const messageHandler = (message) => {
+                                    if ((message.type === 'shape_success' || message.type === 'error') && message.request_id === requestId) {
+                                        clearTimeout(timeout);
+                                        window.wsAPI.offMessage(message.type, messageHandler);
+                                        if (message.type === 'shape_success' && message.data && message.data.id === drawingId) {
+                                            resolve();
+                                        } else if (message.type === 'error') {
+                                            reject(new Error(message.message || 'Failed to delete shape'));
+                                        }
+                                    }
+                                };
+
+                                // Listen for both success and error messages with the same request ID
+                                window.wsAPI.onMessage('shape_success', messageHandler);
+                                window.wsAPI.onMessage('error', messageHandler);
+
+                                // Send delete shape message
+                                window.wsAPI.sendMessage({
+                                    type: 'shape',
+                                    action: 'delete',
+                                    data: {
+                                        drawing_id: drawingId,
+                                        symbol: symbol
+                                    },
+                                    request_id: requestId
+                                });
+                            });
+                            return drawingId;
+                        } else {
+                            throw new Error('WebSocket not connected');
                         }
-                        return drawingId;
                     } catch (error) {
                         console.error(`Error deleting drawing ${drawingId} via key press:`, error);
                         return null; // Return null for failed deletions

@@ -120,9 +120,9 @@ async def settings_endpoint(request: Request):
                     else:
                         logger.warning(f"X-axis timestamps are None for {symbol}, skipping validation")
 
-                # Ensure activeIndicators key exists for backward compatibility
-                if 'activeIndicators' not in symbol_settings:
-                    symbol_settings['activeIndicators'] = []
+                # Ensure active_indicators key exists for backward compatibility
+                if 'active_indicators' not in symbol_settings:
+                    symbol_settings['active_indicators'] = []
                 # Ensure liveDataEnabled key exists for backward compatibility
                 if 'liveDataEnabled' not in symbol_settings:
                     symbol_settings['liveDataEnabled'] = DEFAULT_SYMBOL_SETTINGS['liveDataEnabled']
@@ -173,9 +173,9 @@ async def settings_endpoint(request: Request):
             existing_settings_json = await redis.get(settings_key)
             if existing_settings_json:
                 current_symbol_settings = json.loads(existing_settings_json)
-                # Ensure activeIndicators key exists
-                if 'activeIndicators' not in current_symbol_settings:
-                    current_symbol_settings['activeIndicators'] = []
+                # Ensure active_indicators key exists
+                if 'active_indicators' not in current_symbol_settings:
+                    current_symbol_settings['active_indicators'] = []
                 # Ensure liveDataEnabled key exists
                 if 'liveDataEnabled' not in current_symbol_settings:
                     current_symbol_settings['liveDataEnabled'] = DEFAULT_SYMBOL_SETTINGS['liveDataEnabled']

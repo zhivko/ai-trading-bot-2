@@ -38,21 +38,21 @@ function isMobileDevice() {
 
 const config = {
     responsive: true,
-    displayModeBar: false, // Disable Plotly mode bar/toolbar
+    displayModeBar: true, // Enable Plotly mode bar for drawing functionality
+    modeBarButtonsToRemove: ['sendDataToCloud', 'editInChartStudio', 'zoom2d', 'pan2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d', 'hoverClosestCartesian', 'hoverCompareCartesian', 'toggleSpikelines', 'toImage'], // Remove unwanted buttons but keep drawing buttons
+    modeBarButtonsToAdd: ['drawline', 'drawrect'], // Add drawing buttons
     scrollZoom: true, // Keep scroll zoom enabled for mouse wheel zooming
     displaylogo: false, // Hide Plotly logo to save space
     showTips: false, // Disable tips that might interfere on mobile
     editable: false,
     autosize: true, // Keep autosize for responsive behavior, but grid rowheights should take precedence
-    dragmode: 'zoom', // Set default dragmode to zoom for scroll wheel to work
+    dragmode: 'pan', // Set default dragmode to pan for chart navigation
     edits: {
         shapePosition: true,
         annotationPosition: false,
         annotationText: false,
         axisTitleText: false,
         axisTitleFont: false,
-        legendText: false,
-        legendPosition: false,
         titleText: false
     },
     // Enable pinch-to-zoom and other mobile gestures

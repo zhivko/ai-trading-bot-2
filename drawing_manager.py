@@ -11,12 +11,12 @@ from config import SUPPORTED_SYMBOLS
 
 class DrawingData(BaseModel):
     symbol: str
-    type: str
-    start_time: int
-    end_time: int
-    start_price: float
-    end_price: float
-    subplot_name: str  # Identifies the main plot or subplot (e.g., "BTCUSDT" or "BTCUSDT-MACD")
+    type: Optional[str] = None
+    start_time: Optional[int] = None
+    end_time: Optional[int] = None
+    start_price: Optional[float] = None
+    end_price: Optional[float] = None
+    subplot_name: Optional[str] = None  # Identifies the main plot or subplot (e.g., "BTCUSDT" or "BTCUSDT-MACD")
     resolution: Optional[str] = None
     properties: Optional[Dict[str, Any]] = None  # New field for additional properties
 

@@ -23,6 +23,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.localOllamaModelDiv = document.getElementById('local-ollama-model-selection-div');
     window.localOllamaModelSelect = document.getElementById('local-ollama-model-select');
 
+    // Programmatic setting flag to prevent event handlers from running when settings are applied programmatically
+    window.isProgrammaticallySetting = false;
+
     // Stream delta slider elements
     window.streamDeltaSlider = document.getElementById('stream-delta-slider');
     window.streamDeltaValueDisplay = document.getElementById('stream-delta-value-display');
@@ -33,10 +36,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Initialize trade filter slider to 0 by default to show all trades
     if (window.minValueSlider) {
-        // Set slider properties for crypto USD values (range will be updated dynamically)
+        // Set slider properties for percentage-based filtering (0-1 range, 0.1 steps)
         window.minValueSlider.min = 0;
-        window.minValueSlider.max = 10000; // $10k default max
-        window.minValueSlider.step = 100;
+        window.minValueSlider.max = 1; // 1 (100%) default max
+        window.minValueSlider.step = 0.1;
         window.minValueSlider.value = 0; // Always start at 0 to show all trades
         updateMinValueDisplay(); // Sync display with initial value
         updateMaxValueDisplay(); // Sync max display with initial range
@@ -44,8 +47,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Trade filter slider event listener
         if (minValueSlider) {
             minValueSlider.addEventListener('input', handleMinValueChange);
-            minValueSlider.value = 0; // Set default to 0
-            handleMinValueChange(); // Update display
+            minValueSlider.value = 0.5; // Set default to 0
+            updateMinValueDisplay(); // Sync display with initial value}
         }
     }
 
@@ -140,6 +143,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize Plotly chart (empty initially)
     const initialLayout = {
         title: 'Loading chart data...',
+        dragmode: 'pan', // Set default dragmode to pan
+        newshape: {
+            line: { color: DEFAULT_DRAWING_COLOR, width: 2 },
+            fillcolor: 'rgba(0, 0, 255, 0.1)',
+            opacity: 0.5,
+            layer: 'above'
+        },
         xaxis: {
             rangeslider: { visible: false },
             type: 'date',
@@ -152,8 +162,30 @@ document.addEventListener('DOMContentLoaded', async () => {
         showlegend: false
     }; // Basic layout - full layout configuration handled in combinedData.js
 
+    // Ensure newshape is in the layout for drawing to work
+    initialLayout.newshape = {
+        line: { color: DEFAULT_DRAWING_COLOR, width: 2 },
+        fillcolor: 'rgba(0, 0, 255, 0.1)',
+        opacity: 0.5,
+        layer: 'above'
+    };
+
+    console.log('[INIT] Creating Plotly chart with config:', config);
+    console.log('[INIT] Initial layout:', initialLayout);
+
     Plotly.newPlot('chart', [], initialLayout, config).then(function(gd) { // layout & config from config.js
         window.gd = gd; // Make Plotly graph div object global
+        console.log('[INIT] Plotly chart created successfully');
+        console.log('[INIT] Final layout after creation:', gd.layout);
+        console.log('[INIT] Final config after creation:', gd.config);
+
+        // Check if modebar is present
+        const modebarElement = document.querySelector('.js-plotly-plot .modebar');
+        console.log('[INIT] Modebar element found:', !!modebarElement);
+        if (modebarElement) {
+            console.log('[INIT] Modebar visibility:', window.getComputedStyle(modebarElement).visibility);
+            console.log('[INIT] Modebar position:', window.getComputedStyle(modebarElement).position);
+        }
 
         // Initialize Plotly specific event handlers after chart is ready
         initializePlotlyEventHandlers(gd); // From plotlyEventHandlers.js
@@ -168,6 +200,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Ensure mouse wheel zoom is ALWAYS enabled after chart creation
         // FIX: Call ensureScrollZoomEnabled immediately and also ensure it gets called on ALL chart operations
         window.ensureScrollZoomEnabled();
+
+        // Update toolbar button states to reflect default pan mode
+        updateToolbarButtonStates();
 
         // OVERRIDE Plotly.relayout to ensure scrollZoom stays enabled after ALL chart operations
         const originalRelayout = Plotly.relayout;
@@ -190,108 +225,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     // General UI event listeners
     window.symbolSelect.addEventListener('change', async () => {
-        window.currentXAxisRange = null; window.currentYAxisRange = null;
-        window.xAxisMinDisplay.textContent = 'Auto'; window.xAxisMaxDisplay.textContent = 'Auto';
-        window.yAxisMinDisplay.textContent = 'Auto'; window.yAxisMaxDisplay.textContent = 'Auto';
-        window.activeShapeForPotentialDeletion = null;
+        if (window.isProgrammaticallySetting) return;
 
         const selectedSymbol = window.symbolSelect.value;
-        const currentUrlSymbol = window.location.pathname.substring(1).toUpperCase() || null;
 
-        // Skip if this is the same symbol as currently loaded
-        if (selectedSymbol === currentUrlSymbol) {
-            setLastSelectedSymbol(selectedSymbol);
-            await loadSettings(selectedSymbol);
-            return;
-        }
+        // Save the symbol change to Redis
+        // saveSettingsInner();
 
-        if (window.isProgrammaticallySettingSymbol) {
-            return;
-        }
-
-
-        // Clear the entire chart before switching symbols
-        if (window.gd) {
-            removeRealtimePriceLine(window.gd);
-            // Clear all chart data and reset to empty state
-            Plotly.react(window.gd, [], window.gd.layout || {});
-        }
-
-        // Close existing WebSocket connection
-        if (window.combinedWebSocket) {
-            closeCombinedWebSocket("Symbol changed - switching to new symbol");
-        }
-
-        // Update URL without full page reload for better UX
-        const newUrl = `/${selectedSymbol}`;
-        window.history.pushState({ symbol: selectedSymbol }, '', newUrl);
-
-        // Clear any pending timeouts
-        if (window.historicalDataTimeout) {
-            clearTimeout(window.historicalDataTimeout);
-            window.historicalDataTimeout = null;
-        }
-
-        // Reset WebSocket state
-        window.combinedSymbol = '';
-        window.combinedIndicators = [];
-        window.combinedResolution = '1h';
-        window.combinedFromTs = null;
-        window.combinedToTs = null;
-        window.accumulatedHistoricalData = [];
-        window.isAccumulatingHistorical = false;
-        window.historicalDataSymbol = '';
-
-        // Clear trade history data for the old symbol
-        window.tradeHistoryData = [];
-
-        // Update selected shape info
-        updateSelectedShapeInfoPanel(null);
-
-        // Save the new symbol selection
-        setLastSelectedSymbol(selectedSymbol);
-
-        // Load settings for the new symbol SYNCHRONOUSLY
-        await loadSettings(selectedSymbol);
-
-        // Establish new WebSocket connection for the new symbol AFTER settings are loaded
-
-        // Calculate time range for new symbol
-        // Use current time for range calculations
-        const currentTime = new Date().getTime(); // Use current time
-        const fromTs = Math.floor((currentTime - 30 * 86400 * 1000) / 1000); // 30 days before current time
-        const toTs = Math.floor((currentTime + 30 * 86400 * 1000) / 1000); // 30 days after current time
-
-
-
-        // Now get the indicator values AFTER settings are loaded
-        const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
-        const resolution = window.resolutionSelect.value;
-
-        // 🔧 FIX TIMESTAMP SYNCHRONIZATION: Use the same timestamp source for both settings and WebSocket
-        // If we have saved X-axis range from settings, use it for WebSocket too
-        let wsFromTs = fromTs;
-        let wsToTs = toTs;
-
-
-        if (window.currentXAxisRange && Array.isArray(window.currentXAxisRange) && window.currentXAxisRange.length === 2) {
-            // Convert saved milliseconds to ISO timestamp strings for WebSocket
-            wsFromTs = new Date(window.currentXAxisRange[0]).toISOString();
-            wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
-        }
-
-        setupCombinedWebSocket(selectedSymbol, activeIndicators, resolution, wsFromTs, wsToTs);
+        // Fallback to page redirect
+        window.location.href = `/${selectedSymbol}`;
 
     }); // Replaced .onchange with addEventListener('change',...)
     window.resolutionSelect.addEventListener('change', () => {
-        // Check if this change was triggered programmatically (from settings load)
-        if (window.isProgrammaticallySettingResolution) {
-            // Still need to update WebSocket for new data stream
-        } else {
-            // Mark that user has modified resolution
-            window.hasUserModifiedResolution = true;
-            // Note: Resolution settings are saved in applyAutoscale() when axis ranges change
-        }
+        if (window.isProgrammaticallySetting) return;
 
         const newResolution = window.resolutionSelect.value;
 
@@ -343,7 +289,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Update WebSocket with new resolution and adjusted time range
         const symbol = window.symbolSelect.value;
-        const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+        const active_indicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
         if (symbol && newResolution) {
             updateCombinedResolution(newResolution);
 
@@ -353,23 +299,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // If WebSocket is open, send new config, otherwise establish new connection
             if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
-                setupCombinedWebSocket(symbol, activeIndicators, newResolution, wsFromTs, wsToTs);
+                setupCombinedWebSocket(symbol, active_indicators, newResolution, wsFromTs, wsToTs);
             } else {
                 delay(100).then(() => {
-                    setupCombinedWebSocket(symbol, activeIndicators, newResolution, wsFromTs, wsToTs);
+                    setupCombinedWebSocket(symbol, active_indicators, newResolution, wsFromTs, wsToTs);
                 });
             }
         }
-        saveSettings(); // Save the resolution change to Redis
+        if (window.isProgrammaticallySetting == false)
+            saveSettings(); // Save the resolution change to Redis
     }); // Replaced .onchange with addEventListener('change',...)
     window.rangeSelect.addEventListener('change', () => {
-        // Check if this change was triggered programmatically (from settings load)
-        if (window.isProgrammaticallySettingRange) {
-            // Still need to update WebSocket for new data stream
-        } else {
-            // Mark that user has modified range
-            // Note: Range settings are saved in applyAutoscale() when axis ranges change
-        }
+        if (window.isProgrammaticallySetting) return;
 
         const rangeDropdownValue = window.rangeSelect.value;
 
@@ -430,7 +371,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Update WebSocket with new time range (don't close/reopen, just send new config)
         const symbol = window.symbolSelect.value;
         const resolution = window.resolutionSelect.value;
-        const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+        const active_indicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
         if (symbol && resolution) {
 
             // Convert to seconds for WebSocket
@@ -439,10 +380,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // If WebSocket is open, send new config with updated time range, otherwise establish new connection
             if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
-                setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+                setupCombinedWebSocket(symbol, active_indicators, resolution, wsFromTs, wsToTs);
             } else {
                 delay(100).then(() => {
-                    setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+                    setupCombinedWebSocket(symbol, active_indicators, resolution, wsFromTs, wsToTs);
                 });
             }
         }
@@ -451,25 +392,27 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
     const indicatorCheckboxes = document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]');
-indicatorCheckboxes.forEach(checkbox => {
+    indicatorCheckboxes.forEach(checkbox => {
         checkbox.addEventListener('change', () => {
+            if (window.isProgrammaticallySetting === true) return;
+
             saveSettings();
 
             // Update combined WebSocket with new indicators
             const symbol = window.symbolSelect.value;
             const resolution = window.resolutionSelect.value;
-            const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+            const active_indicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
 
             if (symbol && resolution) {
                 // CRITICAL FIX: Always update chart layout when indicators change
                 // This ensures subplots are created/destroyed immediately when indicators are selected/deselected
-                if (window.gd && window.createLayoutForIndicators) {
-                    const layout = window.createLayoutForIndicators(activeIndicators);
+                if (window.gd && window.updateLayoutForIndicators) {
+                    const layout = window.updateLayoutForIndicators(active_indicators);
                     Plotly.relayout(window.gd, layout);
                 }
 
                 // Update indicators and send new config if WebSocket is connected
-                updateCombinedIndicators(activeIndicators);
+                updateCombinedIndicators(active_indicators);
 
                 // If WebSocket is open, send updated config with new indicators
                 if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
@@ -484,7 +427,7 @@ indicatorCheckboxes.forEach(checkbox => {
                         wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
                     }
 
-                    setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+                    setupCombinedWebSocket(symbol, active_indicators, resolution, wsFromTs, wsToTs);
                 }
             }
         });
@@ -492,12 +435,14 @@ indicatorCheckboxes.forEach(checkbox => {
 
     // Event listener for "Show Agent Trades" checkbox
     document.getElementById('showAgentTradesCheckbox').addEventListener('change', () => {
+        if (window.isProgrammaticallySetting) return;
+
         saveSettings();
         // Agent trades will be handled by the combined WebSocket when data is refreshed
         const symbol = window.symbolSelect.value;
         const resolution = window.resolutionSelect.value;
         if (symbol && resolution) {
-            const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+            const active_indicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
 
             // Calculate time range for agent trades update
             // Use current time for range calculations
@@ -511,7 +456,7 @@ indicatorCheckboxes.forEach(checkbox => {
                 wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
             }
 
-            setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+            setupCombinedWebSocket(symbol, active_indicators, resolution, wsFromTs, wsToTs);
         }
     });
 
@@ -534,10 +479,43 @@ indicatorCheckboxes.forEach(checkbox => {
             // Removed confirmation dialog - delete immediately
 
             try {
-                const response = await fetch(`/delete_drawing/${symbol}/${drawingId}`, { method: 'DELETE' });
-                if (!response.ok) {
-                    const errorBody = await response.text().catch(() => "Could not read error body");
-                    throw new Error(`Failed to delete drawing from backend: ${response.status} - ${errorBody}`);
+                if (window.wsAPI && window.wsAPI.connected) {
+                    await new Promise((resolve, reject) => {
+                        const timeout = setTimeout(() => {
+                            reject(new Error('Timeout waiting for delete response'));
+                        }, 5000); // 5 second timeout
+
+                        const requestId = Date.now().toString();
+
+                        const messageHandler = (message) => {
+                            if ((message.type === 'shape_success' || message.type === 'error') && message.request_id === requestId) {
+                                clearTimeout(timeout);
+                                window.wsAPI.offMessage(message.type, messageHandler);
+                                if (message.type === 'shape_success' && message.data && message.data.id === drawingId) {
+                                    resolve();
+                                } else if (message.type === 'error') {
+                                    reject(new Error(message.message || 'Failed to delete shape'));
+                                }
+                            }
+                        };
+
+                        // Listen for both success and error messages with the same request ID
+                        window.wsAPI.onMessage('shape_success', messageHandler);
+                        window.wsAPI.onMessage('error', messageHandler);
+
+                        // Send delete shape message
+                        window.wsAPI.sendMessage({
+                            type: 'shape',
+                            action: 'delete',
+                            data: {
+                                drawing_id: drawingId,
+                                symbol: symbol
+                            },
+                            request_id: requestId
+                        });
+                    });
+                } else {
+                    throw new Error('WebSocket not connected');
                 }
 
                 // Remove the shape from the chart
@@ -556,6 +534,7 @@ indicatorCheckboxes.forEach(checkbox => {
                         Plotly.react(window.gd, window.gd.data, window.gd.layout).then(() => {
                             // Re-add trade history markers after shape deletion
                             if (window.tradeHistoryData && window.tradeHistoryData.length > 0 && window.updateTradeHistoryVisualizations) {
+                                addTradeHistoryMarkersToChart(filteredTrades, window.symbolSelect ? window.symbolSelect.value : 'UNKNOWN');
                                 window.updateTradeHistoryVisualizations();
                             }
                         });
@@ -614,11 +593,55 @@ indicatorCheckboxes.forEach(checkbox => {
                     drawingIds.push(...drawings.map(d => d.id));
                 }
 
-                const response = await fetch(`/delete_all_drawings/${symbol}`, { method: 'DELETE' });
-                if (!response.ok) {
-                    const errorBody = await response.text().catch(() => "Could not read error body");
-                    throw new Error(`Failed to delete all drawings from backend: ${response.status} - ${errorBody}`);
-                }
+                // Delete all drawings individually via WebSocket
+                const deletePromises = drawingIds.map(async (drawingId) => {
+                    try {
+                        if (window.wsAPI && window.wsAPI.connected) {
+                            await new Promise((resolve, reject) => {
+                                const timeout = setTimeout(() => {
+                                    reject(new Error('Timeout waiting for delete response'));
+                                }, 5000); // 5 second timeout
+
+                                const requestId = Date.now().toString() + '_' + drawingId;
+
+                                const messageHandler = (message) => {
+                                    if ((message.type === 'shape_success' || message.type === 'error') && message.request_id === requestId) {
+                                        clearTimeout(timeout);
+                                        window.wsAPI.offMessage(message.type, messageHandler);
+                                        if (message.type === 'shape_success' && message.data && message.data.id === drawingId) {
+                                            resolve();
+                                        } else if (message.type === 'error') {
+                                            reject(new Error(message.message || 'Failed to delete shape'));
+                                        }
+                                    }
+                                };
+
+                                // Listen for both success and error messages with the same request ID
+                                window.wsAPI.onMessage('shape_success', messageHandler);
+                                window.wsAPI.onMessage('error', messageHandler);
+
+                                // Send delete shape message
+                                window.wsAPI.sendMessage({
+                                    type: 'shape',
+                                    action: 'delete',
+                                    data: {
+                                        drawing_id: drawingId,
+                                        symbol: symbol
+                                    },
+                                    request_id: requestId
+                                });
+                            });
+                            return drawingId;
+                        } else {
+                            throw new Error('WebSocket not connected');
+                        }
+                    } catch (error) {
+                        console.error(`Error deleting drawing ${drawingId} via delete all:`, error);
+                        return null; // Return null for failed deletions
+                    }
+                });
+
+                await Promise.all(deletePromises);
 
                 if (window.gd && window.gd.layout) {
                     window.gd.layout.shapes = [];
@@ -654,17 +677,33 @@ indicatorCheckboxes.forEach(checkbox => {
     }
 
     // Add event listeners for replay controls and Ollama settings to save settings on change
-    document.getElementById('replay-from').addEventListener('change', saveSettings);
-    document.getElementById('replay-to').addEventListener('change', saveSettings);
-    document.getElementById('replay-speed').addEventListener('input', saveSettings);
+    document.getElementById('replay-from').addEventListener('change', () => {
+        if (window.isProgrammaticallySetting) return;
+        saveSettings();
+    });
+    document.getElementById('replay-to').addEventListener('change', () => {
+        if (window.isProgrammaticallySetting) return;
+        saveSettings();
+    });
+    document.getElementById('replay-speed').addEventListener('input', () => {
+        if (window.isProgrammaticallySetting) return;
+        saveSettings();
+    });
     window.useLocalOllamaCheckbox.addEventListener('change', () => { // Already has a listener in aiFeatures.js, ensure saveSettings is also called
+        if (window.isProgrammaticallySetting) return;
+
         saveSettings(); // Call saveSettings from settingsManager.js
     });
-    window.localOllamaModelSelect.addEventListener('change', saveSettings);
+    window.localOllamaModelSelect.addEventListener('change', () => {
+        if (window.isProgrammaticallySetting) return;
+        saveSettings();
+    });
 
     // Stream delta slider event listener
     if (window.streamDeltaSlider && window.streamDeltaValueDisplay) {
         window.streamDeltaSlider.addEventListener('input', () => {
+            if (window.isProgrammaticallySetting) return;
+
             // Update the display value
             window.streamDeltaValueDisplay.textContent = window.streamDeltaSlider.value;
             // Save settings when slider value changes
@@ -675,6 +714,8 @@ indicatorCheckboxes.forEach(checkbox => {
     // Trade filter slider event listener - only if tradeHistory.js hasn't set it up
     if (window.minValueSlider && window.minValueDisplay && !window.tradeHistoryInitialized) {
         window.minValueSlider.addEventListener('input', () => {
+            if (window.isProgrammaticallySetting) return;
+
             // Update the display value
             window.minValueDisplay.textContent = window.minValueSlider.value;
             // Save settings when slider value changes
@@ -684,10 +725,16 @@ indicatorCheckboxes.forEach(checkbox => {
 
     // Trade visualization checkboxes event listeners - only if tradeHistory.js hasn't set it up
     if (window.showVolumeProfileCheckbox && !window.tradeHistoryInitialized) {
-        window.showVolumeProfileCheckbox.addEventListener('change', saveSettings);
+        window.showVolumeProfileCheckbox.addEventListener('change', () => {
+            if (window.isProgrammaticallySetting) return;
+            saveSettings();
+        });
     }
     if (window.showTradeMarkersCheckbox && !window.tradeHistoryInitialized) {
-        window.showTradeMarkersCheckbox.addEventListener('change', saveSettings);
+        window.showTradeMarkersCheckbox.addEventListener('change', () => {
+            if (window.isProgrammaticallySetting) return;
+            saveSettings();
+        });
     }
 
     // Initialize other features
@@ -706,79 +753,597 @@ indicatorCheckboxes.forEach(checkbox => {
         if (urlPath && urlPath !== '/' && urlPath.length > 1) {
             initialSymbol = urlPath.substring(1).toUpperCase();
             window.symbolSelect.value = initialSymbol;
-        } else {
-            // Load last selected symbol if no URL symbol (lowest priority)
-            const lastSelectedSymbol = await getLastSelectedSymbol();
-            if (lastSelectedSymbol) {
-                initialSymbol = lastSelectedSymbol;
-                window.symbolSelect.value = lastSelectedSymbol;
-            }
         }
     }
+
+    // If no initial symbol found, use default BTCUSDT
+    initialSymbol = initialSymbol || 'BTCUSDT';
+    window.symbolSelect.value = initialSymbol;
 
     // Store the initial symbol for comparison
     window.initialSymbol = initialSymbol;
 
-    await populateDropdowns(); // Populate dropdown first
+    // Chart interactions are now initialized immediately after chart creation
 
-    // Load settings after dropdown is populated
-    // Use initial symbol if available, otherwise use dropdown value
-    const symbolToLoad = initialSymbol || window.symbolSelect.value;
-    if (symbolToLoad) {
-        await loadSettings(symbolToLoad);
-    } else {
-        console.warn(`[main.js] No symbol available for settings loading, using defaults`);
+    // Initialize WebSocket connection - this will handle both initialization and settings loading
+    await initializeWebSocketClient();
+
+// WebSocket client initialization and settings handling
+async function initializeWebSocketClient() {
+    console.log('🚀 Initializing WebSocket client...');
+
+    try {
+        // Connect to WebSocket
+        await window.wsAPI.connect();
+        console.log('✅ WebSocket connected');
+
+        // Set up message handlers for different message types
+        window.wsAPI.onMessage('init_success', handleInitSuccess);
+        window.wsAPI.onMessage('historical', handleHistoricalData);
+        window.wsAPI.onMessage('drawings', handleDrawingsData);
+        window.wsAPI.onMessage('trade_history', handleTradeHistoryData);
+        window.wsAPI.onMessage('trade_history_success', handleTradeHistorySuccess);
+        window.wsAPI.onMessage('trading_sessions', handleTradingSessionsData);
+        window.wsAPI.onMessage('volume_profile', handleVolumeProfileData);
+        window.wsAPI.onMessage('live', handleLiveData);
+        window.wsAPI.onMessage('history_success', handleHistorySuccess);
+        window.wsAPI.onMessage('config_success', handleConfigSuccess);
+        window.wsAPI.onMessage('error', handleWebSocketError);
+
+        // Send init message to server with email and symbol
+        const initMessage = {
+            type: "init",
+            data: {
+                email: window.userEmail || '',
+                symbol: window.initialSymbol || 'BTCUSDT'
+            }
+        };
+
+        console.log('📤 Sending init message to server:', initMessage);
+        await window.wsAPI.sendMessage(initMessage);
+
+    } catch (error) {
+        console.error('❌ Failed to initialize WebSocket client:', error);
+        // Fallback to legacy HTTP initialization
+        initializeFallbackInitialization();
+    }
+}
+
+// Handle successful initialization - settings are delivered here
+async function handleInitSuccess(message) {
+    console.log('📥 Received init_success from server:');
+    console.log(JSON.stringify(message, null, "\t"));
+
+    window.isProgrammaticallySetting = true;
+
+    const data = message.data || {};
+    const authenticated = data.authenticated || false;
+    const config = data.config || {};
+    const email = config.email || null;
+    const symbol = config.symbol || 'BTCUSDT';
+    const settings = data.config || {};
+
+    // Store authentication info
+    window.userAuthenticated = authenticated;
+    window.userEmail = email;
+
+    // Store symbols globally from init_success message for populateDropdowns
+    window.availableSymbols = data.symbols || [];
+
+    // Update symbol display if different
+    if (symbol !== window.symbolSelect.value) {
+        window.symbolSelect.value = symbol;
     }
 
-    // Now that dropdowns are populated (and symbolSelect.value should be set by populate or default),
-    // initialize chart interactions and then load settings.
-    if (window.gd) {
-        initializeChartInteractions(); // From chartInteractions.js, ensure gd is available
+    // Now that we have authentication confirmed, proceed with settings-dependent initialization
+    console.log('🔧 Server confirmed authentication and symbol:', { authenticated, email, symbol });
+    console.log('⚙️ Settings received in init_response:', settings);
+
+    // Apply settings received from the server
+    if (settings && Object.keys(settings).length > 0) {
+        try {
+            // Apply settings to UI components (this replaces the separate loadSettings call)
+            applySettingsToUI(settings, symbol, email);
+            console.log('✅ Settings applied from init_response');
+        } catch (settingsError) {
+            console.error('❌ Error applying settings from init_response:', settingsError);
+        }
     } else {
+        console.warn('⚠️ No settings received in init_response, using defaults');
     }
 
-    // Initialize combined WebSocket after settings are loaded
-    const selectedSymbol = window.symbolSelect.value;
-    const selectedResolution = window.resolutionSelect.value;
+    window.isProgrammaticallySetting = false;
+}
 
-    if (selectedSymbol && selectedResolution) {
-        const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+// Apply settings received from server to UI components
+function applySettingsToUI(settings, symbol, email) {
+    console.log('Applying settings to UI:', settings, 'symbol:', symbol, 'email:', email);
 
-        // Initialize chart subplots layout before WebSocket messages arrive
-        if (activeIndicators.length > 0 && window.gd && window.createLayoutForIndicators) {
-            const layout = window.createLayoutForIndicators(activeIndicators);
-            Plotly.relayout(window.gd, layout);
+    window.isProgrammaticallySetting = true;
+
+    // Apply symbol restoration
+    if (settings.last_selected_symbol) {
+        if (window.symbolSelect.value != settings.last_selected_symbol) {
+            window.symbolSelect.value = settings.last_selected_symbol;
+        }
+    }
+
+    // Apply resolution settings
+    if (settings.resolution && window.resolutionSelect &&
+        window.resolutionSelect.value !== settings.resolution) {
+        window.resolutionSelect.value = settings.resolution;
+        if(window.isProgrammaticallySetting == false)
+            window.resolutionSelect.dispatchEvent(new Event('change'));
+    }
+
+    // Apply range settings
+    if (settings.range && window.rangeSelect &&
+        window.rangeSelect.value !== settings.range) {
+        window.rangeSelect.value = settings.range;
+        if(window.isProgrammaticallySetting == false)
+            window.rangeSelect.dispatchEvent(new Event('change'));
+    }
+
+    // Apply indicator checkboxes
+    if (settings.active_indicators && Array.isArray(settings.active_indicators)) {
+        // First uncheck all
+        document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]').forEach(cb => {
+            cb.checked = false;
+        });
+
+        // Then check the ones from settings
+        settings.active_indicators.forEach(indicator => {
+            const checkbox = document.querySelector(`#indicator-checkbox-list input[type="checkbox"][value="${indicator}"]`);
+            if (checkbox) {
+                checkbox.checked = true;
+            }
+        });
+    }
+
+    // Apply axis ranges
+    if (settings.xAxisMin !== null && settings.xAxisMax !== null) {
+        window.currentXAxisRange = [settings.xAxisMin, settings.xAxisMax];
+        window.xAxisMinDisplay.textContent = `${new Date(settings.xAxisMin).toISOString()}`;
+        window.xAxisMaxDisplay.textContent = `${new Date(settings.xAxisMax).toISOString()}`;
+    }
+    if (settings.yAxisMin !== null && settings.yAxisMax !== null) {
+        window.currentYAxisRange = [settings.yAxisMin, settings.yAxisMax];
+        window.yAxisMinDisplay.textContent = settings.yAxisMin.toFixed(2);
+        window.yAxisMaxDisplay.textContent = settings.yAxisMax.toFixed(2);
+    }
+
+    // Apply AI settings
+    if (settings.useLocalOllama !== undefined && window.useLocalOllamaCheckbox) {
+        window.useLocalOllamaCheckbox.checked = settings.useLocalOllama;
+    }
+    if (settings.localOllamaModel && window.localOllamaModelSelect) {
+        window.localOllamaModelSelect.value = settings.localOllamaModel;
+    }
+
+    // Apply streaming settings
+    if (settings.streamDelta !== undefined && window.streamDeltaSlider) {
+        window.streamDeltaSlider.value = settings.streamDelta;
+        window.streamDeltaValueDisplay.textContent = settings.streamDelta;
+    }
+
+    // Apply visualization settings
+    if (settings.showAgentTrades !== undefined) {
+        document.getElementById('showAgentTradesCheckbox').checked = settings.showAgentTrades;
+    }
+    if (settings.showVolumeProfile !== undefined && window.showVolumeProfileCheckbox) {
+        window.showVolumeProfileCheckbox.checked = settings.showVolumeProfile;
+    }
+    if (settings.showTradeMarkers !== undefined && window.showTradeMarkersCheckbox) {
+        window.showTradeMarkersCheckbox.checked = settings.showTradeMarkers;
+    }
+
+    console.log('📊 Settings applied successfully to UI components');
+
+    window.isProgrammaticallySetting = false;
+
+    // Get current min value filter percentage (0-1)
+    const minValueSlider = document.getElementById('min-value-slider');
+    let minPercentage = minValueSlider ? parseFloat(minValueSlider.value) || 0 : 0;
+
+    // Get current chart settings for history request
+    const currentResolution = window.resolutionSelect ? window.resolutionSelect.value : '1h';
+    const active_indicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+
+    // Get time range from current axis or use defaults
+    let fromTs, toTs;
+    if (window.currentXAxisRange && window.currentXAxisRange.length === 2) {
+        fromTs = Math.floor(window.currentXAxisRange[0] / 1000); // Convert to seconds
+        toTs = Math.floor(window.currentXAxisRange[1] / 1000);
+    } else {
+        // Default to last 30 days
+        const currentTime = Math.floor(Date.now() / 1000);
+        fromTs = currentTime - (30 * 24 * 60 * 60);
+        toTs = currentTime;
+    }
+
+    window.updateLayoutForIndicators(active_indicators);
+
+
+    const historyMessage = {
+        type: "history",
+        data: {
+            symbol: symbol,
+            email: email,
+            minValuePercentage: minPercentage,
+            from_ts: fromTs,
+            to_ts: toTs,
+            resolution: currentResolution,
+            active_indicators: active_indicators
+        }
+    };
+
+    console.log('📤 Sending history message after initSuccess:', historyMessage);
+    try {
+        window.wsAPI.sendMessage(historyMessage);
+        console.log('✅ History message sent successfully');
+    } catch (error) {
+        console.error('❌ Failed to send history message:', error);
+    }
+}
+
+// Handle historical data from WebSocket
+function handleHistoricalData(message) {
+    console.log('📈 Received historical data:', message);
+
+    const data = message.data || [];
+    const symbol = message.symbol || 'UNKNOWN';
+
+    if (data && data.length > 0) {
+        // Process the historical data similar to how combinedData.js handles it
+        window.accumulatedHistoricalData = data;
+        window.historicalDataSymbol = symbol;
+
+        // Trigger chart update
+        if (window.processHistoricalDataForChart) {
+            window.processHistoricalDataForChart(data, symbol);
+        }
+    }
+}
+
+// Handle drawings data from WebSocket
+function handleDrawingsData(message) {
+    console.log('🎨 Received drawings data:', message);
+
+    const data = message.data || {};
+    const drawings = data.drawings || [];
+
+    if (drawings.length > 0) {
+        // Process drawings
+        window.currentDrawings = drawings;
+
+        // Update chart shapes
+        updateChartShapes(drawings, message.symbol || 'UNKNOWN');
+    }
+}
+
+// Handle trade history data from WebSocket
+function handleTradeHistoryData(message) {
+    console.log('💰 Received trade history data:', message);
+
+    const data = message.data || [];
+    window.tradeHistoryData = data;
+
+    // Update trade visualizations
+    if (window.addTradeHistoryMarkersToChart) {
+        const symbol = message.symbol || window.symbolSelect.value;
+        window.addTradeHistoryMarkersToChart(data, symbol);
+
+        // Update slider range based on new data
+        updateMinValueSliderRange();
+    }
+}
+
+// Handle trade history success from WebSocket (filtered data)
+function handleTradeHistorySuccess(message) {
+    console.log('💰 Received trade history success (filtered):', message);
+
+    const data = message.data || {};
+    window.tradeHistoryData = data.trades || [];
+
+    // Update trade visualizations
+    if (window.addTradeHistoryMarkersToChart) {
+        const symbol = message.symbol || window.symbolSelect.value;
+        window.addTradeHistoryMarkersToChart(window.tradeHistoryData, symbol);
+
+        // Update slider range based on new data
+        updateMinValueSliderRange();
+    }
+}
+
+// Handle trading sessions data from WebSocket
+function handleTradingSessionsData(message) {
+    console.log('📊 Received trading sessions data:', message);
+
+    const data = message.data || {};
+    const sessions = data.sessions || [];
+
+    if (sessions.length > 0 && window.addTradingSessionsToChart) {
+        window.addTradingSessionsToChart(sessions, message.symbol || 'UNKNOWN');
+    }
+}
+
+// Handle volume profile data from WebSocket
+function handleVolumeProfileData(message) {
+    console.log('📊 Received volume profile data:', message);
+
+    // Use the existing handleVolumeProfileMessage function from combinedData.js
+    if (window.handleVolumeProfileMessage) {
+        window.handleVolumeProfileMessage(message);
+    } else {
+        console.warn('📊 handleVolumeProfileMessage function not available');
+    }
+}
+
+// Handle live price updates from WebSocket
+function handleLiveData(message) {
+    console.log('⚡ Received live data:', message);
+
+    const data = message.data || {};
+    const livePrice = data.live_price;
+
+    if (livePrice && typeof livePrice === 'number') {
+        // Update real-time price line
+        if (window.updateRealtimePriceLine) {
+            window.updateRealtimePriceLine(livePrice, message.symbol || 'UNKNOWN');
+        }
+    }
+}
+
+// Function to update chart with OHLCV and indicators data
+function updateChartWithOHLCVAndIndicators(ohlcv, active_indicators) {
+    if (!window.gd) {
+        console.warn('Chart not ready for OHLCV and indicators update');
+        return;
+    }
+
+    // Get existing traces to preserve non-OHLCV/indicator traces
+    const existingTraces = window.gd.data || [];
+
+    // Build set of trace names that will be replaced
+    const tracesToReplace = new Set(['Price']);
+
+    // Indicator configurations for plotting
+    const indicatorConfigs = {
+        'macd': [
+            { key: 'macd', name: 'MACD', color: 'blue', type: 'scatter', mode: 'lines' },
+            { key: 'signal', name: 'MACD Signal', color: 'red', type: 'scatter', mode: 'lines' },
+            { key: 'histogram', name: 'MACD Histogram', color: 'green', type: 'bar' }
+        ],
+        'rsi': [
+            { key: 'rsi', name: 'RSI', color: 'purple', type: 'scatter', mode: 'lines' }
+        ],
+        'stochrsi_9_3': [
+            { key: 'stoch_k', name: 'StochRSI K (9,3)', color: 'orange', type: 'scatter', mode: 'lines' },
+            { key: 'stoch_d', name: 'StochRSI D (9,3)', color: 'brown', type: 'scatter', mode: 'lines' }
+        ],
+        'stochrsi_14_3': [
+            { key: 'stoch_k', name: 'StochRSI K (14,3)', color: 'cyan', type: 'scatter', mode: 'lines' },
+            { key: 'stoch_d', name: 'StochRSI D (14,3)', color: 'magenta', type: 'scatter', mode: 'lines' }
+        ],
+        'stochrsi_40_4': [
+            { key: 'stoch_k', name: 'StochRSI K (40,4)', color: 'lime', type: 'scatter', mode: 'lines' },
+            { key: 'stoch_d', name: 'StochRSI D (40,4)', color: 'teal', type: 'scatter', mode: 'lines' }
+        ],
+        'stochrsi_60_10': [
+            { key: 'stoch_k', name: 'StochRSI K (60,10)', color: 'pink', type: 'scatter', mode: 'lines' },
+            { key: 'stoch_d', name: 'StochRSI D (60,10)', color: 'navy', type: 'scatter', mode: 'lines' }
+        ],
+        'cto_line': [
+            { key: 'cto_upper', name: 'CTO Upper', color: 'darkgreen', type: 'scatter', mode: 'lines' },
+            { key: 'cto_lower', name: 'CTO Lower', color: 'darkred', type: 'scatter', mode: 'lines' },
+            { key: 'cto_trend', name: 'CTO Trend', color: 'black', type: 'scatter', mode: 'lines' }
+        ]
+    };
+
+    // Add indicator trace names to the set of traces to replace
+    if (active_indicators && Array.isArray(active_indicators)) {
+        active_indicators.forEach(indicatorName => {
+            const config = indicatorConfigs[indicatorName];
+            if (config) {
+                config.forEach(subConfig => {
+                    tracesToReplace.add(subConfig.name);
+                });
+            }
+        });
+    }
+
+    // Preserve existing traces that are not being replaced
+    const preservedTraces = existingTraces.filter(trace => !tracesToReplace.has(trace.name));
+
+    // Create candlestick trace from OHLCV data
+    const candlestickTrace = {
+        x: ohlcv.map(point => new Date(point.time * 1000)),
+        open: ohlcv.map(point => point.ohlc.open),
+        high: ohlcv.map(point => point.ohlc.high),
+        low: ohlcv.map(point => point.ohlc.low),
+        close: ohlcv.map(point => point.ohlc.close),
+        volume: ohlcv.map(point => point.ohlc.volume),
+        type: 'candlestick',
+        name: 'Price',
+        xaxis: 'x',
+        yaxis: 'y',
+        increasing: { line: { color: 'green' } },
+        decreasing: { line: { color: 'red' } }
+    };
+
+    // Start with preserved traces and add the candlestick trace
+    const traces = [...preservedTraces, candlestickTrace];
+
+    // Process active indicators
+    if (active_indicators && Array.isArray(active_indicators) && active_indicators.length > 0) {
+        // FORCE indicator order to match backend configuration
+        const forcedIndicatorOrder = ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10', 'open_interest', 'jma', 'cto_line'];
+        const orderedActiveIndicators = forcedIndicatorOrder.filter(indicatorId => active_indicators.includes(indicatorId));
+
+        orderedActiveIndicators.forEach((indicatorName, indicatorIndex) => {
+            const config = indicatorConfigs[indicatorName];
+            if (config) {
+                const yAxisName = `y${indicatorIndex + 2}`; // y2, y3, y4, etc.
+
+                config.forEach(subConfig => {
+                    // Extract data for this sub-indicator
+                    const yData = ohlcv.map(point => {
+                        const indicatorData = point.indicators && point.indicators[indicatorName];
+                        return indicatorData ? indicatorData[subConfig.key] : null;
+                    }).filter(val => val !== null); // Filter out nulls, but keep for plotting
+
+                    // Only add trace if we have data
+                    if (yData.some(val => val !== null)) {
+                        const indicatorTrace = {
+                            x: ohlcv.map(point => new Date(point.time * 1000)),
+                            y: ohlcv.map(point => {
+                                const indicatorData = point.indicators && point.indicators[indicatorName];
+                                return indicatorData ? indicatorData[subConfig.key] : null;
+                            }),
+                            type: subConfig.type,
+                            mode: subConfig.mode,
+                            name: subConfig.name,
+                            ...(subConfig.type !== 'bar' && { line: { color: subConfig.color } }),
+                            ...(subConfig.type === 'bar' && { marker: { color: subConfig.color } }),
+                            xaxis: 'x',
+                            yaxis: yAxisName // Assign to correct y-axis based on indicator order
+                        };
+                        traces.push(indicatorTrace);
+                    }
+                });
+            }
+        });
+    }
+
+    // Update layout if indicators are present (use existing updateLayoutForIndicators function)
+    let updatedLayout = window.gd.layout;
+    if (active_indicators && active_indicators.length > 0 && window.updateLayoutForIndicators) {
+        // FORCE indicator order to match backend configuration for layout
+        const forcedIndicatorOrder = ['macd', 'rsi', 'stochrsi_9_3', 'stochrsi_14_3', 'stochrsi_40_4', 'stochrsi_60_10', 'open_interest', 'jma', 'cto_line'];
+        const orderedActiveIndicators = forcedIndicatorOrder.filter(indicatorId => active_indicators.includes(indicatorId));
+        updatedLayout = window.updateLayoutForIndicators(orderedActiveIndicators);
+    }
+
+    // Preserve existing shapes when updating chart with OHLCV and indicators
+    if (window.gd && window.gd.layout && window.gd.layout.shapes) {
+        updatedLayout.shapes = window.gd.layout.shapes;
+    }
+
+    // Update the chart with traces and the updated layout
+    Plotly.react(window.gd, traces, updatedLayout).then(() => {
+        console.log(`✅ Chart updated with ${ohlcv.length} OHLCV points and ${active_indicators ? active_indicators.length : 0} active indicators`);
+    }).catch(error => {
+        console.error('❌ Error updating chart with OHLCV and indicators:', error);
+    });
+}
+
+
+// Handle history success message from server
+function handleHistorySuccess(message) {
+    console.log('📥 Received history_success from server:\t');
+    // console.log(JSON.stringify(message, null, "\t"));
+
+    const data = message.data || {};
+    const symbol = message.symbol;
+    const email = message.email;
+    const ohlcv = data.ohlcv || [];
+    const indicators = data.indicators || [];
+    const trades = data.trades || [];
+    const drawings = data.drawings || [];
+
+    console.log(`📊 Processing history_success: ${ohlcv.length} OHLCV points, ${trades.length} trades, ${drawings.length} drawings, indicators: ${indicators.join(', ')}`);
+
+    // Store the historical data globally for chart updates
+    window.accumulatedHistoricalData = ohlcv;
+    window.historicalDataSymbol = symbol;
+
+    // Store trade history data (process to ensure valid timestamps)
+    window.tradeHistoryData = processTradeHistoryData(trades);
+
+    // Update chart in the correct order to preserve shapes
+    updateChartWithOHLCVAndIndicators(ohlcv, data.active_indicators || []);
+    updateChartShapes(drawings, symbol);
+    window.updateTradeHistoryVisualizations();
+
+    console.log('✅ History data processed and chart updated');
+}
+
+// Handle config success message from server
+function handleConfigSuccess(message) {
+    console.log('📥 Received config_success from server:', message);
+
+    const data = message.data || {};
+    const symbol = message.symbol;
+    const email = message.email;
+    const ohlcv = data.ohlcv || [];
+    const indicators = data.indicators || [];
+    const trades = data.trades || [];
+    const drawings = data.drawings || [];
+
+    console.log(`📊 Processing config_success: ${ohlcv.length} OHLCV points, ${trades.length} trades, ${drawings.length} drawings, indicators: ${indicators.join(', ')}`);
+
+    // Store the historical data globally for chart updates
+    window.accumulatedHistoricalData = ohlcv;
+    window.historicalDataSymbol = symbol;
+
+    // Store trade history data
+    window.tradeHistoryData = trades;
+
+    updateChartWithOHLCVAndIndicators(ohlcv, data.active_indicators || []);
+    updateChartShapes(drawings, symbol);
+    updateTradeHistoryVisualizations();
+
+    console.log('✅ Config data processed and chart updated');
+}
+
+// Handle WebSocket errors
+function handleWebSocketError(message) {
+    console.error('❌ WebSocket error:', message);
+    const errorMessage = message.message || 'Unknown WebSocket error';
+
+    // Show user-friendly error message
+    if (window.showToast || alert) {
+        const showError = window.showToast || alert;
+        showError(`Connection Error: ${errorMessage}`);
+    }
+}
+
+
+
+// Fallback initialization in case WebSocket fails
+async function initializeFallbackInitialization() {
+    console.warn('⚠️ WebSocket initialization failed, falling back to legacy HTTP initialization');
+
+    try {
+        // Fall back to traditional HTTP-based initialization
+        const symbolToLoad = window.initialSymbol || window.symbolSelect.value;
+        if (symbolToLoad) {
+            await loadSettings(symbolToLoad);
         }
 
-        // Use saved X-axis range if available, otherwise use default (30 days ago to now)
-        let fromTs, toTs;
-        if (window.currentXAxisRange && window.currentXAxisRange.length === 2) {
-            // Convert milliseconds to ISO timestamp strings
-            fromTs = new Date(window.currentXAxisRange[0]).toISOString();
-            toTs = new Date(window.currentXAxisRange[1]).toISOString();
-        } else {
-            // Use current time for range calculations
+        // Initialize chart with legacy combined WebSocket
+        const selectedSymbol = window.symbolSelect.value;
+        const selectedResolution = window.resolutionSelect.value;
+
+        if (selectedSymbol && selectedResolution) {
+            const active_indicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+
             const currentTime = new Date().getTime();
-            fromTs = new Date(currentTime - 30 * 86400 * 1000).toISOString(); // 30 days before current time
-            toTs = new Date(currentTime + 30 * 86400 * 1000).toISOString(); // 30 days after current time
-        }
+            const fromTs = new Date(currentTime - 30 * 86400 * 1000).toISOString();
+            const toTs = new Date(currentTime).toISOString();
 
-        setupCombinedWebSocket(selectedSymbol, activeIndicators, selectedResolution, fromTs, toTs);
-    } else {
-        console.warn(`[main.js] Cannot initialize WebSocket - symbol: ${selectedSymbol}, resolution: ${selectedResolution}`);
+            setupCombinedWebSocket(selectedSymbol, active_indicators, selectedResolution, fromTs, toTs);
+        }
+    } catch (error) {
+        console.error('❌ Fallback initialization also failed:', error);
+        alert('Failed to initialize application. Please refresh the page.');
     }
+}
 
-    // Force dragmode to 'pan' at the very end of initialization to override any other settings
-    /*
-    setTimeout(() => {
-        if (window.gd) {
-            Plotly.relayout(window.gd, { dragmode: 'pan' }).then(() => {
-            }).catch(err => {
-                console.error('[DEBUG] Failed to set final dragmode:', err);
-            });
+        // Initialize chart interactions immediately after chart is ready
+        if (window.initializeChartInteractions) {
+            window.initializeChartInteractions(); // From chartInteractions.js
         }
-    }, 1000);
-    */
 
     // Handle browser back/forward navigation
     window.addEventListener('popstate', (event) => {
@@ -787,9 +1352,9 @@ indicatorCheckboxes.forEach(checkbox => {
         if (newSymbol && newSymbol !== window.symbolSelect.value) {
 
             // Update dropdown without triggering change event
-            window.isProgrammaticallySettingSymbol = true;
+            window.isProgrammaticallySetting = true;
             window.symbolSelect.value = newSymbol;
-            window.isProgrammaticallySettingSymbol = false;
+            window.isProgrammaticallySetting = false;
 
             // Perform symbol switch
             window.currentXAxisRange = null;
@@ -821,11 +1386,11 @@ indicatorCheckboxes.forEach(checkbox => {
         window.tradeHistoryData = [];
 
         updateSelectedShapeInfoPanel(null);
-            setLastSelectedSymbol(newSymbol);
-            loadSettings(newSymbol);
+        loadSettings(newSymbol);
+
 
             // Establish new connection
-            const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+            const active_indicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
             const resolution = window.resolutionSelect.value;
             // Use current time for range calculations
             const currentTime = new Date().getTime();
@@ -839,7 +1404,7 @@ indicatorCheckboxes.forEach(checkbox => {
             }
 
             delay(200).then(() => {
-                setupCombinedWebSocket(newSymbol, activeIndicators, resolution, wsFromTs, wsToTs);
+                setupCombinedWebSocket(newSymbol, active_indicators, resolution, wsFromTs, wsToTs);
             });
         }
     });
@@ -879,6 +1444,11 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
    const inputLayout = plotlyGraphObj.layout;
    const layoutUpdate = {};
 
+   console.log("Autoscale: Full data traces count:", fullData.length);
+   fullData.forEach((trace, idx) => {
+       console.log(`Trace ${idx}: name=${trace.name}, type=${trace.type}, yaxis=${trace.yaxis}, hasY=${!!trace.y}, hasOpen=${!!trace.open}`);
+   });
+
    // --- X-AXIS AUTOSCALE DISABLED ---
    // Autoscale no longer modifies xaxis min and max values
 // --- Y-AXES AUTOSCALE ---
@@ -902,16 +1472,20 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
        // Plotly stores timestamps as milliseconds since epoch
        xMinVisible = typeof currentXAxisRange[0] === 'number' ? currentXAxisRange[0] : new Date(currentXAxisRange[0]).getTime();
        xMaxVisible = typeof currentXAxisRange[1] === 'number' ? currentXAxisRange[1] : new Date(currentXAxisRange[1]).getTime();
+       console.log("Autoscale: X-axis range:", new Date(xMinVisible).toISOString(), "to", new Date(xMaxVisible).toISOString());
    } else {
+       console.log("Autoscale: No X-axis range found, processing all data points");
    }
 
    fullData.forEach(trace => {
         if (trace.name === 'Buy Signal') return; // Skip traces named "Buy Signal"
         if (trace.yaxis === 'y') { // Ensure y-values are present AND for main chart
-            // Iterate through open, high, low, close values
+            console.log(`Autoscale: Processing main y-axis trace: ${trace.name || 'unnamed'}, type: ${trace.type}`);
+            // Iterate through open, high, low, close values for candlestick traces
             const ohlc = [trace.open, trace.high, trace.low, trace.close];
             ohlc.forEach((yValues, ohlcIndex) => {
                 if (yValues && Array.isArray(yValues)) {
+                    console.log(`Autoscale: Processing OHLC ${['open','high','low','close'][ohlcIndex]}, ${yValues.length} values`);
                     yValues.forEach((yVal, index) => {
                         if (typeof yVal === 'number' && !isNaN(yVal)) {
                             // Check if this data point is within the visible X-axis range
@@ -934,7 +1508,29 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
                     }
                 }
             });
+
+            // Also check trace.y for other trace types on main y-axis (e.g., lines, scatters)
+            if (trace.y && Array.isArray(trace.y)) {
+                console.log(`Autoscale: Processing trace.y for ${trace.name || 'unnamed'}, ${trace.y.length} values`);
+                trace.y.forEach((yVal, index) => {
+                    if (typeof yVal === 'number' && !isNaN(yVal)) {
+                        // Check if this data point is within the visible X-axis range
+                        let isVisible = true;
+                        if (xMinVisible !== null && xMaxVisible !== null && trace.x && trace.x[index]) {
+                            const xVal = trace.x[index] instanceof Date ? trace.x[index].getTime() : new Date(trace.x[index]).getTime();
+                            isVisible = xVal >= xMinVisible && xVal <= xMaxVisible;
+                        }
+
+                        if (isVisible) {
+                            if (yVal < yMin) yMin = yVal;
+                            if (yVal > yMax) yMax = yVal;
+                            yDataFound = true;
+                        }
+                    }
+                });
+            }
         } else if (trace.yaxis && trace.yaxis !== 'y' && trace.y && trace.y.length > 0) { // Handle indicator subplots
+            console.log(`Autoscale: Skipping indicator trace: ${trace.name || 'unnamed'} on ${trace.yaxis}`);
             trace.y.forEach((yVal, index) => {
                 if (typeof yVal === 'number' && !isNaN(yVal)) {
                     // Check if this data point is within the visible X-axis range
@@ -951,8 +1547,12 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
                     }
                 }
             });
+        } else {
+            console.log(`Autoscale: Skipping trace: ${trace.name || 'unnamed'}, yaxis: ${trace.yaxis}`);
         }
    });
+
+   console.log(`Autoscale: After processing - yDataFound: ${yDataFound}, yMin: ${yMin}, yMax: ${yMax}`);
 
 
     // Combine the Y-axis ranges
@@ -963,6 +1563,8 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
         priceChartYMin = Math.min(priceChartYMin, yMin);
         priceChartYMax = Math.max(priceChartYMax, yMax);
     }
+
+    console.log(`Autoscale: Final price range - yDataFound: ${yDataFound}, priceChartYMin: ${priceChartYMin}, priceChartYMax: ${priceChartYMax}`);
 
     if (priceChartYMin !== Infinity && priceChartYMax !== -Infinity) {
         let yPadding;
@@ -975,6 +1577,8 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
         const finalYMin = priceChartYMin - yPadding;
         const finalYMax = priceChartYMax + yPadding;
 
+        console.log(`Autoscale: Calculated range - yPadding: ${yPadding}, finalYMin: ${finalYMin}, finalYMax: ${finalYMax}`);
+
         // Validate that the calculated Y-axis values are finite
         if (!isFinite(finalYMin) || !isFinite(finalYMax)) {
             console.error("Autoscale: Invalid Y-axis range calculated - priceChartYMin:", priceChartYMin, "priceChartYMax:", priceChartYMax, "yPadding:", yPadding);
@@ -985,11 +1589,13 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
         layoutUpdate['yaxis.range[0]'] = finalYMin;
         layoutUpdate['yaxis.range[1]'] = finalYMax;
         layoutUpdate['yaxis.autorange'] = false;
+        console.log("Autoscale: Setting Y-axis range to:", finalYMin, "to", finalYMax);
     } else {
         // If no data is found, force a default range. This prevents errors.
         layoutUpdate['yaxis.range[0]'] = 0;
         layoutUpdate['yaxis.range[1]'] = 100;
         layoutUpdate['yaxis.autorange'] = true;
+        console.log("Autoscale: No data found, setting default range 0-100");
     }
 
 
@@ -1003,6 +1609,7 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
 
 
     if (Object.keys(layoutUpdate).length > 0) {
+        console.log("Autoscale: Applying layout update:", layoutUpdate);
         try {
             Plotly.relayout(plotlyGraphObj, layoutUpdate);
 
@@ -1021,10 +1628,12 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
                     window.yAxisMaxDisplay.textContent = (priceChartYMax + yPadding).toFixed(2);
                 }
 
+                console.log("Autoscale: Updated display elements and saved Y-axis range to window.currentYAxisRange");
             }
 
             // Save the new ranges to Redis
             saveSettings();
+            console.log("Autoscale: Settings saved");
 
         } catch (e) {
             console.error("Autoscale: Error during Plotly.relayout:", e);
@@ -1035,21 +1644,10 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
     } else {
         console.info("Autoscale: No layout changes to apply.");
     }
+
+    console.log("Autoscale: COMPLETED");
 }
 
-async function setLastSelectedSymbol(symbol) {
-    try {
-        const response = await fetch(`/set_last_symbol/${symbol}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        if (!response.ok) {
-            console.error(`Failed to set last selected symbol: ${response.status} ${await response.text()}`);
-        }
-    } catch (error) {
-        console.error("Error setting last selected symbol:", error);
-    }
-}
 
 async function getLastSelectedSymbol() {
     try {
@@ -1309,7 +1907,7 @@ async function saveShapeProperties() {
             // Refresh the chart to show updated shape
             if (window.combinedWebSocket && window.combinedWebSocket.readyState === WebSocket.OPEN) {
                 // Trigger a refresh by sending current config
-                const activeIndicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
+                const active_indicators = Array.from(document.querySelectorAll('#indicator-checkbox-list input[type="checkbox"]:checked')).map(cb => cb.value);
                 const resolution = window.resolutionSelect.value;
                 const currentTime = new Date().getTime();
                 let wsFromTs = new Date(currentTime - 30 * 86400 * 1000).toISOString();
@@ -1320,7 +1918,7 @@ async function saveShapeProperties() {
                     wsToTs = new Date(window.currentXAxisRange[1]).toISOString();
                 }
 
-                setupCombinedWebSocket(symbol, activeIndicators, resolution, wsFromTs, wsToTs);
+                setupCombinedWebSocket(symbol, active_indicators, resolution, wsFromTs, wsToTs);
             }
 
             // Show success message
@@ -1433,11 +2031,17 @@ document.addEventListener('DOMContentLoaded', function() {
     const panBtn = document.getElementById('pan-btn');
     if (panBtn) {
         panBtn.addEventListener('click', function() {
+            console.log('[TOOLBAR] Pan button clicked');
             if (window.gd) {
+                console.log('[TOOLBAR] Current dragmode before pan:', window.gd.layout.dragmode);
+                console.log('[TOOLBAR] Setting dragmode to pan');
                 Plotly.relayout(window.gd, { dragmode: 'pan' });
 
                 // Update button states
                 updateToolbarButtonStates('pan');
+                console.log('[TOOLBAR] Pan mode activated');
+            } else {
+                console.log('[TOOLBAR] Chart not ready (window.gd is null)');
             }
         });
     }
@@ -1446,11 +2050,17 @@ document.addEventListener('DOMContentLoaded', function() {
     const zoomBtn = document.getElementById('zoom-btn');
     if (zoomBtn) {
         zoomBtn.addEventListener('click', function() {
+            console.log('[TOOLBAR] Zoom button clicked');
             if (window.gd) {
+                console.log('[TOOLBAR] Current dragmode before zoom:', window.gd.layout.dragmode);
+                console.log('[TOOLBAR] Setting dragmode to zoom');
                 Plotly.relayout(window.gd, { dragmode: 'zoom' });
 
                 // Update button states
                 updateToolbarButtonStates('zoom');
+                console.log('[TOOLBAR] Zoom mode activated');
+            } else {
+                console.log('[TOOLBAR] Chart not ready (window.gd is null)');
             }
         });
     }
@@ -1459,11 +2069,53 @@ document.addEventListener('DOMContentLoaded', function() {
     const drawlineBtn = document.getElementById('drawline-btn');
     if (drawlineBtn) {
         drawlineBtn.addEventListener('click', function() {
+            console.log('[TOOLBAR] Draw Line button clicked');
             if (window.gd) {
-                Plotly.relayout(window.gd, { dragmode: 'drawline' });
+                console.log('[TOOLBAR] Current dragmode before drawline:', window.gd.layout.dragmode);
+                console.log('[TOOLBAR] Current layout newshape:', window.gd.layout.newshape);
+                console.log('[TOOLBAR] Attempting to trigger line drawing mode');
+
+                // Try to find and click the modebar drawline button programmatically
+                const allModebarButtons = document.querySelectorAll('.modebar-btn');
+                console.log('[TOOLBAR] All modebar buttons found:', allModebarButtons.length);
+                allModebarButtons.forEach((btn, index) => {
+                    console.log(`[TOOLBAR] Modebar button ${index}:`, btn.getAttribute('data-title'), btn.getAttribute('data-attr'), btn.className);
+                });
+
+                const modebarButtons = document.querySelectorAll('.modebar-btn[data-title*="line"], .modebar-btn[data-attr="drawline"], .modebar-btn[data-val="drawline"]');
+                console.log('[TOOLBAR] Found modebar line buttons:', modebarButtons.length);
+
+                if (modebarButtons.length > 0) {
+                    console.log('[TOOLBAR] Clicking modebar line button');
+                    modebarButtons[0].click();
+                } else {
+                    console.log('[TOOLBAR] No modebar line button found, trying alternative approach');
+
+                    // Alternative: Try setting up drawing programmatically
+                    Plotly.relayout(window.gd, {
+                        newshape: {
+                            type: 'line',
+                            line: { color: DEFAULT_DRAWING_COLOR, width: 2 },
+                            layer: 'above'
+                        }
+                    }).then(() => {
+                        console.log('[TOOLBAR] Newshape set for line');
+
+                        Plotly.relayout(window.gd, { dragmode: 'draw' }).then(() => {
+                            console.log('[TOOLBAR] Dragmode set to draw for line, final dragmode:', window.gd.layout.dragmode);
+                        }).catch((error) => {
+                            console.error('[TOOLBAR] Failed to set dragmode to draw for line:', error);
+                        });
+                    }).catch((error) => {
+                        console.error('[TOOLBAR] Failed to set newshape for line:', error);
+                    });
+                }
 
                 // Update button states
                 updateToolbarButtonStates('drawline');
+                console.log('[TOOLBAR] Draw line mode activated');
+            } else {
+                console.log('[TOOLBAR] Chart not ready (window.gd is null)');
             }
         });
     }
@@ -1472,11 +2124,59 @@ document.addEventListener('DOMContentLoaded', function() {
     const drawrectBtn = document.getElementById('drawrect-btn');
     if (drawrectBtn) {
         drawrectBtn.addEventListener('click', function() {
+            console.log('[TOOLBAR] Draw Rectangle button clicked');
             if (window.gd) {
-                Plotly.relayout(window.gd, { dragmode: 'drawrect' });
+                console.log('[TOOLBAR] Current dragmode before drawrect:', window.gd.layout.dragmode);
+                console.log('[TOOLBAR] Current layout newshape:', window.gd.layout.newshape);
+                console.log('[TOOLBAR] Plotly config newshape:', window.config.newshape);
+                console.log('[TOOLBAR] Attempting to trigger rectangle drawing mode');
+
+                // Try to find and click the modebar drawrect button programmatically
+                const allModebarButtons = document.querySelectorAll('.modebar-btn');
+                console.log('[TOOLBAR] All modebar buttons found:', allModebarButtons.length);
+                allModebarButtons.forEach((btn, index) => {
+                    console.log(`[TOOLBAR] Modebar button ${index}:`, btn.getAttribute('data-title'), btn.getAttribute('data-attr'), btn.className);
+                });
+
+                const modebarButtons = document.querySelectorAll('.modebar-btn[data-title*="rect"], .modebar-btn[data-attr="drawrect"], .modebar-btn[data-val="drawrect"]');
+                console.log('[TOOLBAR] Found modebar rect buttons:', modebarButtons.length);
+
+                if (modebarButtons.length > 0) {
+                    console.log('[TOOLBAR] Clicking modebar rect button');
+                    modebarButtons[0].click();
+                } else {
+                    console.log('[TOOLBAR] No modebar rect button found, trying alternative approach');
+
+                    // Alternative: Try setting up drawing programmatically
+                    // First ensure newshape is set
+                    Plotly.relayout(window.gd, {
+                        newshape: {
+                            type: 'rect',
+                            line: { color: DEFAULT_DRAWING_COLOR, width: 2 },
+                            fillcolor: 'rgba(0, 0, 255, 0.1)',
+                            opacity: 0.5,
+                            layer: 'above'
+                        }
+                    }).then(() => {
+                        console.log('[TOOLBAR] Newshape set for rectangle');
+
+                        // Try to enable drawing by setting dragmode to something that might work
+                        // Some versions of Plotly use 'draw' as dragmode
+                        Plotly.relayout(window.gd, { dragmode: 'draw' }).then(() => {
+                            console.log('[TOOLBAR] Dragmode set to draw, final dragmode:', window.gd.layout.dragmode);
+                        }).catch((error) => {
+                            console.error('[TOOLBAR] Failed to set dragmode to draw:', error);
+                        });
+                    }).catch((error) => {
+                        console.error('[TOOLBAR] Failed to set newshape:', error);
+                    });
+                }
 
                 // Update button states
                 updateToolbarButtonStates('drawrect');
+                console.log('[TOOLBAR] Draw rectangle mode activated');
+            } else {
+                console.log('[TOOLBAR] Chart not ready (window.gd is null)');
             }
         });
     }
@@ -1550,37 +2250,7 @@ document.addEventListener('plotly_relayout', function(event) {
     }
 });
 
-// Update trade history visualizations based on minimum value filter
-window.updateTradeHistoryVisualizations = function() {
-    if (!window.tradeHistoryData || window.tradeHistoryData.length === 0) {
-        return;
-    }
 
-    // Get current min value filter
-    const minValueSlider = document.getElementById('min-value-slider');
-    const minVolumeInput = document.getElementById('min-volume-value');
-    let minVolume = minValueSlider ? parseFloat(minValueSlider.value) || 0 : 0;
-
-    // Check if user typed a custom value in the display input
-    if (minVolumeInput && minVolumeInput.textContent) {
-        const displayedValue = parseFloat(minVolumeInput.textContent.replace(/,/g, '')) || 0;
-        if (!isNaN(displayedValue)) {
-            minVolume = displayedValue;
-        }
-    }
-
-    // Filter trades based on minimum USD value (price * amount)
-    const filteredTrades = window.tradeHistoryData.filter(trade => {
-        const tradeValue = trade.price * trade.amount;
-        const passesFilter = tradeValue >= minVolume;
-        return passesFilter;
-    });
-
-    console.log(`📊 After filtering: ${filteredTrades.length} trades pass filter`);
-
-    // Always update markers - addTradeHistoryMarkersToChart handles clearing when no trades pass filter
-    addTradeHistoryMarkersToChart(filteredTrades, window.symbolSelect ? window.symbolSelect.value : 'UNKNOWN');
-};
 
 // Update minimum value slider range based on trade data
 function updateMinValueSliderRange() {
@@ -1590,10 +2260,10 @@ function updateMinValueSliderRange() {
 
     // Check if trade history data exists
     if (!window.tradeHistoryData || window.tradeHistoryData.length === 0) {
-        // No trade data - use default reasonable range for crypto values
+        // No trade data - use default percentage range
         minValueSlider.min = 0;
-        minValueSlider.max = 10000; // $10k default max
-        minValueSlider.step = 100;
+        minValueSlider.max = 1; // 1 (100%) default max for percentage mode
+        minValueSlider.step = 0.1;
         return;
     }
 
@@ -1603,58 +2273,38 @@ function updateMinValueSliderRange() {
     );
 
     if (valueValues.length === 0) {
-        // No valid value data - use default range
+        // No valid value data - use default percentage range
         minValueSlider.min = 0;
-        minValueSlider.max = 10000;
-        minValueSlider.step = 100;
+        minValueSlider.max = 1;
+        minValueSlider.step = 0.1;
         return;
     }
 
-    // Find maximum value
+    // Find maximum value for percentage calculations
     const maxValue = Math.max(...valueValues);
 
-    // Calculate slider max as 1.5x the maximum value found
-    let calculatedMax = maxValue * 1.5;
+    // Store maximum trade value globally for percentage calculations
+    window.maxTradeValue = maxValue;
 
-    // Apply caps to prevent extreme values
-    const minAllowedMax = 10; // Minimum max to avoid too small ranges
-    const maxAllowedMax = 1000000; // Maximum max to prevent huge ranges ($1M)
-
-    calculatedMax = Math.max(minAllowedMax, Math.min(maxAllowedMax, calculatedMax));
-
-    // Adjust step based on the scale
-    let step = 100; // $100 default step
-    if (calculatedMax > 100000) {
-        step = 10000; // $10k steps for very large values
-    } else if (calculatedMax > 50000) {
-        step = 5000; // $5k steps for large values
-    } else if (calculatedMax > 10000) {
-        step = 1000; // $1k steps for medium values
-    } else if (calculatedMax > 1000) {
-        step = 100; // $100 steps for smaller values
-    } else {
-        step = 10; // $10 steps for very small values
-    }
-
-    // Update slider properties
+    // For percentage mode, slider is always 0-1, representing 0%-100% of max value
     minValueSlider.min = 0;
-    minValueSlider.max = calculatedMax;
-    minValueSlider.step = step;
+    minValueSlider.max = 1;
+    minValueSlider.step = 0.1;
 
     // Update the max value display
     updateMaxValueDisplay();
 
-    // Ensure current value stays within new range
+    // Ensure current value stays within percentage range
     const currentValue = parseFloat(minValueSlider.value);
-    if (currentValue > calculatedMax) {
-        minValueSlider.value = calculatedMax;
-        updateMinVolumeDisplay();
+    if (currentValue > 1) {
+        minValueSlider.value = 1;
+        updateMinValueDisplay();
     } else if (currentValue < 0) {
         minValueSlider.value = 0;
-        updateMinVolumeDisplay();
+        updateMinValueDisplay();
     }
 
-    console.log(`Min Value slider updated: max=$${calculatedMax.toLocaleString()}, step=$${step.toLocaleString()}, trades=${window.tradeHistoryData.length}`);
+    console.log(`Min Value slider updated: max=${maxValue.toLocaleString()}, percentage range 0-1, trades=${window.tradeHistoryData.length}`);
 }
 
 // Update min volume display value
@@ -1664,7 +2314,9 @@ function updateMinValueDisplay() {
 
     if (minValueSlider && minVolumeValue) {
         const currentValue = parseFloat(minValueSlider.value);
-        minVolumeValue.textContent = currentValue.toLocaleString();
+        // Display percentage (0-100% instead of 0-1)
+        const percentageValue = (currentValue * 100).toFixed(1);
+        minVolumeValue.textContent = `${percentageValue}%`;
     }
 }
 
@@ -1683,11 +2335,158 @@ function updateMaxValueDisplay() {
 function handleMinValueChange() {
     updateMinValueDisplay();
 
-    // Update visualizations
-    updateTradeHistoryVisualizations();
+    const minValueSlider = document.getElementById('min-value-slider');
+    const minPercentage = minValueSlider ? parseFloat(minValueSlider.value) || 0 : 0;
+    const symbol = window.symbolSelect ? window.symbolSelect.value : 'BTCUSDT';
+    const email = window.userEmail || '';
+
+    // Send trade_history message to update filter
+    window.wsAPI.sendMessage({
+        type: 'trade_history',
+        data: {
+            symbol: symbol,
+            email: email,
+            minValuePercentage: minPercentage,
+            from_ts: window.currentXAxisRange ? Math.floor(window.currentXAxisRange[0] / 1000) : Math.floor((Date.now() - 30 * 86400 * 1000) / 1000),
+            to_ts: window.currentXAxisRange ? Math.floor(window.currentXAxisRange[1] / 1000) : Math.floor(Date.now() / 1000)
+        }
+    });
 
     // Save settings if function exists
     if (typeof saveSettings === 'function') {
         saveSettings();
+    }
+}
+
+// Process and store trade history data
+function processTradeHistoryData(tradeHistoryData, symbol = null) {
+    if (!Array.isArray(tradeHistoryData)) {
+        console.error('Combined WebSocket: processTradeHistoryData expects an array');
+        return [];
+    }
+
+    // Use provided symbol or fallback to global symbol
+    const tradeSymbol = symbol || (typeof window.combinedSymbol !== 'undefined' && window.combinedSymbol) || 
+                       (window.symbolSelect ? window.symbolSelect.value : 'UNKNOWN');
+
+    console.log('📊 Combined WebSocket: Raw trade history input:', tradeHistoryData);
+
+    // Validate and normalize trade data
+    const processedTrades = tradeHistoryData.map((trade, index) => {
+        // console.log(`📊 Combined WebSocket: Processing trade ${index}:`, trade);
+
+        // Handle both array and object formats
+        if (Array.isArray(trade)) {
+            // Convert array format [price, amount, timestamp, side] to object
+            const processed = {
+                price: parseFloat(trade[0] || trade.price),
+                amount: parseFloat(trade[1] || trade.amount || trade.qty),
+                timestamp: isNaN(trade[2]) ? new Date(trade.timestamp || trade.time).getTime() / 1000 : trade[2],
+                side: (trade[3] || trade.side || '').toUpperCase(),
+                symbol: tradeSymbol
+            };
+            console.log(`📊 Combined WebSocket: Trade ${index} (array format) -> processed:`, processed);
+            return processed;
+        } else {
+            // Already object format
+            const processed = {
+                price: parseFloat(trade.price || trade.p),
+                amount: parseFloat(trade.amount || trade.qty || trade.q || trade.quantity || trade.size || 0),
+                timestamp: isNaN(trade.timestamp) ? new Date(trade.timestamp || trade.time).getTime() / 1000 : trade.timestamp,
+                side: (trade.side || trade.s || '').toUpperCase(),
+                symbol: tradeSymbol
+            };
+            // console.log(`📊 Combined WebSocket: Trade ${index} (object format) -> processed:`, processed);
+            return processed;
+        }
+    }).filter((trade, index) => {
+        // Filter out invalid trades with detailed logging
+        const checks = [
+            { condition: trade.price > 0, description: `price > 0 (${trade.price})` },
+            { condition: trade.amount > 0, description: `amount > 0 (${trade.amount})` },
+            { condition: !isNaN(trade.timestamp), description: `!isNaN(timestamp) (${trade.timestamp})` },
+            { condition: trade.timestamp > 0, description: `timestamp > 0 (${trade.timestamp})` },
+            { condition: trade.side === 'BUY' || trade.side === 'SELL', description: `side is BUY/SELL (${trade.side})` }
+        ];
+
+        const allPass = checks.every(check => check.condition);
+        const failedChecks = checks.filter(check => !check.condition).map(check => check.description);
+
+        if (!allPass) {
+            console.warn(`📊 Combined WebSocket: Trade ${index} FAILED validation:`, {
+                trade: trade,
+                failedChecks: failedChecks,
+                passedChecks: checks.filter(check => check.condition).map(check => check.description)
+            });
+        } else {
+            // console.log(`📊 Combined WebSocket: Trade ${index} PASSED validation:`, trade);
+        }
+
+        return allPass;
+    });
+
+    console.log(`📊 Combined WebSocket: Processed ${processedTrades.length} valid trades out of ${tradeHistoryData.length} total`);
+
+    return processedTrades;
+}
+
+// Make function globally available for use in other modules
+window.processTradeHistoryData = processTradeHistoryData;
+
+function updateChartShapes(drawings, symbol) {
+    const chartElement = document.getElementById('chart');
+    if (!chartElement || !window.gd) {
+        console.warn('Combined WebSocket: Chart not ready for drawings update');
+        return;
+    }
+
+    // Ensure layout.shapes exists
+    if (!window.gd.layout.shapes) {
+        window.gd.layout.shapes = [];
+    }
+
+    console.log(`🎨 Updating chart with ${drawings.length} drawings for ${symbol}`);
+
+    // Process each drawing
+    drawings.forEach((drawing, index) => {
+        try {
+            // Convert drawing data to Plotly shape format
+            const shape = convertDrawingToShape(drawing);
+
+            if (shape) {
+                // Check if shape already exists (by id)
+                const existingIndex = window.gd.layout.shapes.findIndex(s => s.id === drawing.id);
+
+                if (existingIndex !== -1) {
+                    // Update existing shape
+                    window.gd.layout.shapes[existingIndex] = shape;
+                } else {
+                    // Add new shape
+                    window.gd.layout.shapes.push(shape);
+                }
+            } else {
+                console.warn(`Combined WebSocket: Could not convert drawing to shape:`, drawing);
+            }
+        } catch (error) {
+            console.error(`Combined WebSocket: Error processing drawing ${index}:`, error, drawing);
+        }
+    });
+
+    // Update the chart with new shapes - ensure shapes are preserved during chart updates
+    try {
+        // First, ensure the layout has a shapes array
+        if (!window.gd.layout.shapes) {
+            window.gd.layout.shapes = [];
+        }
+
+        // Update the chart with shapes using relayout to preserve existing data
+        Plotly.relayout(chartElement, {
+            shapes: window.gd.layout.shapes
+        });
+        console.log(`🎨 Successfully updated chart with shapes
+
+        `);
+    } catch (error) {
+        console.error('❌ Error updating shapes:', error);
     }
 }

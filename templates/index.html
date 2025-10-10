@@ -10,6 +10,10 @@
         // Set the initial symbol from the server (defaults to BTCUSDT if not provided)
         window.initialSymbol = "{{ symbol|default('BTCUSDT') }}";
         console.log('[Template] Initial symbol set to:', window.initialSymbol);
+
+        // Set the user email for WebSocket authentication
+        window.userEmail = "{{ request.session.email or '' }}";
+        console.log('[Template] User email set to:', window.userEmail);
     </script>
     <style>
         * {
@@ -95,6 +99,14 @@
                 opacity: 1;
                 background-color: #0056b3;
             }
+        }
+
+        /* Hide Plotly modebar since we use custom toolbar */
+        .js-plotly-plot .modebar {
+            position: absolute !important;
+            left: -9999px !important;
+            top: -9999px !important;
+            visibility: hidden !important;
         }
 
         /* Custom Toolbar Styles */
@@ -384,18 +396,27 @@
   <div>
     <strong>Pair:</strong>
     <select id="symbol-select">
+      {% for symbol in supported_symbols %}
+      <option value="{{ symbol }}">{{ symbol }}</option>
+      {% endfor %}
     </select>
   </div>
 
   <div>
     <strong>Time Scale:</strong>
     <select id="resolution-select">
+      {% for resolution in supported_resolutions %}
+      <option value="{{ resolution }}">{{ resolution }}</option>
+      {% endfor %}
     </select>
   </div>
 
   <div>
     <strong>Time Range:</strong>
     <select id="range-select">
+      {% for range_option in supported_ranges %}
+      <option value="{{ range_option.value }}">{{ range_option.label }}</option>
+      {% endfor %}
     </select>
   </div>
 

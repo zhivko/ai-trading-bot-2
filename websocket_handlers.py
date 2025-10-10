@@ -11,7 +11,7 @@ import httpx
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 from pybit.unified_trading import WebSocket as BybitWS
-from config import SUPPORTED_SYMBOLS, DEFAULT_SYMBOL_SETTINGS, AVAILABLE_INDICATORS, SUPPORTED_EXCHANGES
+from config import SUPPORTED_SYMBOLS, DEFAULT_SYMBOL_SETTINGS, AVAILABLE_INDICATORS, SUPPORTED_EXCHANGES, REDIS_LAST_SELECTED_SYMBOL_KEY
 from redis_utils import get_redis_connection, publish_live_data_tick, get_cached_klines, get_cached_open_interest, get_stream_key, get_sync_redis_connection
 from logging_config import logger
 from indicators import _prepare_dataframe, calculate_macd, calculate_rsi, calculate_stoch_rsi, calculate_open_interest, calculate_jma_indicator, calculate_cto_line, get_timeframe_seconds, find_buy_signals
@@ -1489,229 +1489,92 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
                     await websocket.send_json({"type": "pong"})
                     continue
 
-                elif message_type in ["init", "config"]:
-                    # Handle initialization/config message
-                    logger.info(f"🔧 Processing {message_type} message for symbol {active_symbol}")
-                    client_state["indicators"] = message.get("indicators", [])
-                    client_state["resolution"] = message.get("resolution", "1h")
 
-                    # Convert timestamp strings to integers (seconds since epoch)
-                    from_ts_val = message.get("from_ts")
-                    to_ts_val = message.get("to_ts")
-                    logger.debug(f"Raw timestamps: from_ts={from_ts_val}, to_ts={to_ts_val}")
+                elif message_type == "history":
+                    # Handle history request from client
+                    symbol = message.get("data", {}).get("symbol", active_symbol)
+                    email = message.get("data", {}).get("email")
+                    min_value_percentage = message.get("data", {}).get("minValuePercentage", 0)
 
-                    # Convert from_ts
-                    if isinstance(from_ts_val, str):
-                        try:
-                            client_state["from_ts"] = int(datetime.fromisoformat(from_ts_val.replace('Z', '+00:00')).timestamp())
-                        except (ValueError, AttributeError) as e:
-                            logger.error(f"Failed to parse from_ts '{from_ts_val}': {e}")
-                            client_state["from_ts"] = None
-                    elif isinstance(from_ts_val, (int, float)):
-                        client_state["from_ts"] = int(from_ts_val)
-                    else:
-                        client_state["from_ts"] = None
-
-                    # Convert to_ts
-                    if isinstance(to_ts_val, str):
-                        try:
-                            client_state["to_ts"] = int(datetime.fromisoformat(to_ts_val.replace('Z', '+00:00')).timestamp())
-                        except (ValueError, AttributeError) as e:
-                            logger.error(f"Failed to parse to_ts '{to_ts_val}': {e}")
-                            client_state["to_ts"] = None
-                    elif isinstance(to_ts_val, (int, float)):
-                        client_state["to_ts"] = int(to_ts_val)
-                    else:
-                        client_state["to_ts"] = None
-
-                    logger.info(f"Client initialization: indicators={client_state['indicators']}, resolution={client_state['resolution']}, from_ts={client_state['from_ts']}, to_ts={client_state['to_ts']}")
-
-                    logger.info(f"DEBUG CONFIG: Parsed timestamps - from_ts={client_state['from_ts']}, to_ts={client_state['to_ts']}")
-
-                    # Load settings from Redis and update stream delta
-                    try:
-                        redis_conn = await get_redis_connection()
-                        settings_key = f"settings:{active_symbol}"
-                        settings_json = await redis_conn.get(settings_key)
-                        logger.info(f"DEBUG CONFIG: Redis settings key '{settings_key}' - data exists: {settings_json is not None}")
-                        if settings_json:
-                            symbol_settings = json.loads(settings_json)
-                            client_state["stream_delta_seconds"] = int(symbol_settings.get('streamDeltaTime', 1))
-                            logger.info(f"Updated stream delta from settings: {client_state['stream_delta_seconds']} seconds")
-                        client_state["last_settings_check_timestamp"] = time.time()
-                    except Exception as e:
-                        logger.error(f"Error loading settings for {active_symbol}: {e}")
-
-                    logger.info(f"DEBUG CONFIG: About to call send_historical_data() for {active_symbol}")
-
-                    # Always send historical data when receiving init/config messages,
-                    # as the user may have changed from_ts/to_ts/indicators/resolution
-                    historical_result = await send_historical_data()
-                    logger.info(f"DEBUG CONFIG: send_historical_data() returned {historical_result}")
-                    client_state["historical_sent"] = True  # Mark as sent
-
-                    logger.info(f"DEBUG CONFIG: About to fetch trade history")
-
-                    # Send trade history for initialization
-                    try:
-                        trade_history = await fetch_recent_trade_history(active_symbol, client_state["from_ts"], client_state["to_ts"])
-                        trade_count = len(trade_history) if trade_history else 0
-                        logger.info(f"DEBUG CONFIG: trade_history result: {trade_count} trades")
-
-                        if trade_history and len(trade_history) > 0:
-                            trade_message = {
-                                "type": "trade_history",
-                                "symbol": active_symbol,
-                                "data": trade_history,
-                                "timestamp": int(time.time())
-                            }
-                            logger.info(f"DEBUG CONFIG: Sending trade_history message with {len(trade_history)} trades")
-                            await send_to_client(trade_message)
-                            logger.info(f"✅ Sent {len(trade_history)} trade history records for {active_symbol}")
-                        else:
-                            logger.info(f"DEBUG CONFIG: No trade history available for {active_symbol}")
-                    except Exception as e:
-                        logger.warning(f"Failed to send trade history for {active_symbol}: {e}")
-
-                    logger.info(f"DEBUG CONFIG: Enabling live mode and sending 'ready' message")
-
-                    # Enable live mode after initialization
-                    client_state["live_mode"] = True
-                    await websocket.send_json({"type": "ready"})
-
-                    logger.info(f"DEBUG CONFIG: Starting live streaming")
-
-                    # Start live streaming when live mode is enabled
-                    start_live_streaming()
-
-                    logger.info(f"DEBUG CONFIG: {message_type} message processing completed for {active_symbol}")
-
-                elif message_type == "update_symbol":
-                    # Handle symbol change
-                    new_symbol = message.get("symbol")
-                    if new_symbol and new_symbol in SUPPORTED_SYMBOLS:
-                        old_symbol = active_symbol
-                        active_symbol = new_symbol
-                        last_active_symbol = new_symbol
-
-                        # Reset client state for new symbol
-                        client_state["historical_sent"] = False
-                        client_state["last_sent_timestamp"] = 0.0  # Reset timestamp for new symbol
-
-                        # Update Redis registration
-                        try:
-                            redis_conn = await get_redis_connection()
-                            await redis_conn.hset(client_id, "symbol", str(active_symbol))
-                            await redis_conn.hset(client_id, "last_update", str(time.time()))
-                        except Exception as e:
-                            logger.error(f"Failed to update Redis registration for new symbol: {e}")
-
-                        logger.info(f"Symbol changed to {active_symbol}")
-
-                        # Load settings for new symbol
-                        try:
-                            redis_conn = await get_redis_connection()
-                            settings_key = f"settings:{active_symbol}"
-                            settings_json = await redis_conn.get(settings_key)
-                            if settings_json:
-                                symbol_settings = json.loads(settings_json)
-                                client_state["stream_delta_seconds"] = int(symbol_settings.get('streamDeltaTime', 1))
-                                logger.info(f"Updated stream delta for new symbol: {client_state['stream_delta_seconds']} seconds")
-                        except Exception as e:
-                            logger.error(f"Error loading settings for new symbol {active_symbol}: {e}")
-
-                        # Restart live streaming for new symbol
-                        if live_stream_task and not live_stream_task.done():
-                            live_stream_task.cancel()
-                            try:
-                                await live_stream_task
-                            except asyncio.CancelledError:
-                                pass
-
-                        if client_state["live_mode"]:
-                            start_live_streaming()
-
-                        await websocket.send_json({"type": "symbol_updated", "symbol": active_symbol})
-                    else:
-                        logger.warning(f"Invalid symbol change request: {new_symbol}")
-                        await websocket.send_json({"type": "error", "message": f"Invalid symbol: {new_symbol}"})
-
-                elif message_type == "get_volume_profile":
-                    # Handle volume profile calculation request from client
-                    rectangle_id = message.get("rectangle_id")
-                    rectangle_symbol = message.get("symbol", active_symbol)
-                    resolution = message.get("resolution", client_state.get("resolution", "1h"))
-
-                    logger.info(f"Processing get_volume_profile request for rectangle {rectangle_id}, symbol {rectangle_symbol}")
+                    logger.info(f"Processing history request for symbol {symbol}, email {email}, minValuePercentage {min_value_percentage}")
 
                     try:
-                        # Get rectangle data from database
-                        email = None
-                        if hasattr(websocket, 'scope') and 'session' in websocket.scope:
-                            email = websocket.scope['session'].get('email')
+                        # Get current time range from client state
+                        from_ts = client_state.get("from_ts")
+                        to_ts = client_state.get("to_ts")
+                        resolution = client_state.get("resolution", "1h")
+                        indicators = client_state.get("active_indicators", [])
 
-                        # Get drawing data for the rectangle
-                        rectangle_drawings = await get_drawings(rectangle_symbol, rectangle_id, resolution, email)
-
-                        if not rectangle_drawings or len(rectangle_drawings) == 0:
-                            logger.warning(f"No rectangle data found for id {rectangle_id}")
+                        if not from_ts or not to_ts:
+                            logger.warning("No time range specified for history request")
                             continue
 
-                        rect_drawing = rectangle_drawings[0]  # Should be only one
-                        start_time = rect_drawing.get("start_time")
-                        end_time = rect_drawing.get("end_time")
-                        start_price = rect_drawing.get("start_price")
-                        end_price = rect_drawing.get("end_price")
+                        # Fetch historical klines
+                        klines = await get_cached_klines(symbol, resolution, from_ts, to_ts)
+                        logger.info(f"Fetched {len(klines) if klines else 0} klines for history")
 
-                        if not all([start_time, end_time, start_price is not None, end_price is not None]):
-                            logger.warning(f"Incomplete rectangle data for drawing {rectangle_id}")
-                            continue
+                        # Calculate indicators
+                        indicators_data = await calculate_indicators_for_data(klines, indicators)
+                        logger.info(f"Calculated indicators: {list(indicators_data.keys()) if indicators_data else 'none'}")
 
-                        price_min = min(float(start_price), float(end_price))
-                        price_max = max(float(start_price), float(end_price))
+                        # Fetch and filter trades based on min value percentage
+                        trades = await fetch_recent_trade_history(symbol, from_ts, to_ts)
+                        if trades and len(trades) > 0 and min_value_percentage > 0:
+                            # Calculate max trade value for filtering
+                            trade_values = [trade['price'] * trade['quantity'] for trade in trades if 'price' in trade and 'quantity' in trade]
+                            if trade_values:
+                                max_trade_value = max(trade_values)
+                                min_volume = min_value_percentage * max_trade_value
+                                trades = [trade for trade in trades if (trade.get('price', 0) * trade.get('quantity', 0)) >= min_volume]
+                                logger.info(f"Filtered trades: {len(trades)} remain after filtering with {min_value_percentage*100}% min value")
 
-                        # Fetch klines for this rectangle's time range
-                        rect_klines = await get_cached_klines(rectangle_symbol, resolution, start_time, end_time)
-                        logger.debug(f"Fetched {len(rect_klines)} klines for rectangle {rectangle_id} time range")
+                        # Prepare combined data
+                        combined_data = []
+                        if klines:
+                            for kline in klines:
+                                data_point = {
+                                    "time": kline["time"],
+                                    "ohlc": {
+                                        "open": kline["open"],
+                                        "high": kline["high"],
+                                        "low": kline["low"],
+                                        "close": kline["close"],
+                                        "volume": kline["vol"]
+                                    },
+                                    "indicators": {}
+                                }
 
-                        if not rect_klines:
-                            logger.warning(f"No klines available for rectangle {rectangle_id}")
-                            continue
+                                # Add indicator values for this timestamp
+                                for indicator_id, indicator_values in indicators_data.items():
+                                    if "t" in indicator_values and kline["time"] in indicator_values["t"]:
+                                        idx = indicator_values["t"].index(kline["time"])
+                                        temp_indicator = {}
+                                        for key, values in indicator_values.items():
+                                            if key != "t" and idx < len(values):
+                                                temp_indicator[key] = values[idx]
+                                        if temp_indicator:
+                                            data_point["indicators"][indicator_id] = temp_indicator
 
-                        # Filter klines that intersect with the rectangle's price range
-                        filtered_klines = [
-                            k for k in rect_klines
-                            if k.get('high', 0) >= price_min and k.get('low', 0) <= price_max
-                        ]
-                        logger.debug(f"Filtered to {len(filtered_klines)} klines within price range [{price_min}, {price_max}] for rectangle {rectangle_id}")
+                                combined_data.append(data_point)
 
-                        if not filtered_klines:
-                            logger.warning(f"No klines within price range for rectangle {rectangle_id}")
-                            continue
-
-                        # Calculate volume profile for the filtered data
-                        volume_profile_data = calculate_volume_profile(filtered_klines)
-                        logger.info(f"Calculated volume profile for rectangle {rectangle_id} with {len(volume_profile_data.get('volume_profile', []))} price levels")
-
-                        # Send volume profile data for this rectangle
+                        # Send history_success message
                         await send_to_client({
-                            "type": "volume_profile",
-                            "symbol": rectangle_symbol,
-                            "rectangle_id": rectangle_id,
-                            "rectangle": {
-                                "start_time": start_time,
-                                "end_time": end_time,
-                                "start_price": start_price,
-                                "end_price": end_price
+                            "type": "history_success",
+                            "symbol": symbol,
+                            "email": email,
+                            "data": {
+                                "ohlcv": combined_data,
+                                "trades": trades or [],
+                                "indicators": list(indicators_data.keys())
                             },
-                            "data": volume_profile_data,
                             "timestamp": int(time.time())
                         })
-                        logger.debug(f"Sent volume profile for rectangle {rectangle_id}")
+                        logger.info(f"Sent history_success with {len(combined_data)} OHLCV points and {len(trades) if trades else 0} trades")
 
                     except Exception as e:
-                        logger.error(f"Failed to process get_volume_profile request for rectangle {rectangle_id}: {e}")
+                        logger.error(f"Failed to process history request: {e}")
                         continue
+
 
             except asyncio.TimeoutError:
                 # No message within timeout, just continue
