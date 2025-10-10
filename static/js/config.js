@@ -44,7 +44,7 @@ const config = {
     scrollZoom: true, // Keep scroll zoom enabled for mouse wheel zooming
     displaylogo: false, // Hide Plotly logo to save space
     showTips: false, // Disable tips that might interfere on mobile
-    editable: false,
+    editable: true,
     autosize: true, // Keep autosize for responsive behavior, but grid rowheights should take precedence
     dragmode: 'pan', // Set default dragmode to pan for chart navigation
     edits: {

@@ -2076,38 +2076,34 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('[TOOLBAR] Attempting to trigger line drawing mode');
 
                 // Try to find and click the modebar drawline button programmatically
-                const allModebarButtons = document.querySelectorAll('.modebar-btn');
-                console.log('[TOOLBAR] All modebar buttons found:', allModebarButtons.length);
-                allModebarButtons.forEach((btn, index) => {
-                    console.log(`[TOOLBAR] Modebar button ${index}:`, btn.getAttribute('data-title'), btn.getAttribute('data-attr'), btn.className);
+                const allModebarButtons2 = document.querySelectorAll('.modebar-btn');
+                console.log('[TOOLBAR] All modebar buttons found for line:', allModebarButtons2.length);
+                allModebarButtons2.forEach((btn, index) => {
+                    console.log(`[TOOLBAR] Modebar button ${index} for line:`, btn.getAttribute('data-title'), btn.getAttribute('data-attr'), btn.className);
                 });
 
-                const modebarButtons = document.querySelectorAll('.modebar-btn[data-title*="line"], .modebar-btn[data-attr="drawline"], .modebar-btn[data-val="drawline"]');
-                console.log('[TOOLBAR] Found modebar line buttons:', modebarButtons.length);
+                const modebarButtons2 = document.querySelectorAll('.modebar-btn[data-title*="line"], .modebar-btn[data-attr="drawline"], .modebar-btn[data-val="drawline"]');
+                console.log('[TOOLBAR] Found modebar line buttons:', modebarButtons2.length);
 
-                if (modebarButtons.length > 0) {
+                if (modebarButtons2.length > 0) {
                     console.log('[TOOLBAR] Clicking modebar line button');
-                    modebarButtons[0].click();
+                    modebarButtons2[0].click();
+                    console.log('[TOOLBAR] Layout after clicking modebar line button:', JSON.stringify(window.gd.layout, null, 2));
                 } else {
-                    console.log('[TOOLBAR] No modebar line button found, trying alternative approach');
-
-                    // Alternative: Try setting up drawing programmatically
-                    Plotly.relayout(window.gd, {
+                    console.log('[TOOLBAR] No modebar line button found, trying programmatic approach');
+                    // Programmatic approach as fallback
+                    Plotly.update(window.gd, {}, {
                         newshape: {
                             type: 'line',
                             line: { color: DEFAULT_DRAWING_COLOR, width: 2 },
                             layer: 'above'
-                        }
+                        },
+                        dragmode: 'drawline'
                     }).then(() => {
-                        console.log('[TOOLBAR] Newshape set for line');
-
-                        Plotly.relayout(window.gd, { dragmode: 'draw' }).then(() => {
-                            console.log('[TOOLBAR] Dragmode set to draw for line, final dragmode:', window.gd.layout.dragmode);
-                        }).catch((error) => {
-                            console.error('[TOOLBAR] Failed to set dragmode to draw for line:', error);
-                        });
+                        console.log('[TOOLBAR] Newshape and dragmode set for line, final dragmode:', window.gd.layout.dragmode);
+                        console.log('[TOOLBAR] Layout after line button click:', JSON.stringify(window.gd.layout, null, 2));
                     }).catch((error) => {
-                        console.error('[TOOLBAR] Failed to set newshape for line:', error);
+                        console.error('[TOOLBAR] Failed to set newshape and dragmode for line:', error);
                     });
                 }
 
@@ -2144,31 +2140,24 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (modebarButtons.length > 0) {
                     console.log('[TOOLBAR] Clicking modebar rect button');
                     modebarButtons[0].click();
+                    console.log('[TOOLBAR] Layout after clicking modebar rect button:', JSON.stringify(window.gd.layout, null, 2));
                 } else {
-                    console.log('[TOOLBAR] No modebar rect button found, trying alternative approach');
-
-                    // Alternative: Try setting up drawing programmatically
-                    // First ensure newshape is set
-                    Plotly.relayout(window.gd, {
+                    console.log('[TOOLBAR] No modebar rect button found, trying programmatic approach');
+                    // Programmatic approach as fallback
+                    Plotly.update(window.gd, {}, {
                         newshape: {
                             type: 'rect',
                             line: { color: DEFAULT_DRAWING_COLOR, width: 2 },
                             fillcolor: 'rgba(0, 0, 255, 0.1)',
                             opacity: 0.5,
                             layer: 'above'
-                        }
+                        },
+                        dragmode: 'drawrect'
                     }).then(() => {
-                        console.log('[TOOLBAR] Newshape set for rectangle');
-
-                        // Try to enable drawing by setting dragmode to something that might work
-                        // Some versions of Plotly use 'draw' as dragmode
-                        Plotly.relayout(window.gd, { dragmode: 'draw' }).then(() => {
-                            console.log('[TOOLBAR] Dragmode set to draw, final dragmode:', window.gd.layout.dragmode);
-                        }).catch((error) => {
-                            console.error('[TOOLBAR] Failed to set dragmode to draw:', error);
-                        });
+                        console.log('[TOOLBAR] Newshape and dragmode set for rectangle, final dragmode:', window.gd.layout.dragmode);
+                        console.log('[TOOLBAR] Layout after rectangle button click:', JSON.stringify(window.gd.layout, null, 2));
                     }).catch((error) => {
-                        console.error('[TOOLBAR] Failed to set newshape:', error);
+                        console.error('[TOOLBAR] Failed to set newshape and dragmode for rectangle:', error);
                     });
                 }
 
