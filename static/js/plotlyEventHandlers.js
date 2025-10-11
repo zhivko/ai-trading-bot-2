@@ -232,8 +232,10 @@ function initializePlotlyEventHandlers(gd) {
 
     let shapeDragEndTimer = null;
     let settingsSaveTimer = null;
+    let panTimer = null; // Timer for pan events like trade filter timer
     const DEBOUNCE_DELAY = 500; // ms
     const SETTINGS_SAVE_DEBOUNCE_DELAY = 3000; // 3 seconds for settings save during chart resize
+    const PAN_TIMER_DELAY = 2000; // 2 seconds for pan timer
 
     gd.on('plotly_relayouting', function(eventData) {
         // Clean up duplicate drag helpers that might interfere with dragging
@@ -722,6 +724,7 @@ function debouncedSaveSettingsForResize() {
     }, SETTINGS_SAVE_DEBOUNCE_DELAY);
 }
 
+        // Pan timer logic like trade filter timer
         if (xRangesChangedByEvent && userModifiedRanges) {
             debouncedSaveSettingsForResize(); // Debounced settings save for chart resize events
 
@@ -733,11 +736,15 @@ function debouncedSaveSettingsForResize() {
                 Plotly.react(window.gd, [], window.gd.layout || {});
             }
 
-            // Debounce chart update if ranges were changed by user panning/zooming,
-            // or if autorange occurred (which means we need to reload based on dropdowns)
-            clearTimeout(window.fetchDataDebounceTimer); // fetchDataDebounceTimer from state.js
-            window.fetchDataDebounceTimer = delay(DEBOUNCE_DELAY).then(() => {
-                // Update combined WebSocket with new time range
+            // Reset pan timer on each pan event (like trade filter timer)
+            clearTimeout(panTimer);
+            panTimer = setTimeout(() => {
+                // Only trigger config when timer reaches 0 (2 seconds)
+                triggerPanConfigUpdate();
+            }, PAN_TIMER_DELAY);
+
+            // Function to trigger the actual config update when pan timer expires
+            function triggerPanConfigUpdate() {
                 const symbol = window.symbolSelect ? window.symbolSelect.value : null;
                 const resolution = window.resolutionSelect ? window.resolutionSelect.value : '1h';
                 if (symbol && resolution && window.currentXAxisRange) {
@@ -784,7 +791,7 @@ function debouncedSaveSettingsForResize() {
                         }
                     }
                 }
-            }); // FETCH_DEBOUNCE_DELAY from config.js
+            }
         } else if ((xRangesChangedByEvent || yRangesChangedByEvent) && !userModifiedRanges) {
             // Don't save settings for programmatic changes
         }
