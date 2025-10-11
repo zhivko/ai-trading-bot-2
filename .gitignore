@@ -17,8 +17,8 @@ CERs/*.*
 data/*.*
 .gemini
 .env
-*.log
 /node_modules
 /logs/trading_view.log
 /puppeteer_*.*
 **/__pycache__
+/logs/*.*
