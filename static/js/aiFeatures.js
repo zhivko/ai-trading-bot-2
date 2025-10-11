@@ -151,6 +151,6 @@ function initializeAIFeatures() {
     window.useLocalOllamaCheckbox.addEventListener('change', function() {
         window.localOllamaModelDiv.style.display = this.checked ? 'block' : 'none'; // Assumes localOllamaModelDiv is global
         if (this.checked) fetchAndPopulateLocalOllamaModels();
-        // saveSettings(); // saveSettings might be called from main.js event listener
+        saveSettingsInner(); // saveSettings might be called from main.js event listener
     });
 }

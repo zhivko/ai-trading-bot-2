@@ -1399,6 +1399,30 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
     # Task for streaming live data concurrently with message handling
     live_stream_task = None
 
+    # Start live streaming by default for all clients
+    start_live_streaming()
+
+    # Auto-send initial live price from Redis if available
+    try:
+        redis_conn = await get_redis_connection()
+        live_price_key = f"live:{active_symbol}"
+        price_str = await redis_conn.get(live_price_key)
+        if price_str:
+            live_price = float(price_str)
+            live_data = {
+                "type": "live",
+                "symbol": active_symbol,
+                "data": {
+                    "live_price": live_price,
+                    "time": int(time.time())
+                }
+            }
+            await send_to_client(live_data)
+            client_state["last_sent_live_price"] = live_price
+            logger.info(f"Sent initial live price update for {active_symbol}: {live_price}")
+    except Exception as e:
+        logger.warning(f"Failed to send initial live price for {active_symbol}: {e}")
+
     def start_live_streaming():
         """Start live data streaming task when live_mode is enabled."""
         async def live_stream_worker():

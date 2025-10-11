@@ -291,9 +291,9 @@ function handleSettingsResponse(message) {
         window.currentStreamDeltaTime = 0; // Update global state
     }
 
-    // Load min volume filter
-    if (typeof settings.minVolumeFilter === 'number' && window.minValueSlider && window.minValueDisplay) {
-        window.minValueSlider.value = settings.minVolumeFilter;
+    // Load min value filter
+    if (typeof settings.minValueFilter === 'number' && window.minValueSlider && window.minValueDisplay) {
+        window.minValueSlider.value = settings.minValueFilter;
         updateMinValueDisplay(); // Use percentage display function
     } else if (window.minValueSlider && window.minValueDisplay) { // Default if not in settings
         window.minValueSlider.value = 0; // Default value - show all trades
@@ -414,11 +414,11 @@ async function saveSettingsInner() {
     // Include the last selected symbol in settings
     settings.last_selected_symbol = currentSymbol;
 
-    // Include min volume filter setting
+    // Include min value filter setting
     if (window.minValueSlider && window.minValueSlider.value !== undefined) {
-        settings.minVolumeFilter = parseFloat(window.minValueSlider.value);
+        settings.minValueFilter = parseFloat(window.minValueSlider.value);
     } else {
-        settings.minVolumeFilter = 0; // Default to showing all trades
+        settings.minValueFilter = 0; // Default to showing all trades
     }
 
     // Include user email for authentication - use from global state set by init_success

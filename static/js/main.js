@@ -34,6 +34,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.minValueSlider = document.getElementById('min-value-slider');
     window.minValueDisplay = document.getElementById('min-volume-value');
 
+    // Timer for debouncing min value changes
+    window.minValueChangeTimeout = null;
+
 // Initialize trade filter slider to 0 by default to show all trades
     if (window.minValueSlider) {
         // Set slider properties for percentage-based filtering (0-1 range, 0.1 steps)
@@ -307,7 +310,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
         if (window.isProgrammaticallySetting == false)
-            saveSettings(); // Save the resolution change to Redis
+            saveSettingsInner(); // Save the resolution change to Redis immediately
     }); // Replaced .onchange with addEventListener('change',...)
     window.rangeSelect.addEventListener('change', () => {
         if (window.isProgrammaticallySetting) return;
@@ -387,7 +390,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
             }
         }
-        saveSettings(); // Save the range change to Redis
+        saveSettingsInner(); // Save the range change to Redis immediately
     }); // Replaced .onchange with addEventListener('change',...)
 
 
@@ -396,7 +399,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         checkbox.addEventListener('change', () => {
             if (window.isProgrammaticallySetting === true) return;
 
-            saveSettings();
+            saveSettingsInner();
 
             // Update combined WebSocket with new indicators
             const symbol = window.symbolSelect.value;
@@ -437,7 +440,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('showAgentTradesCheckbox').addEventListener('change', () => {
         if (window.isProgrammaticallySetting) return;
 
-        saveSettings();
+        saveSettingsInner();
         // Agent trades will be handled by the combined WebSocket when data is refreshed
         const symbol = window.symbolSelect.value;
         const resolution = window.resolutionSelect.value;
@@ -679,24 +682,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Add event listeners for replay controls and Ollama settings to save settings on change
     document.getElementById('replay-from').addEventListener('change', () => {
         if (window.isProgrammaticallySetting) return;
-        saveSettings();
+        saveSettingsInner();
     });
     document.getElementById('replay-to').addEventListener('change', () => {
         if (window.isProgrammaticallySetting) return;
-        saveSettings();
+        saveSettingsInner();
     });
     document.getElementById('replay-speed').addEventListener('input', () => {
         if (window.isProgrammaticallySetting) return;
-        saveSettings();
+        saveSettingsInner();
     });
     window.useLocalOllamaCheckbox.addEventListener('change', () => { // Already has a listener in aiFeatures.js, ensure saveSettings is also called
         if (window.isProgrammaticallySetting) return;
 
-        saveSettings(); // Call saveSettings from settingsManager.js
+        saveSettingsInner(); // Call saveSettings from settingsManager.js
     });
     window.localOllamaModelSelect.addEventListener('change', () => {
         if (window.isProgrammaticallySetting) return;
-        saveSettings();
+        saveSettingsInner();
     });
 
     // Stream delta slider event listener
@@ -707,7 +710,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Update the display value
             window.streamDeltaValueDisplay.textContent = window.streamDeltaSlider.value;
             // Save settings when slider value changes
-            saveSettings();
+            saveSettingsInner();
         });
     }
 
@@ -719,7 +722,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Update the display value
             window.minValueDisplay.textContent = window.minValueSlider.value;
             // Save settings when slider value changes
-            saveSettings();
+            saveSettingsInner();
         });
     }
 
@@ -727,13 +730,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (window.showVolumeProfileCheckbox && !window.tradeHistoryInitialized) {
         window.showVolumeProfileCheckbox.addEventListener('change', () => {
             if (window.isProgrammaticallySetting) return;
-            saveSettings();
+            saveSettingsInner();
         });
     }
     if (window.showTradeMarkersCheckbox && !window.tradeHistoryInitialized) {
         window.showTradeMarkersCheckbox.addEventListener('change', () => {
             if (window.isProgrammaticallySetting) return;
-            saveSettings();
+            saveSettingsInner();
         });
     }
 
@@ -937,6 +940,12 @@ function applySettingsToUI(settings, symbol, email) {
         window.showTradeMarkersCheckbox.checked = settings.showTradeMarkers;
     }
 
+    // Apply trade filter settings
+    if (settings.minValueFilter !== undefined && window.minValueSlider) {
+        window.minValueSlider.value = settings.minValueFilter;
+        updateMinValueDisplay();
+    }
+
     console.log('📊 Settings applied successfully to UI components');
 
     window.isProgrammaticallySetting = false;
@@ -1045,6 +1054,28 @@ function handleTradeHistorySuccess(message) {
     const data = message.data || {};
     window.tradeHistoryData = data.trades || [];
 
+    // Remove all existing trade markers before adding new ones
+    if (window.gd && window.gd.data) {
+        // Remove trade traces
+        window.gd.data = window.gd.data.filter(trace =>
+            trace.name !== 'Buy Trades' && trace.name !== 'Sell Trades'
+        );
+    }
+
+    // Remove trade shapes
+    if (window.gd && window.gd.layout && window.gd.layout.shapes) {
+        window.gd.layout.shapes = window.gd.layout.shapes.filter(shape =>
+            !shape.name || !shape.name.startsWith('trade_')
+        );
+    }
+
+    // Remove trade annotations
+    if (window.gd && window.gd.layout && window.gd.layout.annotations) {
+        window.gd.layout.annotations = window.gd.layout.annotations.filter(ann =>
+            !ann.name || !ann.name.startsWith('trade_annotation_')
+        );
+    }
+
     // Update trade visualizations
     if (window.addTradeHistoryMarkersToChart) {
         const symbol = message.symbol || window.symbolSelect.value;
@@ -1092,6 +1123,40 @@ function handleLiveData(message) {
             window.updateRealtimePriceLine(livePrice, message.symbol || 'UNKNOWN');
         }
     }
+}
+
+// Create a wrapper function for updateRealtimePriceLine that provides appropriate parameters
+window.updateRealtimePriceLine = function(price, symbol) {
+    if (!window.gd) {
+        console.warn("[PriceLine] Chart not available for real-time price line update");
+        return;
+    }
+
+    // Calculate candle timing parameters
+    const currentTime = Date.now();
+    const timeframeSeconds = window.resolutionSelect ? getTimeframeSecondsJS(window.resolutionSelect.value) : 3600;
+    const candleStartTimeMs = Math.floor(currentTime / (timeframeSeconds * 1000)) * (timeframeSeconds * 1000);
+    const candleEndTimeMs = candleStartTimeMs + (timeframeSeconds * 1000);
+
+    // Call the actual function with proper parameters
+    if (window.updateOrAddRealtimePriceLine) {
+        window.updateOrAddRealtimePriceLine(window.gd, price, candleStartTimeMs, candleEndTimeMs, true);
+    } else {
+        console.warn("[PriceLine] updateOrAddRealtimePriceLine function not available");
+    }
+};
+
+// Helper function to get timeframe seconds (assuming from combinedData.js or utils.js)
+function getTimeframeSecondsJS(timeframe) {
+    const multipliers = {
+        "1m": 60,
+        "5m": 300,
+        "1h": 3600,
+        "4h": 14400,
+        "1d": 86400,
+        "1w": 604800
+    };
+    return multipliers[timeframe] || 3600;
 }
 
 // Function to update chart with OHLCV and indicators data
@@ -1668,7 +1733,7 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
             }
 
             // Save the new ranges to Redis
-            saveSettings();
+            saveSettingsInner();
             console.log("Autoscale: Settings saved");
 
         } catch (e) {
@@ -2090,11 +2155,17 @@ document.addEventListener('DOMContentLoaded', function() {
             if (window.gd) {
                 console.log('[TOOLBAR] Current dragmode before zoom:', window.gd.layout.dragmode);
                 console.log('[TOOLBAR] Setting dragmode to zoom');
-                Plotly.relayout(window.gd, { dragmode: 'zoom' });
 
-                // Update button states
-                updateToolbarButtonStates('zoom');
-                console.log('[TOOLBAR] Zoom mode activated');
+                Plotly.relayout(window.gd, { dragmode: 'zoom' }).then(function() {
+                    console.log('[TOOLBAR] After relayout - dragmode is:', window.gd.layout.dragmode);
+                    console.log('[TOOLBAR] Chart layout after zoom relayout:', JSON.stringify(window.gd.layout, null, 2));
+
+                    // Update button states
+                    updateToolbarButtonStates('zoom');
+                    console.log('[TOOLBAR] Zoom mode activated - button states updated');
+                }).catch(function(error) {
+                    console.error('[TOOLBAR] Zoom relayout failed:', error);
+                });
             } else {
                 console.log('[TOOLBAR] Chart not ready (window.gd is null)');
             }
@@ -2360,27 +2431,40 @@ function updateMaxValueDisplay() {
 function handleMinValueChange() {
     updateMinValueDisplay();
 
-    const minValueSlider = document.getElementById('min-value-slider');
-    const minPercentage = minValueSlider ? parseFloat(minValueSlider.value) || 0 : 0;
-    const symbol = window.symbolSelect ? window.symbolSelect.value : 'BTCUSDT';
-    const email = window.userEmail || '';
-
-    // Send trade_history message to update filter
-    window.wsAPI.sendMessage({
-        type: 'trade_history',
-        data: {
-            symbol: symbol,
-            email: email,
-            minValuePercentage: minPercentage,
-            from_ts: window.currentXAxisRange ? Math.floor(window.currentXAxisRange[0] / 1000) : Math.floor((Date.now() - 30 * 86400 * 1000) / 1000),
-            to_ts: window.currentXAxisRange ? Math.floor(window.currentXAxisRange[1] / 1000) : Math.floor(Date.now() / 1000)
-        }
-    });
-
-    // Save settings if function exists
-    if (typeof saveSettings === 'function') {
-        saveSettings();
+    // Clear any existing timeout to reset the timer
+    if (window.minValueChangeTimeout) {
+        clearTimeout(window.minValueChangeTimeout);
     }
+
+    // Set a new timeout to send the message after 2 seconds
+    window.minValueChangeTimeout = setTimeout(() => {
+        const minValueSlider = document.getElementById('min-value-slider');
+        const minPercentage = minValueSlider ? parseFloat(minValueSlider.value) || 0 : 0;
+        const symbol = window.symbolSelect ? window.symbolSelect.value : 'BTCUSDT';
+        const email = window.userEmail || '';
+
+        // Send trade_history message to update filter
+        window.wsAPI.sendMessage({
+            type: 'trade_history',
+            data: {
+                symbol: symbol,
+                email: email,
+                minValuePercentage: minPercentage,
+                from_ts: window.currentXAxisRange ? Math.floor(window.currentXAxisRange[0] / 1000) : Math.floor((Date.now() - 30 * 86400 * 1000) / 1000),
+                to_ts: window.currentXAxisRange ? Math.floor(window.currentXAxisRange[1] / 1000) : Math.floor(Date.now() / 1000)
+            }
+        });
+
+        // Reset the timeout
+        window.minValueChangeTimeout = null;
+
+        // Save settings if function exists
+        /*
+        if (typeof saveSettingsInner === 'function') {
+            saveSettingsInner();
+        }
+        */
+    }, 2000); // 2 second delay
 }
 
 // Process and store trade history data

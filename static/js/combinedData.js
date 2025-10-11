@@ -1119,7 +1119,6 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
         // console.error("[PriceLine] Error during shape modification:", e);
     }
 
-    /*
     if (doRelayout) {
         Plotly.relayout(gd, { shapes: gd.layout.shapes, annotations: gd.layout.annotations }).then(() => {
             // Clear the flag after Plotly operation completes
@@ -1138,7 +1137,6 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
             window.ignoreRelayoutEvents = false;
         });
     }
-    */
 }
 
 function removeRealtimePriceLine(gd, doRelayout = false) {
@@ -1375,7 +1373,8 @@ function processMessageQueue() {
                 handleHistoricalData(message);
                 break;
             case 'live':
-                handleLiveData(message);
+                handle_live_message(message);
+                //handleLiveData(message);
                 break;
             case 'live_price':
                 handleLivePriceUpdate(message);
@@ -5115,6 +5114,58 @@ window.addEventListener('resize', function() {
     }
 });
 
+// Handle live price messages with the format:
+// {
+//   "type": "live",
+//   "symbol": "BTCUSDT",
+//   "data": {
+//     "live_price": 110818.2,
+//     "time": 1760213567
+//   }
+// }
+function handle_live_message(message) {
+    console.log('📈 Received live price message:', message);
+
+    if (!message.data || typeof message.data.live_price === 'undefined') {
+        console.warn('⚠️ Invalid live message format - missing data.live_price:', message);
+        return;
+    }
+
+    const livePrice = parseFloat(message.data.live_price);
+    const timestamp = message.data.time;
+    const symbol = message.symbol || 'UNKNOWN';
+
+    if (isNaN(livePrice)) {
+        console.warn('⚠️ Invalid live price value:', message.data.live_price);
+        return;
+    }
+
+    console.log(`💰 Live price update: ${symbol} @ ${livePrice.toFixed(2)} at ${new Date(timestamp * 1000).toLocaleString()}`);
+
+    // Use the existing code to show live price
+    // Create a data point in the format expected by handleRealtimeKlineForCombined
+    const dataPoint = {
+        time: timestamp,
+        price: livePrice,
+        close: livePrice,
+        live_price: livePrice,
+        ohlc: {
+            close: livePrice
+        }
+    };
+
+    // Call the existing function to handle the live price update
+    handleRealtimeKlineForCombined(dataPoint);
+
+    // Also update any UI elements that display the current price
+    if (window.cursorPriceDisplay) {
+        window.cursorPriceDisplay.textContent = livePrice.toFixed(2);
+    }
+}
+
+// Make function globally available
+window.handle_live_message = handle_live_message;
+
 // Display buy signal details when clicked
 function displayBuySignalDetails(signalData) {
 
@@ -5353,10 +5404,10 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
             marker: {
                 symbol: 'triangle-up',
                 size: buySizes,
-                color: 'lime',
+                color: 'rgba(94, 255, 0, 0.4)',
                 line: {
-                    color: 'green',
-                    width: 2
+                    color: 'rgba(94, 255, 0, 0.4)',
+                    width: 1
                 }
             },
             text: buyText,
@@ -5372,7 +5423,7 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
                 <extra></extra>
             `,
             hoverlabel: {
-                bgcolor: 'rgba(0, 100, 0, 0.9)',
+                bgcolor: 'rgba(0, 100, 0, 0.4)',
                 bordercolor: 'lime',
                 font: { color: 'white', size: 11 }
             },
@@ -5447,10 +5498,10 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
             marker: {
                 symbol: 'triangle-down',
                 size: sellSizes,
-                color: 'red',
+                color: 'rgba(255, 0, 0, 0.4)',
                 line: {
-                    color: 'darkred',
-                    width: 2
+                    color: 'rgba(255, 0, 0, 0.4)',
+                    width: 1
                 }
             },
             text: sellText,
@@ -5466,7 +5517,7 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
                 <extra></extra>
             `,
             hoverlabel: {
-                bgcolor: 'rgba(100, 0, 0, 0.9)',
+                bgcolor: 'rgba(100, 0, 0, 0.3)',
                 bordercolor: 'red',
                 font: { color: 'white', size: 11 }
             },

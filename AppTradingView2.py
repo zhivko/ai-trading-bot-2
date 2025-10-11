@@ -22,6 +22,7 @@ import uvicorn
 import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 import tempfile
 import io
 
@@ -231,6 +232,103 @@ async def unified_websocket_endpoint(websocket: WebSocket):
 
     client_id = str(uuid.uuid4())
 
+    # Client state for live streaming
+    client_state = {
+        "current_symbol": None,
+        "live_stream_task": None,
+        "last_sent_live_price": None,
+        "last_sent_timestamp": 0.0,
+        "stream_delta_seconds": 1  # Default, will be updated from settings
+    }
+
+    async def send_live_update(live_price: float, symbol: str):
+        """Send live price update to client if price changed"""
+        try:
+            current_time = time.time()
+
+            # Check if we should send based on throttling
+            if client_state["stream_delta_seconds"] == 0 or (current_time - client_state["last_sent_timestamp"]) >= client_state["stream_delta_seconds"]:
+
+                # Only send if price actually changed
+                if live_price != client_state.get("last_sent_live_price"):
+                    live_data = {
+                        "type": "live",
+                        "symbol": symbol,
+                        "data": {
+                            "live_price": live_price,
+                            "time": int(current_time)
+                        }
+                    }
+                    await websocket.send_json(live_data)
+                    client_state["last_sent_timestamp"] = current_time
+                    client_state["last_sent_live_price"] = live_price
+                    # logger.debug(f"📤 Sent live price update for {symbol}: {live_price}")
+
+        except Exception as e:
+            if websocket.client_state == WebSocketState.CONNECTED:
+                logger.error(f"Error sending live price update for {symbol}: {e}")
+
+    async def start_live_streaming(symbol: str):
+        """Start live price streaming for the given symbol"""
+        # Cancel existing task if symbol changed
+        if client_state["live_stream_task"] is not None:
+            if not client_state["live_stream_task"].done():
+                client_state["live_stream_task"].cancel()
+                try:
+                    await client_state["live_stream_task"]
+                except asyncio.CancelledError:
+                    pass
+
+        client_state["current_symbol"] = symbol
+
+        async def live_stream_worker():
+            """Continuously streams live price updates from Redis"""
+            logger.info(f"Started live streaming task for {symbol} on client {client_id}")
+
+            # Send initial live price if available
+            try:
+                redis_conn = await get_redis_connection()
+                live_price_key = f"live:{symbol}"
+                price_str = await redis_conn.get(live_price_key)
+                if price_str:
+                    live_price = float(price_str)
+                    await send_live_update(live_price, symbol)
+                    logger.info(f"Sent initial live price for {symbol}: {live_price}")
+            except Exception as e:
+                logger.warning(f"Failed to send initial live price for {symbol}: {e}")
+
+            while websocket.client_state == WebSocketState.CONNECTED and client_state["current_symbol"] == symbol:
+                try:
+                    # Get updated stream delta from settings periodically
+                    redis_conn = await get_redis_connection()
+                    session = websocket.scope.get('session', {})
+                    email = session.get('email')
+                    if email:
+                        settings_key = f"settings:{email}:{symbol}"
+                        settings_json = await redis_conn.get(settings_key)
+                        if settings_json:
+                            symbol_settings = json.loads(settings_json)
+                            new_delta = int(symbol_settings.get('streamDeltaTime', 1))
+                            client_state["stream_delta_seconds"] = new_delta
+
+                    # Get live price from Redis
+                    live_price_key = f"live:{symbol}"
+                    price_str = await redis_conn.get(live_price_key)
+                    if price_str:
+                        live_price = float(price_str)
+                        await send_live_update(live_price, symbol)
+
+                    # Wait before checking again
+                    await asyncio.sleep(0.5)
+
+                except Exception as e:
+                    logger.error(f"Error in live streaming worker for {symbol}: {e}")
+                    break
+
+            logger.info(f"Live streaming task ended for {symbol} on client {client_id}")
+
+        client_state["live_stream_task"] = asyncio.create_task(live_stream_worker())
+
     try:
         while True:
             try:
@@ -241,6 +339,20 @@ async def unified_websocket_endpoint(websocket: WebSocket):
 
                 # Process the message
                 response = await handle_websocket_message(raw_message, websocket)
+
+                # Check if this is a config message that might change the symbol
+                message_type = raw_message.get('type')
+                if message_type == "config" and raw_message.get('data'):
+                    config_symbol = raw_message['data'].get("symbol")
+                    if config_symbol and config_symbol != client_state.get("current_symbol"):
+                        logger.info(f"Client {client_id} switching to symbol {config_symbol} - starting live streaming")
+                        await start_live_streaming(config_symbol)
+                elif message_type == "init" and raw_message.get('data'):
+                    # Also handle init messages that might specify a symbol
+                    init_symbol = raw_message['data'].get('symbol')
+                    if init_symbol and init_symbol != client_state.get("current_symbol"):
+                        logger.info(f"Client {client_id} initializing with symbol {init_symbol} - starting live streaming")
+                        await start_live_streaming(init_symbol)
 
                 # Send response back to client
                 if response:
@@ -270,6 +382,14 @@ async def unified_websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.error(f"Fatal error in unified WebSocket endpoint: {e}")
     finally:
+        # Clean up live streaming task
+        if client_state.get("live_stream_task") is not None:
+            client_state["live_stream_task"].cancel()
+            try:
+                await client_state["live_stream_task"]
+            except asyncio.CancelledError:
+                pass
+
         logger.info(f"Cleaned up WebSocket connection for client {client_id}")
 
 
@@ -347,6 +467,7 @@ async def handle_config_message(data: dict, websocket: WebSocket, request_id: st
     # Parse data from request
     indicators = data.get("active_indicators", [])
     resolution = data.get("resolution", "1h")
+    min_value_percentage = data.get("minValuePercentage", 0)
 
     # Convert timestamp values from xAxisMin/xAxisMax (milliseconds) to seconds
     from_ts_val = data.get("xAxisMin")
@@ -430,7 +551,7 @@ async def handle_config_message(data: dict, websocket: WebSocket, request_id: st
             settings_json = await redis_conn.get(settings_key)
             if settings_json:
                 symbol_settings = json.loads(settings_json)
-                config_trade_value_filter = symbol_settings.get('minVolumeFilter', 0)
+                config_trade_value_filter = symbol_settings.get('minValueFilter', 0)
                 config_indicators = symbol_settings.get('active_indicators', [])
 
                 # Convert axis timestamps from milliseconds to seconds if needed
@@ -464,7 +585,7 @@ async def handle_config_message(data: dict, websocket: WebSocket, request_id: st
 
             # Prepare settings data from the config message
             settings_data = {
-                'resolution': resolution,
+                'resolution': data.get('resolution', '1h'),
                 'range': data.get('range'),
                 'xAxisMin': data.get('xAxisMin'),
                 'xAxisMax': data.get('xAxisMax'),
@@ -480,7 +601,7 @@ async def handle_config_message(data: dict, websocket: WebSocket, request_id: st
                 'showAgentTrades': data.get('showAgentTrades', False),
                 'streamDeltaTime': data.get('streamDeltaTime', 0),
                 'last_selected_symbol': data.get('last_selected_symbol', active_symbol),
-                'minVolumeFilter': data.get('minVolumeFilter', 0)
+                'minValueFilter': data.get('minValueFilter', 0)
             }
 
             settings_json = json.dumps(settings_data)
@@ -500,6 +621,17 @@ async def handle_config_message(data: dict, websocket: WebSocket, request_id: st
     # Fetch trades
     trades = await fetch_recent_trade_history(config_symbol, config_from_ts, config_to_ts)
     logger.info(f"CONFIG: Fetched {len(trades) if trades else 0} trades for symbol {config_symbol}, from_ts={config_from_ts}, to_ts={config_to_ts}")
+
+    if trades and len(trades) > 0:
+        logger.info(f"HISTORY: First trade sample: {json.dumps(trades[0])}")
+    if trades and len(trades) > 0 and min_value_percentage > 0:
+        # Calculate max trade value for filtering
+        trade_values = [trade['price'] * trade['amount'] for trade in trades if 'price' in trade and 'amount' in trade]
+        if trade_values:
+            max_trade_value = max(trade_values)
+            min_value = min_value_percentage * max_trade_value
+            trades = [trade for trade in trades if (trade.get('price', 0) * trade.get('amount', 0)) >= min_value]
+            logger.info(f"HISTORY: Filtered trades: {len(trades)} remain after filtering with {min_value_percentage*100}% min value")
 
     # Fetch drawings
     drawings = await get_drawings(config_symbol, None, resolution, email)
@@ -600,7 +732,7 @@ async def handle_config_message(data: dict, websocket: WebSocket, request_id: st
         "email": email,
         "data": {
             "ohlcv": combined_data,
-            "trades": (trades or [])[:1000],
+            "trades": (trades or [])[:10000],
             "active_indicators": list(indicators_data.keys()),
             "drawings": drawings or []
         },
@@ -618,7 +750,6 @@ async def handle_init_message(data: dict, websocket: WebSocket, request_id: str)
         # Use init data from request (not storing in session since we're stateless)
         symbol = data.get('symbol', 'BTCUSDT')
         indicators = data.get('indicators', [])
-        resolution = data.get('resolution', '1h')
         from_ts = data.get('from_ts')
         to_ts = data.get('to_ts')
 
@@ -657,7 +788,7 @@ async def handle_init_message(data: dict, websocket: WebSocket, request_id: str)
         # Extract config values from config_data or use defaults
         config_from_ts = config_data.get('xAxisMin') if config_data else None
         config_to_ts = config_data.get('xAxisMax') if config_data else None
-        config_trade_value_filter = config_data.get('minVolumeFilter', 0) if config_data else 0
+        config_trade_value_filter = config_data.get('minValueFilter', 0) if config_data else 0
         config_indicators = config_data.get('active_indicators', []) if config_data else []
 
         # Convert timestamps from milliseconds to seconds if needed
@@ -669,7 +800,7 @@ async def handle_init_message(data: dict, websocket: WebSocket, request_id: str)
         # Build the complete config object with all required fields and defaults
         config_obj = {
             "symbol": symbol,
-            "resolution": resolution,
+            "resolution": config_data.get('resolution', '1h'), 
             "range": config_data.get('range', '24h'),
             "xAxisMin": config_data.get('xAxisMin'),
             "xAxisMax": config_data.get('xAxisMax'),
@@ -685,7 +816,7 @@ async def handle_init_message(data: dict, websocket: WebSocket, request_id: str)
             "showAgentTrades": config_data.get('showAgentTrades', False),
             "streamDeltaTime": config_data.get('streamDeltaTime', 0),
             "last_selected_symbol": last_selected_symbol,
-            "minVolumeFilter": config_data.get('minVolumeFilter', 0),
+            "minValueFilter": config_data.get('minValueFilter', 0),
             "email": session.get('email')
         }
 
@@ -1532,18 +1663,17 @@ async def handle_history_message(data: dict, websocket: WebSocket, request_id: s
 
         if trades:
             trades = sorted(trades, key=lambda trade: trade.get('price', 0) * trade.get('quantity', 0), reverse=True)
-            trades = trades[:1000]
             logger.info(f"TRADE_HISTORY: Sorted and limited trades to {len(trades)}")
 
         if trades and len(trades) > 0:
             logger.info(f"HISTORY: First trade sample: {json.dumps(trades[0])}")
         if trades and len(trades) > 0 and min_value_percentage > 0:
             # Calculate max trade value for filtering
-            trade_values = [trade['price'] * trade['quantity'] for trade in trades if 'price' in trade and 'quantity' in trade]
+            trade_values = [trade['price'] * trade['amount'] for trade in trades if 'price' in trade and 'amount' in trade]
             if trade_values:
                 max_trade_value = max(trade_values)
-                min_volume = min_value_percentage * max_trade_value
-                trades = [trade for trade in trades if (trade.get('price', 0) * trade.get('quantity', 0)) >= min_volume]
+                min_value = min_value_percentage * max_trade_value
+                trades = [trade for trade in trades if (trade.get('price', 0) * trade.get('amount', 0)) >= min_value]
                 logger.info(f"HISTORY: Filtered trades: {len(trades)} remain after filtering with {min_value_percentage*100}% min value")
 
         # Fetch drawings
@@ -1648,7 +1778,7 @@ async def handle_history_message(data: dict, websocket: WebSocket, request_id: s
             "email": email,
             "data": {
                 "ohlcv": combined_data,
-                "trades": (trades or [])[:1000],
+                "trades": (trades or [])[:10000],
                 "active_indicators": list(indicators_data.keys()),
                 "drawings": drawings or []
             },
@@ -1686,12 +1816,20 @@ async def handle_trade_history_message(data: dict, websocket: WebSocket, request
                 "request_id": request_id
             }
 
-        # Fetch and filter trades based on value filter
-        trades = await fetch_recent_trade_history(symbol, from_ts, to_ts, value_filter)
+        # Fetch trades (without filtering)
+        trades = await fetch_recent_trade_history(symbol, from_ts, to_ts)
         logger.info(f"TRADE_HISTORY: Fetched {len(trades) if trades else 0} trades for symbol {symbol}, from_ts={from_ts}, to_ts={to_ts}, value_filter={value_filter}")
 
         if trades and len(trades) > 0:
-            logger.info(f"TRADE_HISTORY: First trade sample: {json.dumps(trades[0])}")
+            logger.info(f"HISTORY: First trade sample: {json.dumps(trades[0])}")
+        if trades and len(trades) > 0 and value_filter > 0:
+            # Calculate max trade value for filtering
+            trade_values = [trade['price'] * trade['amount'] for trade in trades if 'price' in trade and 'amount' in trade]
+            if trade_values:
+                max_trade_value = max(trade_values)
+                min_value = value_filter * max_trade_value
+                trades = [trade for trade in trades if (trade.get('price', 0) * trade.get('amount', 0)) >= min_value]
+                logger.info(f"HISTORY: Filtered trades: {len(trades)} remain after filtering with {value_filter*100}% min value")
 
         # Return trade_history_success message
         return {
@@ -1699,7 +1837,7 @@ async def handle_trade_history_message(data: dict, websocket: WebSocket, request
             "symbol": symbol,
             "email": email,
             "data": {
-                "trades": (trades or [])[:1000]
+                "trades": (trades or [])[:10000]
             },
             "timestamp": int(time.time()),
             "request_id": request_id
@@ -1985,8 +2123,8 @@ async def chart_page(request: Request):
                 redirect_uri = 'http://192.168.1.52:5000/OAuthCallback'
             else:
                 redirect_uri = 'https://crypto.zhivko.eu/OAuthCallback'
-        google_auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={creds.GOOGLE_CLIENT_ID}&redirect_uri={quote_plus(redirect_uri)}&response_type=code&scope=openid%20profile%20email&response_mode=query"
-        return RedirectResponse(google_auth_url, status_code=302)
+            google_auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={creds.GOOGLE_CLIENT_ID}&redirect_uri={quote_plus(redirect_uri)}&response_type=code&scope=openid%20profile%20email&response_mode=query"
+            return RedirectResponse(google_auth_url, status_code=302)
     else:
         # Check for last selected symbol and redirect if found
         try:
@@ -2212,22 +2350,24 @@ async def symbol_chart_page(symbol: str, request: Request):
                 redirect_uri = 'http://192.168.1.52:5000/OAuthCallback'
             else:
                 redirect_uri = 'https://crypto.zhivko.eu/OAuthCallback'
-        google_auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={creds.GOOGLE_CLIENT_ID}&redirect_uri={quote_plus(redirect_uri)}&response_type=code&scope=openid%20profile%20email&response_mode=query"
-        logger.info(f"User not authenticated. Redirecting to Google OAuth: {google_auth_url}")
-        return RedirectResponse(google_auth_url, status_code=302)
+            google_auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={creds.GOOGLE_CLIENT_ID}&redirect_uri={quote_plus(redirect_uri)}&response_type=code&scope=openid%20profile%20email&response_mode=query"
+            logger.info(f"User not authenticated. Redirecting to Google OAuth: {google_auth_url}")
+            return RedirectResponse(google_auth_url, status_code=302)
     else:
         authenticated = True
+        
+        if symbol in SUPPORTED_SYMBOLS:
+            # Persist last selected symbol per user in Redis
+            try:
+                email = request.session.get("email")
+                if email:
+                    redis_conn = await get_redis_connection()
+                    last_selected_symbol_key = f"user:{email}:{REDIS_LAST_SELECTED_SYMBOL_KEY}"
+                    await redis_conn.set(last_selected_symbol_key, symbol.upper())
+                    logger.debug(f"Persisted last selected symbol '{symbol.upper()}' for user {email}")
+            except Exception as e:
+                logger.error(f"Error persisting last selected symbol for {symbol}: {e}")
 
-        # Persist last selected symbol per user in Redis
-        try:
-            email = request.session.get("email")
-            if email:
-                redis_conn = await get_redis_connection()
-                last_selected_symbol_key = f"user:{email}:{REDIS_LAST_SELECTED_SYMBOL_KEY}"
-                await redis_conn.set(last_selected_symbol_key, symbol.upper())
-                logger.debug(f"Persisted last selected symbol '{symbol.upper()}' for user {email}")
-        except Exception as e:
-            logger.error(f"Error persisting last selected symbol for {symbol}: {e}")
 
     # Render template
     response = templates.TemplateResponse("index.html", {
