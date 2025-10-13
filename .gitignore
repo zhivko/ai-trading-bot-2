@@ -22,4 +22,4 @@ data/*.*
 /puppeteer_*.*
 **/__pycache__
 /logs/*.*
-/test_results/*.*
+/tests/*.*
