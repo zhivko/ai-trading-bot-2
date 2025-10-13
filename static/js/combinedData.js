@@ -53,7 +53,7 @@ window.handleVolumeProfileMessage = handleVolumeProfileMessage;
     }
 
     // Process non-empty volume profile data within rectangle bounds
-    renderVolumeProfileWithinRectangle(volumeProfileArray, message.symbol || 'BTCUSDT', message.rectangle_id);
+    renderVolumeProfileWithinRectangle(volumeProfileArray, message.symbol || 'BTCUSDT', message.data.rectangle_id);
 }
 
 // Render volume profile bars within a rectangle's bounds
@@ -609,6 +609,11 @@ function createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRan
     let filteredCount = 0;
     let keptCount = 0;
     let errorCount = 0;
+
+    console.log(`🔍 Filtering volume profile data for rectangle ${rectangleId}:`);
+    console.log(`   Rectangle price range: [${lowPrice.toFixed(2)}, ${highPrice.toFixed(2)}]`);
+    console.log(`   Volume profile data points: ${volumeProfileData.length}`);
+
     const relevantVolumeData = volumeProfileData.filter(level => {
         // Handle invalid level data
         if (!level || typeof level.price === 'undefined' || level.price === null) {
@@ -628,12 +633,19 @@ function createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRan
 
         if (isInRange) {
             keptCount++;
+            console.log(`   ✅ KEPT: ${price.toFixed(2)} (in range [${lowPrice.toFixed(2)}, ${highPrice.toFixed(2)}])`);
         } else {
             filteredCount++;
+            console.log(`   ❌ FILTERED: ${price.toFixed(2)} (out of range [${lowPrice.toFixed(2)}, ${highPrice.toFixed(2)}])`);
         }
 
         return isInRange;
     });
+
+    console.log(`🔍 Filtering results for rectangle ${rectangleId}:`);
+    console.log(`   Total data points: ${volumeProfileData.length}`);
+    console.log(`   Kept: ${keptCount}, Filtered: ${filteredCount}, Errors: ${errorCount}`);
+    console.log(`   Relevant data points: ${relevantVolumeData.length}`);
 
 
     if (relevantVolumeData.length > 0) {

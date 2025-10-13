@@ -1952,6 +1952,82 @@ async def handle_shape_message(data: dict, websocket: WebSocket, request_id: str
                     "request_id": request_id
                 }
 
+        elif action == 'get_properties':
+            # Handle get properties operation
+            drawing_id = data.get('drawing_id')
+            if not drawing_id:
+                return {
+                    "type": "error",
+                    "message": "Drawing ID is required for get_properties operation",
+                    "request_id": request_id
+                }
+
+            logger.info(f"Getting properties for drawing {drawing_id} for {symbol}:{email}")
+
+            # Get drawing properties using existing endpoint
+            properties_result = await get_shape_properties_api_endpoint(
+                symbol=symbol,
+                drawing_id=drawing_id,
+                request=fake_request
+            )
+
+            if properties_result.status_code == 200:
+                # Parse the response body
+                import json
+                properties_data = json.loads(properties_result.body.decode('utf-8'))
+                return {
+                    "type": "shape_properties_response",
+                    "symbol": symbol,
+                    "email": email,
+                    "data": properties_data,
+                    "timestamp": int(time.time()),
+                    "request_id": request_id
+                }
+            else:
+                return {
+                    "type": "error",
+                    "message": "Failed to get shape properties",
+                    "request_id": request_id
+                }
+
+        elif action == 'save_properties':
+            # Handle save properties operation
+            drawing_id = data.get('drawing_id')
+            properties = data.get('properties', {})
+
+            if not drawing_id:
+                return {
+                    "type": "error",
+                    "message": "Drawing ID is required for save_properties operation",
+                    "request_id": request_id
+                }
+
+            logger.info(f"Saving properties for drawing {drawing_id} for {symbol}:{email}")
+
+            # Save drawing properties using existing endpoint
+            save_result = await save_shape_properties_api_endpoint(
+                symbol=symbol,
+                drawing_id=drawing_id,
+                properties=properties,
+                request=fake_request
+            )
+
+            if save_result.status_code == 200:
+                return {
+                    "type": "shape_properties_success",
+                    "symbol": symbol,
+                    "email": email,
+                    "data": {"success": True, "id": drawing_id},
+                    "timestamp": int(time.time()),
+                    "request_id": request_id
+                }
+            else:
+                return {
+                    "type": "error",
+                    "message": "Failed to save shape properties",
+                    "request_id": request_id
+                }
+
         else:
             return {
                 "type": "error",

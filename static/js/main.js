@@ -1864,74 +1864,110 @@ async function populateShapePropertiesDialog(activeShape) {
     if (emailSent) emailSent.checked = false;
     if (emailDateDisplay) emailDateDisplay.textContent = 'Not sent yet';
 
-    // Fetch existing properties from backend
+    // Fetch existing properties from backend via WebSocket
     try {
-        const response = await fetch(`/get_shape_properties/${symbol}/${activeShape.id}`);
-        const result = await response.json();
+        if (window.wsAPI && window.wsAPI.connected) {
+            const requestId = Date.now().toString();
 
-        if (response.ok && result.status === 'success') {
-            const properties = result.properties || {};
+            // Set up promise to wait for response
+            const fetchPromise = new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('Timeout waiting for shape properties'));
+                }, 5000); // 5 second timeout
 
+                const messageHandler = (message) => {
+                    if (message.type === 'shape_properties_response' && message.request_id === requestId) {
+                        clearTimeout(timeout);
+                        window.wsAPI.offMessage('shape_properties_response', messageHandler);
+                        window.wsAPI.offMessage('error', messageHandler);
+                        resolve(message.data);
+                    } else if (message.type === 'error' && message.request_id === requestId) {
+                        clearTimeout(timeout);
+                        window.wsAPI.offMessage('shape_properties_response', messageHandler);
+                        window.wsAPI.offMessage('error', messageHandler);
+                        reject(new Error(message.message || 'Failed to fetch shape properties'));
+                    }
+                };
 
-            // Populate Y values
-            if (startPrice) {
-                if (properties.start_price !== undefined) {
-                    startPrice.value = properties.start_price;
-                } else {
+                // Listen for both success and error messages
+                window.wsAPI.onMessage('shape_properties_response', messageHandler);
+                window.wsAPI.onMessage('error', messageHandler);
+            });
+
+            // Send fetch properties message
+            window.wsAPI.sendMessage({
+                type: 'shape',
+                action: 'get_properties',
+                data: {
+                    symbol: symbol,
+                    drawing_id: activeShape.id
+                },
+                request_id: requestId
+            });
+
+            const result = await fetchPromise;
+
+            if (result && result.properties) {
+                const properties = result.properties;
+
+                // Populate Y values
+                if (startPrice) {
+                    if (properties.start_price !== undefined) {
+                        startPrice.value = properties.start_price;
+                    }
+                }
+
+                if (endPrice) {
+                    if (properties.end_price !== undefined) {
+                        endPrice.value = properties.end_price;
+                    }
+                }
+
+                // Populate form with existing properties
+                if (buyOnCross && properties.buyOnCross !== undefined) {
+                    buyOnCross.checked = properties.buyOnCross;
+                }
+                if (sellOnCross && properties.sellOnCross !== undefined) {
+                    sellOnCross.checked = properties.sellOnCross;
+                }
+                if (amount && properties.amount !== undefined) {
+                    amount.value = properties.amount;
+                }
+                if (amountPercent && properties.amountPercent !== undefined) {
+                    amountPercent.value = properties.amountPercent;
+                }
+                if (amountUsdt && properties.amountUsdt !== undefined) {
+                    amountUsdt.value = properties.amountUsdt;
+                }
+                if (sendEmailOnCross && properties.sendEmailOnCross !== undefined) {
+                    sendEmailOnCross.checked = properties.sendEmailOnCross;
+                }
+                if (emailSent && properties.emailSent !== undefined) {
+                    emailSent.checked = properties.emailSent;
+                    // No longer disable the checkbox - allow manual changes
+                }
+                if (document.getElementById('buy-sent') && properties.buy_sent !== undefined) {
+                    document.getElementById('buy-sent').checked = properties.buy_sent;
+                }
+                if (document.getElementById('sell-sent') && properties.sell_sent !== undefined) {
+                    document.getElementById('sell-sent').checked = properties.sell_sent;
+                }
+                if (emailDateDisplay && properties.emailDate) {
+                    emailDateDisplay.textContent = new Date(properties.emailDate).toLocaleString();
+                }
+
+                // Populate alert actions
+                if (document.getElementById('alert-actions-display') && properties.alert_actions) {
+                    document.getElementById('alert-actions-display').value = Array.isArray(properties.alert_actions) ? properties.alert_actions.join('\n') : properties.alert_actions;
+                }
+
+                // Populate resolution
+                if (document.getElementById('shape-resolution')) {
+                    document.getElementById('shape-resolution').value = properties.resolution || '';
                 }
             }
-
-            if (endPrice) {
-                if (properties.end_price !== undefined) {
-                    endPrice.value = properties.end_price;
-                } else {
-                }
-            }
-
-            // Populate form with existing properties
-            if (buyOnCross && properties.buyOnCross !== undefined) {
-                buyOnCross.checked = properties.buyOnCross;
-            }
-            if (sellOnCross && properties.sellOnCross !== undefined) {
-                sellOnCross.checked = properties.sellOnCross;
-            }
-            if (amount && properties.amount !== undefined) {
-                amount.value = properties.amount;
-            }
-            if (amountPercent && properties.amountPercent !== undefined) {
-                amountPercent.value = properties.amountPercent;
-            }
-            if (amountUsdt && properties.amountUsdt !== undefined) {
-                amountUsdt.value = properties.amountUsdt;
-            }
-            if (sendEmailOnCross && properties.sendEmailOnCross !== undefined) {
-                sendEmailOnCross.checked = properties.sendEmailOnCross;
-            }
-            if (emailSent && properties.emailSent !== undefined) {
-                emailSent.checked = properties.emailSent;
-                // No longer disable the checkbox - allow manual changes
-            }
-            if (document.getElementById('buy-sent') && properties.buy_sent !== undefined) {
-                document.getElementById('buy-sent').checked = properties.buy_sent;
-            }
-            if (document.getElementById('sell-sent') && properties.sell_sent !== undefined) {
-                document.getElementById('sell-sent').checked = properties.sell_sent;
-            }
-            if (emailDateDisplay && properties.emailDate) {
-                emailDateDisplay.textContent = new Date(properties.emailDate).toLocaleString();
-            }
-
-            // Populate alert actions
-            if (document.getElementById('alert-actions-display') && properties.alert_actions) {
-                document.getElementById('alert-actions-display').value = Array.isArray(properties.alert_actions) ? properties.alert_actions.join('\n') : properties.alert_actions;
-            }
-
-            // Populate resolution
-            if (document.getElementById('shape-resolution')) {
-                document.getElementById('shape-resolution').value = properties.resolution || '';
-            }
-
         } else {
+            console.warn('WebSocket not connected, cannot fetch shape properties');
         }
     } catch (error) {
         console.error('Error fetching shape properties:', error);
@@ -2031,18 +2067,49 @@ async function saveShapeProperties() {
     properties.emailSent = emailSent;
 
     try {
-        // First, save shape properties
-        const response = await fetch(`/save_shape_properties/${symbol}/${drawingId}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(properties)
-        });
+        // Use WebSocket to save shape properties
+        if (window.wsAPI && window.wsAPI.connected) {
+            const requestId = Date.now().toString();
 
-        const result = await response.json();
+            // Set up promise to wait for response
+            const savePromise = new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('Timeout waiting for shape properties save confirmation'));
+                }, 5000); // 5 second timeout
 
-        if (response.ok && result.status === 'success') {
+                const messageHandler = (message) => {
+                    if (message.type === 'shape_properties_success' && message.request_id === requestId) {
+                        clearTimeout(timeout);
+                        window.wsAPI.offMessage('shape_properties_success', messageHandler);
+                        window.wsAPI.offMessage('error', messageHandler);
+                        resolve(message.data);
+                    } else if (message.type === 'error' && message.request_id === requestId) {
+                        clearTimeout(timeout);
+                        window.wsAPI.offMessage('shape_properties_success', messageHandler);
+                        window.wsAPI.offMessage('error', messageHandler);
+                        reject(new Error(message.message || 'Failed to save shape properties'));
+                    }
+                };
+
+                // Listen for both success and error messages
+                window.wsAPI.onMessage('shape_properties_success', messageHandler);
+                window.wsAPI.onMessage('error', messageHandler);
+            });
+
+            // Send save properties message
+            window.wsAPI.sendMessage({
+                type: 'shape',
+                action: 'save_properties',
+                data: {
+                    symbol: symbol,
+                    drawing_id: drawingId,
+                    properties: properties
+                },
+                request_id: requestId
+            });
+
+            const result = await savePromise;
+
             // If Y values were provided, update the shape coordinates
             if (startPrice !== undefined || endPrice !== undefined) {
                 await updateShapeYValues(symbol, drawingId, startPrice, endPrice);
@@ -2071,12 +2138,11 @@ async function saveShapeProperties() {
             // Show success message
             // alert('Shape properties saved successfully!');
         } else {
-            console.error('Failed to save shape properties:', result.message);
-            alert(`Failed to save shape properties: ${result.message || 'Unknown error'}`);
+            throw new Error('WebSocket not connected');
         }
     } catch (error) {
         console.error('Error saving shape properties:', error);
-        alert('An error occurred while saving shape properties. Please try again.');
+        alert(`Failed to save shape properties: ${error.message}`);
     }
 }
 
