@@ -721,8 +721,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // Update the display value
             window.minValueDisplay.textContent = window.minValueSlider.value;
-            // Save settings when slider value changes
-            saveSettingsInner();
+            // Note: Settings are not saved for min value filter - it's a temporary filter
         });
     }
 
@@ -1082,7 +1081,7 @@ function handleTradeHistorySuccess(message) {
         window.addTradeHistoryMarkersToChart(window.tradeHistoryData, symbol);
 
         // Update slider range based on new data
-        updateMinValueSliderRange();
+        //updateMinValueSliderRange();
     }
 }
 
@@ -1321,8 +1320,8 @@ function handleHistorySuccess(message) {
     window.accumulatedHistoricalData = ohlcv;
     window.historicalDataSymbol = symbol;
 
-    // Store trade history data (process to ensure valid timestamps)
-    window.tradeHistoryData = processTradeHistoryData(trades);
+    // Store trade history data
+    window.tradeHistoryData = trades;
 
     // Update chart in the correct order to preserve shapes
     updateChartWithOHLCVAndIndicators(ohlcv, data.active_indicators || []);
@@ -2226,44 +2225,26 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('[TOOLBAR] Draw Line button clicked');
             if (window.gd) {
                 console.log('[TOOLBAR] Current dragmode before drawline:', window.gd.layout.dragmode);
-                console.log('[TOOLBAR] Current layout newshape:', window.gd.layout.newshape);
-                console.log('[TOOLBAR] Attempting to trigger line drawing mode');
+                console.log('[TOOLBAR] Setting dragmode to drawline');
 
-                // Try to find and click the modebar drawline button programmatically
-                const allModebarButtons2 = document.querySelectorAll('.modebar-btn');
-                console.log('[TOOLBAR] All modebar buttons found for line:', allModebarButtons2.length);
-                allModebarButtons2.forEach((btn, index) => {
-                    console.log(`[TOOLBAR] Modebar button ${index} for line:`, btn.getAttribute('data-title'), btn.getAttribute('data-attr'), btn.className);
+                // Use programmatic approach directly (like pan/zoom buttons)
+                Plotly.relayout(window.gd, {
+                    newshape: {
+                        type: 'line',
+                        line: { color: DEFAULT_DRAWING_COLOR, width: 2 },
+                        layer: 'above'
+                    },
+                    dragmode: 'drawline'
+                }).then(() => {
+                    console.log('[TOOLBAR] Newshape and dragmode set for line, final dragmode:', window.gd.layout.dragmode);
+                    console.log('[TOOLBAR] Layout after line button click:', JSON.stringify(window.gd.layout, null, 2));
+
+                    // Update button states
+                    updateToolbarButtonStates('drawline');
+                    console.log('[TOOLBAR] Draw line mode activated');
+                }).catch((error) => {
+                    console.error('[TOOLBAR] Failed to set newshape and dragmode for line:', error);
                 });
-
-                const modebarButtons2 = document.querySelectorAll('.modebar-btn[data-title*="line"], .modebar-btn[data-attr="drawline"], .modebar-btn[data-val="drawline"]');
-                console.log('[TOOLBAR] Found modebar line buttons:', modebarButtons2.length);
-
-                if (modebarButtons2.length > 0) {
-                    console.log('[TOOLBAR] Clicking modebar line button');
-                    modebarButtons2[0].click();
-                    console.log('[TOOLBAR] Layout after clicking modebar line button:', JSON.stringify(window.gd.layout, null, 2));
-                } else {
-                    console.log('[TOOLBAR] No modebar line button found, trying programmatic approach');
-                    // Programmatic approach as fallback
-                    Plotly.update(window.gd, {}, {
-                        newshape: {
-                            type: 'line',
-                            line: { color: DEFAULT_DRAWING_COLOR, width: 2 },
-                            layer: 'above'
-                        },
-                        dragmode: 'drawline'
-                    }).then(() => {
-                        console.log('[TOOLBAR] Newshape and dragmode set for line, final dragmode:', window.gd.layout.dragmode);
-                        console.log('[TOOLBAR] Layout after line button click:', JSON.stringify(window.gd.layout, null, 2));
-                    }).catch((error) => {
-                        console.error('[TOOLBAR] Failed to set newshape and dragmode for line:', error);
-                    });
-                }
-
-                // Update button states
-                updateToolbarButtonStates('drawline');
-                console.log('[TOOLBAR] Draw line mode activated');
             } else {
                 console.log('[TOOLBAR] Chart not ready (window.gd is null)');
             }
@@ -2277,47 +2258,28 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('[TOOLBAR] Draw Rectangle button clicked');
             if (window.gd) {
                 console.log('[TOOLBAR] Current dragmode before drawrect:', window.gd.layout.dragmode);
-                console.log('[TOOLBAR] Current layout newshape:', window.gd.layout.newshape);
-                console.log('[TOOLBAR] Plotly config newshape:', window.config.newshape);
-                console.log('[TOOLBAR] Attempting to trigger rectangle drawing mode');
+                console.log('[TOOLBAR] Setting dragmode to drawrect');
 
-                // Try to find and click the modebar drawrect button programmatically
-                const allModebarButtons = document.querySelectorAll('.modebar-btn');
-                console.log('[TOOLBAR] All modebar buttons found:', allModebarButtons.length);
-                allModebarButtons.forEach((btn, index) => {
-                    console.log(`[TOOLBAR] Modebar button ${index}:`, btn.getAttribute('data-title'), btn.getAttribute('data-attr'), btn.className);
+                // Use programmatic approach directly (like pan/zoom buttons)
+                Plotly.relayout(window.gd, {
+                    newshape: {
+                        type: 'rect',
+                        line: { color: DEFAULT_DRAWING_COLOR, width: 2 },
+                        fillcolor: 'rgba(0, 0, 255, 0.1)',
+                        opacity: 0.5,
+                        layer: 'above'
+                    },
+                    dragmode: 'drawrect'
+                }).then(() => {
+                    console.log('[TOOLBAR] Newshape and dragmode set for rectangle, final dragmode:', window.gd.layout.dragmode);
+                    console.log('[TOOLBAR] Layout after rectangle button click:', JSON.stringify(window.gd.layout, null, 2));
+
+                    // Update button states
+                    updateToolbarButtonStates('drawrect');
+                    console.log('[TOOLBAR] Draw rectangle mode activated');
+                }).catch((error) => {
+                    console.error('[TOOLBAR] Failed to set newshape and dragmode for rectangle:', error);
                 });
-
-                const modebarButtons = document.querySelectorAll('.modebar-btn[data-title*="rect"], .modebar-btn[data-attr="drawrect"], .modebar-btn[data-val="drawrect"]');
-                console.log('[TOOLBAR] Found modebar rect buttons:', modebarButtons.length);
-
-                if (modebarButtons.length > 0) {
-                    console.log('[TOOLBAR] Clicking modebar rect button');
-                    modebarButtons[0].click();
-                    console.log('[TOOLBAR] Layout after clicking modebar rect button:', JSON.stringify(window.gd.layout, null, 2));
-                } else {
-                    console.log('[TOOLBAR] No modebar rect button found, trying programmatic approach');
-                    // Programmatic approach as fallback
-                    Plotly.update(window.gd, {}, {
-                        newshape: {
-                            type: 'rect',
-                            line: { color: DEFAULT_DRAWING_COLOR, width: 2 },
-                            fillcolor: 'rgba(0, 0, 255, 0.1)',
-                            opacity: 0.5,
-                            layer: 'above'
-                        },
-                        dragmode: 'drawrect'
-                    }).then(() => {
-                        console.log('[TOOLBAR] Newshape and dragmode set for rectangle, final dragmode:', window.gd.layout.dragmode);
-                        console.log('[TOOLBAR] Layout after rectangle button click:', JSON.stringify(window.gd.layout, null, 2));
-                    }).catch((error) => {
-                        console.error('[TOOLBAR] Failed to set newshape and dragmode for rectangle:', error);
-                    });
-                }
-
-                // Update button states
-                updateToolbarButtonStates('drawrect');
-                console.log('[TOOLBAR] Draw rectangle mode activated');
             } else {
                 console.log('[TOOLBAR] Chart not ready (window.gd is null)');
             }
@@ -2514,80 +2476,6 @@ function handleMinValueChange() {
     }, 2000); // 2 second delay
 }
 
-// Process and store trade history data
-function processTradeHistoryData(tradeHistoryData, symbol = null) {
-    if (!Array.isArray(tradeHistoryData)) {
-        console.error('Combined WebSocket: processTradeHistoryData expects an array');
-        return [];
-    }
-
-    // Use provided symbol or fallback to global symbol
-    const tradeSymbol = symbol || (typeof window.combinedSymbol !== 'undefined' && window.combinedSymbol) || 
-                       (window.symbolSelect ? window.symbolSelect.value : 'UNKNOWN');
-
-    console.log('📊 Combined WebSocket: Raw trade history input:', tradeHistoryData);
-
-    // Validate and normalize trade data
-    const processedTrades = tradeHistoryData.map((trade, index) => {
-        // console.log(`📊 Combined WebSocket: Processing trade ${index}:`, trade);
-
-        // Handle both array and object formats
-        if (Array.isArray(trade)) {
-            // Convert array format [price, amount, timestamp, side] to object
-            const processed = {
-                price: parseFloat(trade[0] || trade.price),
-                amount: parseFloat(trade[1] || trade.amount || trade.qty),
-                timestamp: isNaN(trade[2]) ? new Date(trade.timestamp || trade.time).getTime() / 1000 : trade[2],
-                side: (trade[3] || trade.side || '').toUpperCase(),
-                symbol: tradeSymbol
-            };
-            console.log(`📊 Combined WebSocket: Trade ${index} (array format) -> processed:`, processed);
-            return processed;
-        } else {
-            // Already object format
-            const processed = {
-                price: parseFloat(trade.price || trade.p),
-                amount: parseFloat(trade.amount || trade.qty || trade.q || trade.quantity || trade.size || 0),
-                timestamp: isNaN(trade.timestamp) ? new Date(trade.timestamp || trade.time).getTime() / 1000 : trade.timestamp,
-                side: (trade.side || trade.s || '').toUpperCase(),
-                symbol: tradeSymbol
-            };
-            // console.log(`📊 Combined WebSocket: Trade ${index} (object format) -> processed:`, processed);
-            return processed;
-        }
-    }).filter((trade, index) => {
-        // Filter out invalid trades with detailed logging
-        const checks = [
-            { condition: trade.price > 0, description: `price > 0 (${trade.price})` },
-            { condition: trade.amount > 0, description: `amount > 0 (${trade.amount})` },
-            { condition: !isNaN(trade.timestamp), description: `!isNaN(timestamp) (${trade.timestamp})` },
-            { condition: trade.timestamp > 0, description: `timestamp > 0 (${trade.timestamp})` },
-            { condition: trade.side === 'BUY' || trade.side === 'SELL', description: `side is BUY/SELL (${trade.side})` }
-        ];
-
-        const allPass = checks.every(check => check.condition);
-        const failedChecks = checks.filter(check => !check.condition).map(check => check.description);
-
-        if (!allPass) {
-            console.warn(`📊 Combined WebSocket: Trade ${index} FAILED validation:`, {
-                trade: trade,
-                failedChecks: failedChecks,
-                passedChecks: checks.filter(check => check.condition).map(check => check.description)
-            });
-        } else {
-            // console.log(`📊 Combined WebSocket: Trade ${index} PASSED validation:`, trade);
-        }
-
-        return allPass;
-    });
-
-    console.log(`📊 Combined WebSocket: Processed ${processedTrades.length} valid trades out of ${tradeHistoryData.length} total`);
-
-    return processedTrades;
-}
-
-// Make function globally available for use in other modules
-window.processTradeHistoryData = processTradeHistoryData;
 
 function updateChartShapes(drawings, symbol) {
     const chartElement = document.getElementById('chart');

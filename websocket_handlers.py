@@ -600,8 +600,10 @@ async def fetch_recent_trade_history(symbol: str, from_ts: int = None, to_ts: in
                                     "timestamp": zulu_timestamp,
                                     "price": float(trade.get('price', 0)),
                                     "amount": float(trade.get('amount',0)),
-                                    "side": trade.get('side', 'BUY').upper()
-                                    }
+                                    "side": trade.get('side', 'BUY').upper(),
+                                    "exchange": exchange_name,
+                                    "symbol": symbol
+                                }
                                 
                                 all_trades.append(transformed_trade)
                                 cached_trade_count += 1
@@ -931,7 +933,7 @@ async def calculate_indicators_for_data(klines: List[Dict], indicators: List[str
     indicators_data = {}
 
     for indicator_id in indicators:
-        logger.info(f"🔍 INDICATOR DEBUG: Processing indicator {indicator_id}")
+        # logger.info(f"🔍 INDICATOR DEBUG: Processing indicator {indicator_id}")
         config = next((item for item in AVAILABLE_INDICATORS if item["id"] == indicator_id), None)
         if not config:
             logger.warning(f"Unknown indicator {indicator_id} requested for active_symbol")

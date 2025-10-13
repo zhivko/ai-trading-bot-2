@@ -265,8 +265,8 @@ function colorTheLine(eventParam)
             }
         }
 
-        // Crosshair logic - disabled on mobile devices for better touch performance
-        if (!isMobileDevice()) {
+        // Crosshair logic - disabled on mobile devices and when in drawing mode for better performance
+        if (!isMobileDevice() && window.gd.layout.dragmode !== 'drawline' && window.gd.layout.dragmode !== 'drawrect') {
             const mainXAxis = window.gd._fullLayout.xaxis;
             if (mainXAxis && typeof mainXAxis.p2d === 'function') {
                 const xDataValueAtMouse = mainXAxis.p2d(mouseX_plotArea);
@@ -311,7 +311,7 @@ function colorTheLine(eventParam)
                 if (window.cursorPriceDisplay) window.cursorPriceDisplay.textContent = 'N/A';
             }
         } else {
-            // On mobile, clear crosshair and cursor displays
+            // On mobile or in drawing mode, clear crosshair and cursor displays
             // DISABLED: Crosshair interferes with panning
             // removeCrosshairVLine(window.gd, true);
             if (window.cursorTimeDisplay) window.cursorTimeDisplay.textContent = 'N/A';

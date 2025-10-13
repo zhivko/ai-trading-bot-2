@@ -75,6 +75,12 @@ async function handleNewShapeSave(shapeObject) {
                 window.wsAPI.sendMessage(shapeMessage);
                 const result = await shapeSavePromise;
 
+                // Validate the result ID
+                if (!result || !result.id || result.id === 'undefined' || result.id === undefined || result.id === null || result.id === '') {
+                    console.warn('Invalid or missing ID in shape save response:', result);
+                    return null;
+                }
+
                 // Request volume profile calculation for rectangles immediately after saving
                 if (shapeObject.type === 'rect' && result.id) {
                     const volumeProfileRequest = {

@@ -53,7 +53,7 @@ window.handleVolumeProfileMessage = handleVolumeProfileMessage;
     }
 
     // Process non-empty volume profile data within rectangle bounds
-    renderVolumeProfileWithinRectangle(volumeProfileArray, message.data.symbol || 'BTCUSDT', message.data.rectangle_id);
+    renderVolumeProfileWithinRectangle(volumeProfileArray, message.symbol || 'BTCUSDT', message.rectangle_id);
 }
 
 // Render volume profile bars within a rectangle's bounds
@@ -78,7 +78,7 @@ function renderVolumeProfileWithinRectangle(volumeProfileData, symbol, rectangle
     );
 
     if (!targetRectangle) {
-        console.warn(`🚑 Combined WebSocket: Rectangle with ID "${rectangleId}" not found in chart shapes`);
+        console.warn(`🚑 Combined WebSocket: Rectangle with ID "${rectangleId}" not found in chart shapes. Available shapes:`, gd.layout.shapes.map(s => ({ id: s.id, type: s.type })));
         return;
     }
 
@@ -5333,7 +5333,8 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
             priceType: typeof t.price,
             amount: t.amount,
             amountType: typeof t.amount,
-            timestamp: t.timestamp
+            timestamp: t.timestamp,
+            exchaange: t.exchange || 'N/A'
         })));
     }
 
@@ -5369,6 +5370,7 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
         const buySizes = buyTrades.map(trade => valueToMarkerSize(trade.price * trade.amount));
         const buyCustomData = buyTrades.map((trade, index) => {
             const amount = trade.amount && !isNaN(trade.amount) ? trade.amount : 0;
+            const exchange = trade.exchange;
             const value = trade.price && amount ? trade.price * amount : 0;
             const timestamp = trade.timestamp && !isNaN(trade.timestamp) ? trade.timestamp : Date.now() / 1000;
             const timeDisplay = (() => {
@@ -5380,9 +5382,10 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
                     return new Date(timestamp * 1000).toLocaleString();
                 }
             })();
-            const symbol = trade.symbol || 'UNKNOWN';
+            const symbol = trade.symbol;
             const price = trade.price || 0;
             return {
+                exchange: exchange,
                 price: price,
                 amount: amount,
                 timestamp: timestamp,
@@ -5414,6 +5417,7 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
             customdata: buyCustomData,
             hovertemplate: `
                 <b>📈 BUY TRADE</b><br>
+                <b>Exchange:</b> %{customdata.exchange}<br>
                 <b>Symbol:</b> %{customdata.symbol}<br>
                 <b>Price:</b> $%{customdata.price:.4f}<br>
                 <b>Amount:</b> %{customdata.amount:.6f} %{customdata.symbol:/USDT}<br>
@@ -5463,6 +5467,7 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
         const sellSizes = sellTrades.map(trade => valueToMarkerSize(trade.price * trade.amount));
         const sellCustomData = sellTrades.map((trade, index) => {
             const amount = trade.amount && !isNaN(trade.amount) ? trade.amount : 0;
+            const exchange = trade.exchange;
             const value = trade.price && amount ? trade.price * amount : 0;
             const timestamp = trade.timestamp && !isNaN(trade.timestamp) ? trade.timestamp : Date.now() / 1000;
             const timeDisplay = (() => {
@@ -5474,10 +5479,11 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
                     return new Date(timestamp * 1000).toLocaleString();
                 }
             })();
-            const symbol = trade.symbol || 'UNKNOWN';
+            const symbol = trade.symbol;
             const price = trade.price || 0;
             return {
                 price: price,
+                exchange: exchange,
                 amount: amount,
                 timestamp: timestamp,
                 symbol: symbol,
@@ -5508,6 +5514,7 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
             customdata: sellCustomData,
             hovertemplate: `
                 <b>📉 SELL TRADE</b><br>
+                <b>Exchange:</b> %{customdata.exchange}<br>
                 <b>Symbol:</b> %{customdata.symbol}<br>
                 <b>Price:</b> $%{customdata.price:.4f}<br>
                 <b>Amount:</b> %{customdata.amount:.6f} %{customdata.symbol:/USDT}<br>
@@ -5813,8 +5820,8 @@ function ensureScrollZoomEnabled() {
         }
     }
 
-    // Additional check: Ensure dragmode is set to 'pan' for default panning behavior
-    if (gd.layout && gd.layout.dragmode !== 'pan') {
+    // Additional check: Ensure dragmode is set to 'pan' for default panning behavior, unless in drawing mode
+    if (gd.layout && gd.layout.dragmode !== 'pan' && gd.layout.dragmode !== 'drawline' && gd.layout.dragmode !== 'drawrect') {
         try {
             Plotly.relayout(gd, { dragmode: 'pan' });
         } catch (error) {

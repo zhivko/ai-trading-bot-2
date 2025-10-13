@@ -457,11 +457,11 @@ async def fill_trade_data_gaps_background_task():
 
                                 # Check if this is a DEX exchange
                                 exchange_type = exchange_config.get('type', 'cex')
-                                logger.info(f"🔍 GAP FILLER EXCHANGE TYPE: {exchange_id} has type '{exchange_type}'")
+                                # logger.info(f"🔍 GAP FILLER EXCHANGE TYPE: {exchange_id} has type '{exchange_type}'")
         
                                 if exchange_type == 'dex':
                                     # Use DEX-specific fetcher for gap filling
-                                    logger.info(f"🔄 FETCHING DEX TRADES FOR GAP FILLING: {exchange_id} {internal_symbol} from {start_ts} to {end_ts}")
+                                    # logger.info(f"🔄 FETCHING DEX TRADES FOR GAP FILLING: {exchange_id} {internal_symbol} from {start_ts} to {end_ts}")
                                     try:
                                         all_fresh_trades = await fetch_dex_trades(exchange_id, internal_symbol, start_ts, limit=1000)
                                         logger.info(f"✅ FETCHED {len(all_fresh_trades) if all_fresh_trades else 0} DEX trades for gap-filling {internal_symbol} on {exchange_name}")

@@ -327,11 +327,11 @@ def calculate_macd(df_input: pd.DataFrame, short_period: int, long_period: int, 
     result = _extract_results(df_processed, [macd_col, signal_col, hist_col], original_time_index)
 
     # INFO LOGGING FOR TROUBLESHOOTING - Show actual values being returned
-    logger.info(f"🔍 MACD CALCULATION RESULT: short={short_period}, long={long_period}, signal={signal_period}, total_points={len(result.get('t', []))}")
-    logger.info(f"🔍 MACD VALUES SAMPLE (last 5): {[f'{v:.4f}' if v is not None else 'None' for v in result.get('macd', [])[-5:]]}")
-    logger.info(f"🔍 MACD SIGNAL VALUES SAMPLE (last 5): {[f'{v:.4f}' if v is not None else 'None' for v in result.get('signal', [])[-5:]]}")
-    logger.info(f"🔍 MACD HISTOGRAM VALUES SAMPLE (last 5): {[f'{v:.4f}' if v is not None else 'None' for v in result.get('histogram', [])[-5:]]}")
-    logger.info(f"🔍 MACD TIMESTAMP SAMPLE (last 5): {[datetime.fromtimestamp(ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S') for ts in result.get('t', [])[-5:]]}")
+    # logger.info(f"🔍 MACD CALCULATION RESULT: short={short_period}, long={long_period}, signal={signal_period}, total_points={len(result.get('t', []))}")
+    # logger.info(f"🔍 MACD VALUES SAMPLE (last 5): {[f'{v:.4f}' if v is not None else 'None' for v in result.get('macd', [])[-5:]]}")
+    # logger.info(f"🔍 MACD SIGNAL VALUES SAMPLE (last 5): {[f'{v:.4f}' if v is not None else 'None' for v in result.get('signal', [])[-5:]]}")
+    # logger.info(f"🔍 MACD HISTOGRAM VALUES SAMPLE (last 5): {[f'{v:.4f}' if v is not None else 'None' for v in result.get('histogram', [])[-5:]]}")
+    # logger.info(f"🔍 MACD TIMESTAMP SAMPLE (last 5): {[datetime.fromtimestamp(ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S') for ts in result.get('t', [])[-5:]]}")
 
     # Count non-null values
     macd_values = result.get('macd', [])
@@ -454,19 +454,19 @@ def calculate_rsi(df_input: pd.DataFrame, period: int = 14) -> Dict[str, Any]:
     result = _extract_results(df_processed, [rsi_col, sma_col], original_time_index)
 
     # INFO LOGGING FOR TROUBLESHOOTING - Show actual values being returned
-    logger.info(f"🔍 RSI CALCULATION RESULT: period={period}, total_points={len(result.get('t', []))}")
-    logger.info(f"🔍 RSI VALUES SAMPLE (last 5): {[f'{v:.2f}' if v is not None else 'None' for v in result.get('rsi', [])[-5:]]}")
-    logger.info(f"🔍 RSI SMA14 VALUES SAMPLE (last 5): {[f'{v:.2f}' if v is not None else 'None' for v in result.get('rsi_sma14', [])[-5:]]}")
-    logger.info(f"🔍 RSI TIMESTAMP SAMPLE (last 5): {[datetime.fromtimestamp(ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S') for ts in result.get('t', [])[-5:]]}")
+    # logger.info(f"🔍 RSI CALCULATION RESULT: period={period}, total_points={len(result.get('t', []))}")
+    # logger.info(f"🔍 RSI VALUES SAMPLE (last 5): {[f'{v:.2f}' if v is not None else 'None' for v in result.get('rsi', [])[-5:]]}")
+    # logger.info(f"🔍 RSI SMA14 VALUES SAMPLE (last 5): {[f'{v:.2f}' if v is not None else 'None' for v in result.get('rsi_sma14', [])[-5:]]}")
+    # logger.info(f"🔍 RSI TIMESTAMP SAMPLE (last 5): {[datetime.fromtimestamp(ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S') for ts in result.get('t', [])[-5:]]}")
 
     # Count non-null values
     rsi_values = result.get('rsi', [])
     rsi_sma14_values = result.get('rsi_sma14', [])
     rsi_non_null = sum(1 for v in rsi_values if v is not None)
     rsi_sma14_non_null = sum(1 for v in rsi_sma14_values if v is not None)
-    logger.info(f"🔍 RSI NON-NULL VALUES: rsi={rsi_non_null}/{len(rsi_values)}, rsi_sma14={rsi_sma14_non_null}/{len(rsi_sma14_values)}")
+    #logger.info(f"🔍 RSI NON-NULL VALUES: rsi={rsi_non_null}/{len(rsi_values)}, rsi_sma14={rsi_sma14_non_null}/{len(rsi_sma14_values)}")
 
-    logger.debug(f"RSI calculation completed: {len(result.get('t', []))} points")
+    # logger.debug(f"RSI calculation completed: {len(result.get('t', []))} points")
     return result
 
 def calculate_stoch_rsi(df_input: pd.DataFrame, rsi_period: int, stoch_period: int, k_period: int, d_period: int) -> Dict[str, Any]:
