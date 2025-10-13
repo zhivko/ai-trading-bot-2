@@ -1769,7 +1769,7 @@ async def handle_history_message(data: dict, websocket: WebSocket, request_id: s
                 combined_data.append(data_point)
 
         # Debug: output drawings JSON
-        logger.info(f"HISTORY DRAWINGS: {json.dumps(drawings or [], default=str)}")
+        # logger.info(f"HISTORY DRAWINGS: {json.dumps(drawings or [], default=str)}")
 
         # Return history_success message
         return {
