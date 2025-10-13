@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Autoscale Function Test</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+    <div id="test-chart" style="width: 100%; height: 600px;"></div>
+    <button id="test-autoscale">Test Autoscale</button>
+    
+    <script>
+        // Simulate the window.gd object for our test
+        window.gd = null;
+        
+        // Include the modified applyAutoscale function here
+        function applyAutoscale(gdFromClick) {
+            console.info("Autoscale INITIATED.");
+            // Ensure we are using the Plotly graph object, not just the DOM element.
+            // gdFromClick is expected to be the graph object from the modebar button.
+            // window.gd is the global reference to the graph object.
+            const plotlyGraphObj = gdFromClick || window.gd;
+
+            if (!plotlyGraphObj) {
+                console.error("Autoscale: Plotly graph object not available (gdFromClick or window.gd is null/undefined).");
+                return;
+            }
+            // Check for essential properties of a fully initialized Plotly graph object.
+            if (!plotlyGraphObj.data || !plotlyGraphObj.layout || !plotlyGraphObj._fullLayout) {
+                console.warn("Autoscale: Plotly graph object not fully initialized (missing data, layout, or _fullLayout). Proceeding anyway to keep button functional.");
+                // Add more detailed logging for debugging this state:
+                // Continue execution instead of returning to keep button functional
+            }
+
+           const fullData = plotlyGraphObj.data;
+           const inputLayout = plotlyGraphObj.layout;
+           const layoutUpdate = {};
+
+           console.log("Autoscale: Full data traces count:", fullData.length);
+           fullData.forEach((trace, idx) => {
+               console.log(`Trace ${idx}: name=${trace.name}, type=${trace.type}, yaxis=${trace.yaxis}, hasY=${!!trace.y}, hasOpen=${!!trace.open}`);
+           });
+
+           // --- X-AXIS AUTOSCALE DISABLED ---
+           // Autoscale no longer modifies xaxis min and max values
+        // --- Y-AXES AUTOSCALE ---
+        // Collect y values for primary y-axis (y) from visible traces
+        let yMin = Infinity, yMax = -Infinity;
+        let yDataFound = false;
+        let yPadding = 0; // Declare yPadding here to make it accessible in both if blocks
+
+        // Track min/max for each indicator y-axis
+        let indicatorRanges = {};
+
+
+           // Get current X-axis range to filter visible data points
+           const currentXAxisRange = inputLayout.xaxis && inputLayout.xaxis.range;
+           let xMinVisible = null;
+           let xMaxVisible = null;
+
+
+           if (currentXAxisRange && currentXAxisRange.length === 2) {
+               // Plotly stores timestamps as milliseconds since epoch
+               xMinVisible = typeof currentXAxisRange[0] === 'number' ? currentXAxisRange[0] : new Date(currentXAxisRange[0]).getTime();
+               xMaxVisible = typeof currentXAxisRange[1] === 'number' ? currentXAxisRange[1] : new Date(currentXAxisRange[1]).getTime();
+               console.log("Autoscale: X-axis range:", new Date(xMinVisible).toISOString(), "to", new Date(xMaxVisible).toISOString());
+           } else {
+               console.log("Autoscale: No X-axis range found, processing all data points");
+           }
+
+           fullData.forEach(trace => {
+                if (trace.name === 'Buy Signal') return; // Skip traces named "Buy Signal"
+                if (trace.yaxis === 'y') { // Ensure y-values are present AND for main chart
+                    console.log(`Autoscale: Processing main y-axis trace: ${trace.name || 'unnamed'}, type: ${trace.type}`);
+                    // Iterate through open, high, low, close values for candlestick traces
+                    const ohlc = [trace.open, trace.high, trace.low, trace.close];
+                    ohlc.forEach((yValues, ohlcIndex) => {
+                        if (yValues && Array.isArray(yValues)) {
+                            console.log(`Autoscale: Processing OHLC ${['open','high','low','close'][ohlcIndex]}, ${yValues.length} values`);
+                            yValues.forEach((yVal, index) => {
+                                if (typeof yVal === 'number' && !isNaN(yVal)) {
+                                    // Check if this data point is within the visible X-axis range
+                                    let isVisible = true;
+                                    if (xMinVisible !== null && xMaxVisible !== null && trace.x && trace.x[index]) {
+                                        const xVal = trace.x[index] instanceof Date ? trace.x[index].getTime() : new Date(trace.x[index]).getTime();
+                                        isVisible = xVal >= xMinVisible && xVal <= xMaxVisible;
+                                    }
+
+                                    if (isVisible) {
+                                        if (yVal < yMin) yMin = yVal;
+                                        if (yVal > yMax) yMax = yVal;
+                                        yDataFound = true;
+                                    }
+                                }
+                            });
+                        } else {
+                            if (trace.name) {
+                                console.warn(`Autoscale: OHLC value is not an array in candlestick trace`, trace.name);
+                            }
+                        }
+                    });
+
+                    // Also check trace.y for other trace types on main y-axis (e.g., lines, scatters)
+                    if (trace.y && Array.isArray(trace.y)) {
+                        console.log(`Autoscale: Processing trace.y for ${trace.name || 'unnamed'}, ${trace.y.length} values`);
+                        trace.y.forEach((yVal, index) => {
+                            if (typeof yVal === 'number' && !isNaN(yVal)) {
+                                // Check if this data point is within the visible X-axis range
+                                let isVisible = true;
+                                if (xMinVisible !== null && xMaxVisible !== null && trace.x && trace.x[index]) {
+                                    const xVal = trace.x[index] instanceof Date ? trace.x[index].getTime() : new Date(trace.x[index]).getTime();
+                                    isVisible = xVal >= xMinVisible && xVal <= xMaxVisible;
+                                }
+
+                                if (isVisible) {
+                                    if (yVal < yMin) yMin = yVal;
+                                    if (yVal > yMax) yMax = yVal;
+                                    yDataFound = true;
+                                }
+                            }
+                        });
+                    }
+                } else if (trace.yaxis && trace.yaxis !== 'y' && trace.y && Array.isArray(trace.y) && trace.y.length > 0) { // Handle indicator subplots
+                    console.log(`Autoscale: Processing indicator trace: ${trace.name || 'unnamed'} on ${trace.yaxis}`);
+                    
+                    // Initialize min/max for this y-axis if not already done
+                    const yAxisName = trace.yaxis;
+                    if (!indicatorRanges[yAxisName]) {
+                        indicatorRanges[yAxisName] = {
+                            min: Infinity,
+                            max: -Infinity,
+                            dataFound: false
+                        };
+                    }
+                    
+                    trace.y.forEach((yVal, index) => {
+                        if (typeof yVal === 'number' && !isNaN(yVal)) {
+                            // Check if this data point is within the visible X-axis range
+                            let isVisible = true;
+                            if (xMinVisible !== null && xMaxVisible !== null && trace.x && trace.x[index]) {
+                                const xVal = trace.x[index] instanceof Date ? trace.x[index].getTime() : new Date(trace.x[index]).getTime();
+                                isVisible = xVal >= xMinVisible && xVal <= xMaxVisible;
+                            }
+
+                            if (isVisible) {
+                                if (yVal < indicatorRanges[yAxisName].min) indicatorRanges[yAxisName].min = yVal;
+                                if (yVal > indicatorRanges[yAxisName].max) indicatorRanges[yAxisName].max = yVal;
+                                indicatorRanges[yAxisName].dataFound = true;
+                            }
+                        }
+                    });
+                } else {
+                    console.log(`Autoscale: Skipping trace: ${trace.name || 'unnamed'}, yaxis: ${trace.yaxis}`);
+                }
+           });
+
+           console.log(`Autoscale: After processing - yDataFound: ${yDataFound}, yMin: ${yMin}, yMax: ${yMax}`);
+           
+           // Log indicator ranges that were found
+           for (const [yAxisName, rangeData] of Object.entries(indicatorRanges)) {
+               console.log(`Autoscale: Indicator range on ${yAxisName} - dataFound: ${rangeData.dataFound}, min: ${rangeData.min}, max: ${rangeData.max}`);
+           }
+
+
+            // Combine the Y-axis ranges
+            let priceChartYMin = Infinity;
+            let priceChartYMax = -Infinity;
+
+            if (yDataFound) {
+                priceChartYMin = Math.min(priceChartYMin, yMin);
+                priceChartYMax = Math.max(priceChartYMax, yMax);
+            }
+
+            console.log(`Autoscale: Final price range - yDataFound: ${yDataFound}, priceChartYMin: ${priceChartYMin}, priceChartYMax: ${priceChartYMax}`);
+
+            if (priceChartYMin !== Infinity && priceChartYMax !== -Infinity) {
+                let yPadding;
+                if (priceChartYMin === priceChartYMax) {
+                    yPadding = Math.abs(priceChartYMin) * 0.1 || 0.1; // 10% of the price or a default value
+                } else {
+                    yPadding = (priceChartYMax - priceChartYMin) * 0.05; // 5% padding
+                }
+
+                const finalYMin = priceChartYMin - yPadding;
+                const finalYMax = priceChartYMax + yPadding;
+
+                console.log(`Autoscale: Calculated range - yPadding: ${yPadding}, finalYMin: ${finalYMin}, finalYMax: ${finalYMax}`);
+
+                // Validate that the calculated Y-axis values are finite
+                if (!isFinite(finalYMin) || !isFinite(finalYMax)) {
+                    console.error("Autoscale: Invalid Y-axis range calculated - priceChartYMin:", priceChartYMin, "priceChartYMax:", priceChartYMax, "yPadding:", yPadding);
+                    console.error("Autoscale: Skipping Y-axis autoscale due to invalid range");
+                    return; // Exit early to prevent the error
+                }
+
+                layoutUpdate['yaxis.range[0]'] = finalYMin;
+                layoutUpdate['yaxis.range[1]'] = finalYMax;
+                layoutUpdate['yaxis.autorange'] = false;
+                console.log("Autoscale: Setting Y-axis range to:", finalYMin, "to", finalYMax);
+            } else {
+                // If no data is found, force a default range. This prevents errors.
+                layoutUpdate['yaxis.range[0]'] = 0;
+                layoutUpdate['yaxis.range[1]'] = 100;
+                layoutUpdate['yaxis.autorange'] = true;
+                console.log("Autoscale: No data found, setting default range 0-100");
+            }
+
+            // Process and set ranges for indicator y-axes
+            for (const [yAxisName, rangeData] of Object.entries(indicatorRanges)) {
+                if (rangeData.dataFound && rangeData.min !== Infinity && rangeData.max !== -Infinity) {
+                    let indicatorPadding;
+                    if (rangeData.min === rangeData.max) {
+                        // If min and max are the same, add some padding based on the value
+                        indicatorPadding = Math.abs(rangeData.min) * 0.1 || 0.1; // 10% of the value or a default value
+                    } else {
+                        indicatorPadding = (rangeData.max - rangeData.min) * 0.05; // 5% padding
+                    }
+
+                    const finalIndicatorMin = rangeData.min - indicatorPadding;
+                    const finalIndicatorMax = rangeData.max + indicatorPadding;
+
+                    // Validate that the calculated Y-axis values are finite
+                    if (isFinite(finalIndicatorMin) && isFinite(finalIndicatorMax)) {
+                        layoutUpdate[`${yAxisName}.range[0]`] = finalIndicatorMin;
+                        layoutUpdate[`${yAxisName}.range[1]`] = finalIndicatorMax;
+                        layoutUpdate[`${yAxisName}.autorange`] = false;
+                        console.log(`Autoscale: Setting ${yAxisName} range to:`, finalIndicatorMin, "to", finalIndicatorMax);
+                    } else {
+                        console.error(`Autoscale: Invalid ${yAxisName} range calculated - min:`, rangeData.min, "max:", rangeData.max, "padding:", indicatorPadding);
+                        console.error(`Autoscale: Skipping ${yAxisName} autoscale due to invalid range`);
+                        // Apply autorange as fallback
+                        layoutUpdate[`${yAxisName}.autorange`] = true;
+                    }
+                } else {
+                    // If no data is found for this y-axis, set autorange to true
+                    layoutUpdate[`${yAxisName}.autorange`] = true;
+                    console.log(`Autoscale: No data found for ${yAxisName}, setting autorange to true`);
+                }
+            }
+
+
+            if (Object.keys(layoutUpdate).length > 0) {
+                console.log("Autoscale: Applying layout update:", layoutUpdate);
+                try {
+                    Plotly.relayout(plotlyGraphObj, layoutUpdate);
+
+                    // Save the new axis ranges after applying autoscale
+                    // Note: X-axis range is no longer modified by autoscale
+
+                    // Save Y-axis range if it was calculated
+                    if (priceChartYMin !== Infinity && priceChartYMax !== -Infinity) {
+                        window.currentYAxisRange = [priceChartYMin - yPadding, priceChartYMax + yPadding];
+
+                        console.log("Autoscale: Updated display elements and saved Y-axis range to window.currentYAxisRange");
+                    }
+
+                    console.log("Autoscale: Settings saved");
+
+                } catch (e) {
+                    console.error("Autoscale: Error during Plotly.relayout:", e);
+                    console.error("Autoscale: Failed layoutUpdate was:", JSON.stringify(layoutUpdate, null, 2));
+                    console.error("Autoscale: Current plotlyGraphObj state (data and layout):", { data: plotlyGraphObj.data, layout: plotlyGraphObj.layout, _fullLayout: plotlyGraphObj._fullLayout });
+                    throw e;
+                }
+            } else {
+                console.info("Autoscale: No layout changes to apply.");
+            }
+
+            console.log("Autoscale: COMPLETED");
+        }
+
+        // Create a sample chart with multiple subplots to test the autoscale function
+        const trace1 = {
+            x: [1, 2, 3, 4],
+            y: [10, 15, 13, 17],
+            type: 'scatter',
+            name: 'Price',
+            yaxis: 'y'
+        };
+
+        const trace2 = {
+            x: [1, 2, 3, 4],
+            y: [20, 25, 23, 27],
+            type: 'scatter',
+            name: 'MACD',
+            yaxis: 'y2'
+        };
+
+        const trace3 = {
+            x: [1, 2, 3, 4],
+            y: [30, 35, 33, 37],
+            type: 'scatter',
+            name: 'RSI',
+            yaxis: 'y3'
+        };
+
+        const data = [trace1, trace2, trace3];
+
+        const layout = {
+            title: 'Test Chart with Multiple Y-Axes',
+            xaxis: { title: 'X Axis' },
+            yaxis: { title: 'Price', side: 'left' },
+            yaxis2: { title: 'MACD', overlaying: 'y', side: 'right' },
+            yaxis3: { title: 'RSI', overlaying: 'y', side: 'right', position: 0.95 }
+        };
+
+        Plotly.newPlot('test-chart', data, layout).then(function(gd) {
+            window.gd = gd;
+        });
+
+        // Add event listener to test button
+        document.getElementById('test-autoscale').addEventListener('click', function() {
+            if (window.gd) {
+                applyAutoscale(window.gd);
+            }
+        });
+    </script>
+</body>
+</html>

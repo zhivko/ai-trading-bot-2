@@ -5300,7 +5300,7 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
     }
 
     const yAxisRange = yAxisMax - yAxisMin;
-    const maxMarkerSize = Math.min(20, yAxisRange * 0.20); // Max marker size = 20% of Y-axis range, capped at 20px
+    const maxMarkerSize = Math.min(40, yAxisRange * 0.40); // Max marker size = 40% of Y-axis range, capped at 40px
     const minMarkerSize = 4; // Smaller minimum marker size
 
     // Function to scale value to marker size
@@ -5404,9 +5404,9 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
             marker: {
                 symbol: 'triangle-up',
                 size: buySizes,
-                color: 'rgba(94, 255, 0, 0.4)',
+                color: 'rgba(94, 255, 0, 0.5)',
                 line: {
-                    color: 'rgba(94, 255, 0, 0.4)',
+                    color: 'rgba(17, 37, 5, 1)',
                     width: 1
                 }
             },
@@ -5498,9 +5498,9 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
             marker: {
                 symbol: 'triangle-down',
                 size: sellSizes,
-                color: 'rgba(255, 0, 0, 0.4)',
+                color: 'rgba(255, 0, 0, 0.5)',
                 line: {
-                    color: 'rgba(255, 0, 0, 0.4)',
+                    color: 'rgba(88, 7, 7, 1)',
                     width: 1
                 }
             },

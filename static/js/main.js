@@ -1112,7 +1112,7 @@ function handleVolumeProfileData(message) {
 
 // Handle live price updates from WebSocket
 function handleLiveData(message) {
-    console.log('⚡ Received live data:', message);
+    // console.log('⚡ Received live data:', message);
 
     const data = message.data || {};
     const livePrice = data.live_price;
@@ -1200,8 +1200,7 @@ function updateChartWithOHLCVAndIndicators(ohlcv, active_indicators) {
         ],
         'cto_line': [
             { key: 'cto_upper', name: 'CTO Upper', color: 'darkgreen', type: 'scatter', mode: 'lines' },
-            { key: 'cto_lower', name: 'CTO Lower', color: 'darkred', type: 'scatter', mode: 'lines' },
-            { key: 'cto_trend', name: 'CTO Trend', color: 'black', type: 'scatter', mode: 'lines' }
+            { key: 'cto_lower', name: 'CTO Lower', color: 'darkred', type: 'scatter', mode: 'lines' }
         ]
     };
 
@@ -1556,11 +1555,10 @@ function applyAutoscale(gdFromClick) { // Added gdFromClick argument
 // Collect y values for primary y-axis (y) from visible traces
 let yMin = Infinity, yMax = -Infinity;
 let yDataFound = false;
-let yPadding = 0; // Declare yPadding here to make it accessible in both if blocks
+let yPadding = 0; // Declare yPadding here to make it accessible throughout the function
 
- let indicatorYMin = Infinity;
- let indicatorYMax = -Infinity;
- let indicatorYDataFound = false;
+// Track min/max for each indicator y-axis
+let indicatorRanges = {};
 
 
    // Get current X-axis range to filter visible data points
@@ -1580,6 +1578,9 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
 
    fullData.forEach(trace => {
         if (trace.name === 'Buy Signal') return; // Skip traces named "Buy Signal"
+        // Skip trade-related traces that shouldn't affect price scaling
+        if (trace.name === 'Buy Trades' || trace.name === 'Sell Trades') return;
+
         if (trace.yaxis === 'y') { // Ensure y-values are present AND for main chart
             console.log(`Autoscale: Processing main y-axis trace: ${trace.name || 'unnamed'}, type: ${trace.type}`);
             // Iterate through open, high, low, close values for candlestick traces
@@ -1630,8 +1631,19 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
                     }
                 });
             }
-        } else if (trace.yaxis && trace.yaxis !== 'y' && trace.y && trace.y.length > 0) { // Handle indicator subplots
-            console.log(`Autoscale: Skipping indicator trace: ${trace.name || 'unnamed'} on ${trace.yaxis}`);
+        } else if (trace.yaxis && trace.yaxis !== 'y' && trace.y && Array.isArray(trace.y) && trace.y.length > 0) { // Handle indicator subplots
+            console.log(`Autoscale: Processing indicator trace: ${trace.name || 'unnamed'} on ${trace.yaxis}`);
+            
+            // Initialize min/max for this y-axis if not already done
+            const yAxisName = trace.yaxis;
+            if (!indicatorRanges[yAxisName]) {
+                indicatorRanges[yAxisName] = {
+                    min: Infinity,
+                    max: -Infinity,
+                    dataFound: false
+                };
+            }
+            
             trace.y.forEach((yVal, index) => {
                 if (typeof yVal === 'number' && !isNaN(yVal)) {
                     // Check if this data point is within the visible X-axis range
@@ -1642,9 +1654,9 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
                     }
 
                     if (isVisible) {
-                        if (yVal < indicatorYMin) indicatorYMin = yVal;
-                        if (yVal > indicatorYMax) indicatorYMax = yVal;
-                        indicatorYDataFound = true;
+                        if (yVal < indicatorRanges[yAxisName].min) indicatorRanges[yAxisName].min = yVal;
+                        if (yVal > indicatorRanges[yAxisName].max) indicatorRanges[yAxisName].max = yVal;
+                        indicatorRanges[yAxisName].dataFound = true;
                     }
                 }
             });
@@ -1668,7 +1680,6 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
     console.log(`Autoscale: Final price range - yDataFound: ${yDataFound}, priceChartYMin: ${priceChartYMin}, priceChartYMax: ${priceChartYMax}`);
 
     if (priceChartYMin !== Infinity && priceChartYMax !== -Infinity) {
-        let yPadding;
         if (priceChartYMin === priceChartYMax) {
             yPadding = Math.abs(priceChartYMin) * 0.1 || 0.1; // 10% of the price or a default value
         } else {
@@ -1701,12 +1712,46 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
 
 
 
-    // # Remove autoscale from indicators
-    // // Apply autorange to indicator y-axes (to ensure they are still responsive)
-    // Object.keys(inputLayout).forEach(key => {
-    //     if (key.startsWith('yaxis') && key !== 'yaxis' && inputLayout[key]) {
-    //         layoutUpdate[`${key}.autorange`] = true;
-    //     }
+    // Log indicator ranges that were found
+    for (const [yAxisName, rangeData] of Object.entries(indicatorRanges)) {
+        console.log(`Autoscale: Indicator range on ${yAxisName} - dataFound: ${rangeData.dataFound}, min: ${rangeData.min}, max: ${rangeData.max}`);
+    }
+
+    // Process and set ranges for indicator y-axes
+    for (const [yAxisName, rangeData] of Object.entries(indicatorRanges)) {
+        if (rangeData.dataFound && rangeData.min !== Infinity && rangeData.max !== -Infinity) {
+            let indicatorPadding;
+            if (rangeData.min === rangeData.max) {
+                // If min and max are the same, add some padding based on the value
+                indicatorPadding = Math.abs(rangeData.min) * 0.1 || 0.1; // 10% of the value or a default value
+            } else {
+                indicatorPadding = (rangeData.max - rangeData.min) * 0.05; // 5% padding
+            }
+
+            const finalIndicatorMin = rangeData.min - indicatorPadding;
+            const finalIndicatorMax = rangeData.max + indicatorPadding;
+
+            // Validate that the calculated Y-axis values are finite
+            if (isFinite(finalIndicatorMin) && isFinite(finalIndicatorMax)) {
+                // Use correct Plotly layout key format (yaxis2, yaxis3, etc.)
+                const axisKey = yAxisName.replace('y', 'yaxis');
+                layoutUpdate[`${axisKey}.range[0]`] = finalIndicatorMin;
+                layoutUpdate[`${axisKey}.range[1]`] = finalIndicatorMax;
+                layoutUpdate[`${axisKey}.autorange`] = false;
+                console.log(`Autoscale: Setting ${yAxisName} (${axisKey}) range to:`, finalIndicatorMin, "to", finalIndicatorMax);
+            } else {
+                console.error(`Autoscale: Invalid ${yAxisName} range calculated - min:`, rangeData.min, "max:", rangeData.max, "padding:", indicatorPadding);
+                console.error(`Autoscale: Skipping ${yAxisName} autoscale due to invalid range`);
+                // Apply autorange as fallback
+                const axisKey = yAxisName.replace('y', 'yaxis');
+                layoutUpdate[`${axisKey}.autorange`] = true;
+            }
+        } else {
+            // If no data is found for this y-axis, set autorange to true
+            layoutUpdate[`${yAxisName}.autorange`] = true;
+            console.log(`Autoscale: No data found for ${yAxisName}, setting autorange to true`);
+        }
+    }
 
 
     if (Object.keys(layoutUpdate).length > 0) {
@@ -1733,7 +1778,9 @@ let yPadding = 0; // Declare yPadding here to make it accessible in both if bloc
             }
 
             // Save the new ranges to Redis
-            saveSettingsInner();
+            if (typeof saveSettingsInner === 'function') {
+                saveSettingsInner();
+            }
             console.log("Autoscale: Settings saved");
 
         } catch (e) {

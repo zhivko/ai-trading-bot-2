@@ -16,6 +16,7 @@ from redis_utils import fetch_klines_from_bybit
 from indicators import fetch_open_interest_from_bybit
 from logging_config import logger
 from bybit_price_feed import start_bybit_price_feed
+from dex_trade_fetchers import fetch_dex_trades
 
 async def fetch_and_publish_klines():
     logger.info("🚀 STARTING BACKGROUND TASK: fetch_and_publish_klines")
@@ -189,14 +190,17 @@ async def fetch_and_aggregate_trades():
                 exchange_name = exchange_config.get('name', exchange_id)
                 symbol_mappings = exchange_config.get('symbols', {})
 
+                logger.info(f"🔍 CHECKING EXCHANGE: {exchange_name} ({exchange_id}) - symbols: {len(symbol_mappings) if symbol_mappings else 0}")
+
                 # Skip exchanges with no symbols configured
                 if not symbol_mappings:
+                    logger.info(f"⚠️ SKIPPING {exchange_name} ({exchange_id}): no symbols configured")
                     continue
 
                 total_exchanges_processed += 1
                 symbols_in_exchange = 0
 
-                # logger.info(f"📊 PROCESSING {exchange_name} ({exchange_id})")
+                logger.info(f"📊 PROCESSING {exchange_name} ({exchange_id})")
 
                 # Get last fetch time for this exchange
                 last_fetch = last_fetch_times.get(exchange_id)
@@ -228,62 +232,76 @@ async def fetch_and_aggregate_trades():
                         end_dt = datetime.fromtimestamp(end_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
                         logger.debug(f"📈 FETCHING TRADES: {internal_symbol} ({exchange_symbol}) on {exchange_name} from {start_dt} to {end_dt}")
 
-                        # First, fetch individual trades from exchange and persist to Redis
-                        import ccxt.async_support as ccxt
-                        exchange_class = getattr(ccxt, exchange_id)
-                        ccxt_exchange = exchange_class({
-                            'enableRateLimit': True,
-                            'rateLimit': 1000,
-                        })
+                        # Check if this is a DEX exchange
+                        exchange_type = exchange_config.get('type', 'cex')
+                        logger.info(f"🔍 EXCHANGE TYPE: {exchange_id} has type '{exchange_type}'")
 
-                        # Get symbol mapping
-                        ccxt_symbol = exchange_symbol
-
-                        # Fetch trades without aggregation
-                        all_trades = []
-                        current_fetch_ts = start_ts
-                        limit = 1000
-
-                        while current_fetch_ts < end_ts:
+                        if exchange_type == 'dex':
+                            # Use DEX-specific fetcher
+                            logger.info(f"🔄 FETCHING DEX TRADES: {exchange_id} {internal_symbol} from {start_ts} to {end_ts}")
                             try:
-                                if not all_trades:
-                                    trades_batch = await ccxt_exchange.fetch_trades(ccxt_symbol, limit=limit)
-                                else:
-                                    since = int(current_fetch_ts * 1000)
-                                    trades_batch = await ccxt_exchange.fetch_trades(ccxt_symbol, since=since, limit=limit)
-
-                                if not trades_batch:
-                                    break
-
-                                # Convert timestamps to seconds and filter
-                                filtered_batch = []
-                                for t in trades_batch:
-                                    trade_seconds = int(t['timestamp'] / 1000)
-                                    if start_ts <= trade_seconds <= end_ts:
-                                        trade_copy = t.copy()
-                                        trade_copy['timestamp'] = trade_seconds
-                                        filtered_batch.append(trade_copy)
-
-                                all_trades.extend(filtered_batch)
-
-                                if trades_batch:
-                                    last_trade_ts = int(trades_batch[-1]['timestamp'] / 1000)
-                                    if last_trade_ts <= current_fetch_ts:
-                                        break
-                                    current_fetch_ts = last_trade_ts + 1
-                                    if len(trades_batch) < limit:
-                                        break
-
-                                # Prevent memory issues
-                                if len(all_trades) > 10000:
-                                    all_trades = all_trades[-10000:]
-                                    break
-
+                                all_trades = await fetch_dex_trades(exchange_id, internal_symbol, start_ts, limit=1000)
+                                logger.info(f"✅ FETCHED {len(all_trades) if all_trades else 0} DEX trades for {internal_symbol} on {exchange_name}")
                             except Exception as e:
-                                logger.error(f"❌ Error fetching trades batch from {exchange_id}: {e}")
-                                break
+                                logger.error(f"❌ Error fetching DEX trades from {exchange_id}: {e}")
+                                all_trades = []
+                        else:
+                            # Use CCXT for CEX exchanges
+                            import ccxt.async_support as ccxt
+                            exchange_class = getattr(ccxt, exchange_id)
+                            ccxt_exchange = exchange_class({
+                                'enableRateLimit': True,
+                                'rateLimit': 1000,
+                            })
 
-                        await ccxt_exchange.close()
+                            # Get symbol mapping
+                            ccxt_symbol = exchange_symbol
+
+                            # Fetch trades without aggregation
+                            all_trades = []
+                            current_fetch_ts = start_ts
+                            limit = 1000
+
+                            while current_fetch_ts < end_ts:
+                                try:
+                                    if not all_trades:
+                                        trades_batch = await ccxt_exchange.fetch_trades(ccxt_symbol, limit=limit)
+                                    else:
+                                        since = int(current_fetch_ts * 1000)
+                                        trades_batch = await ccxt_exchange.fetch_trades(ccxt_symbol, since=since, limit=limit)
+
+                                    if not trades_batch:
+                                        break
+
+                                    # Convert timestamps to seconds and filter
+                                    filtered_batch = []
+                                    for t in trades_batch:
+                                        trade_seconds = int(t['timestamp'] / 1000)
+                                        if start_ts <= trade_seconds <= end_ts:
+                                            trade_copy = t.copy()
+                                            trade_copy['timestamp'] = trade_seconds
+                                            filtered_batch.append(trade_copy)
+
+                                    all_trades.extend(filtered_batch)
+
+                                    if trades_batch:
+                                        last_trade_ts = int(trades_batch[-1]['timestamp'] / 1000)
+                                        if last_trade_ts <= current_fetch_ts:
+                                            break
+                                        current_fetch_ts = last_trade_ts + 1
+                                        if len(trades_batch) < limit:
+                                            break
+
+                                    # Prevent memory issues
+                                    if len(all_trades) > 10000:
+                                        all_trades = all_trades[-10000:]
+                                        break
+
+                                except Exception as e:
+                                    logger.error(f"❌ Error fetching trades batch from {exchange_id}: {e}")
+                                    break
+
+                            await ccxt_exchange.close()
 
                         if all_trades:
                             # Persist individual trades to Redis
@@ -407,8 +425,11 @@ async def fill_trade_data_gaps_background_task():
                 exchange_name = exchange_config.get('name', exchange_id)
                 symbol_mappings = exchange_config.get('symbols', {})
 
+                logger.info(f"🔍 CHECKING GAP FILLER EXCHANGE: {exchange_name} ({exchange_id}) - symbols: {len(symbol_mappings) if symbol_mappings else 0}")
+
                 # Skip exchanges with no symbols configured
                 if not symbol_mappings:
+                    logger.info(f"⚠️ SKIPPING GAP FILLER {exchange_name} ({exchange_id}): no symbols configured")
                     continue
 
                 total_exchanges_processed += 1
@@ -434,61 +455,75 @@ async def fill_trade_data_gaps_background_task():
                             try:
                                 # logger.info(f"Attempting to fetch fresh trade data from {exchange_name} for {internal_symbol}...")
 
-                                # Use CCXT to fetch fresh trade data
-                                import ccxt.async_support as ccxt
-                                exchange_class = getattr(ccxt, exchange_id)
-                                ccxt_exchange = exchange_class({
-                                    'enableRateLimit': True,
-                                    'rateLimit': 1000,
-                                })
-
-                                ccxt_symbol = exchange_symbol
-
-                                # Fetch trades for the entire time range
-                                all_fresh_trades = []
-                                current_fetch_ts = start_ts
-                                limit = 1000
-
-                                while current_fetch_ts < end_ts:
+                                # Check if this is a DEX exchange
+                                exchange_type = exchange_config.get('type', 'cex')
+                                logger.info(f"🔍 GAP FILLER EXCHANGE TYPE: {exchange_id} has type '{exchange_type}'")
+        
+                                if exchange_type == 'dex':
+                                    # Use DEX-specific fetcher for gap filling
+                                    logger.info(f"🔄 FETCHING DEX TRADES FOR GAP FILLING: {exchange_id} {internal_symbol} from {start_ts} to {end_ts}")
                                     try:
-                                        if not all_fresh_trades:
-                                            trades_batch = await ccxt_exchange.fetch_trades(ccxt_symbol, limit=limit)
-                                        else:
-                                            since = int(current_fetch_ts * 1000)
-                                            trades_batch = await ccxt_exchange.fetch_trades(ccxt_symbol, since=since, limit=limit)
-
-                                        if not trades_batch:
-                                            break
-
-                                        # Convert timestamps to seconds and filter
-                                        filtered_batch = []
-                                        for t in trades_batch:
-                                            trade_seconds = int(t['timestamp'] / 1000)
-                                            if start_ts <= trade_seconds <= end_ts:
-                                                trade_copy = t.copy()
-                                                trade_copy['timestamp'] = trade_seconds
-                                                filtered_batch.append(trade_copy)
-
-                                        all_fresh_trades.extend(filtered_batch)
-
-                                        if trades_batch:
-                                            last_trade_ts = int(trades_batch[-1]['timestamp'] / 1000)
-                                            if last_trade_ts <= current_fetch_ts:
-                                                break
-                                            current_fetch_ts = last_trade_ts + 1
-                                            if len(trades_batch) < limit:
-                                                break
-
-                                        # Prevent memory issues
-                                        if len(all_fresh_trades) > 10000:
-                                            all_fresh_trades = all_fresh_trades[-10000:]
-                                            break
-
+                                        all_fresh_trades = await fetch_dex_trades(exchange_id, internal_symbol, start_ts, limit=1000)
+                                        logger.info(f"✅ FETCHED {len(all_fresh_trades) if all_fresh_trades else 0} DEX trades for gap-filling {internal_symbol} on {exchange_name}")
                                     except Exception as e:
-                                        logger.error(f"❌ Error fetching trade gap-fill batch from {exchange_id}: {e}")
-                                        break
+                                        logger.error(f"❌ Error fetching DEX trades for gap-filling from {exchange_id}: {e}")
+                                        all_fresh_trades = []
+                                else:
+                                    # Use CCXT for CEX gap filling
+                                    import ccxt.async_support as ccxt
+                                    exchange_class = getattr(ccxt, exchange_id)
+                                    ccxt_exchange = exchange_class({
+                                        'enableRateLimit': True,
+                                        'rateLimit': 1000,
+                                    })
 
-                                await ccxt_exchange.close()
+                                    ccxt_symbol = exchange_symbol
+
+                                    # Fetch trades for the entire time range
+                                    all_fresh_trades = []
+                                    current_fetch_ts = start_ts
+                                    limit = 1000
+
+                                    while current_fetch_ts < end_ts:
+                                        try:
+                                            if not all_fresh_trades:
+                                                trades_batch = await ccxt_exchange.fetch_trades(ccxt_symbol, limit=limit)
+                                            else:
+                                                since = int(current_fetch_ts * 1000)
+                                                trades_batch = await ccxt_exchange.fetch_trades(ccxt_symbol, since=since, limit=limit)
+
+                                            if not trades_batch:
+                                                break
+
+                                            # Convert timestamps to seconds and filter
+                                            filtered_batch = []
+                                            for t in trades_batch:
+                                                trade_seconds = int(t['timestamp'] / 1000)
+                                                if start_ts <= trade_seconds <= end_ts:
+                                                    trade_copy = t.copy()
+                                                    trade_copy['timestamp'] = trade_seconds
+                                                    filtered_batch.append(trade_copy)
+
+                                            all_fresh_trades.extend(filtered_batch)
+
+                                            if trades_batch:
+                                                last_trade_ts = int(trades_batch[-1]['timestamp'] / 1000)
+                                                if last_trade_ts <= current_fetch_ts:
+                                                    break
+                                                current_fetch_ts = last_trade_ts + 1
+                                                if len(trades_batch) < limit:
+                                                    break
+
+                                            # Prevent memory issues
+                                            if len(all_fresh_trades) > 10000:
+                                                all_fresh_trades = all_fresh_trades[-10000:]
+                                                break
+
+                                        except Exception as e:
+                                            logger.error(f"❌ Error fetching trade gap-fill batch from {exchange_id}: {e}")
+                                            break
+
+                                    await ccxt_exchange.close()
 
                                 if all_fresh_trades and len(all_fresh_trades) > 0:
                                     # Persist fresh trades to Redis to fill the gap

@@ -375,6 +375,9 @@ class EmailAlertService:
 
         for idx, drawing in enumerate(drawings):
             # Validate that drawing is a dict
+            if drawing.get('type') is None or drawing.get('type') != 'line':
+                continue
+            
             if not isinstance(drawing, dict) or drawing is None:
                 logger.warning(f"Skipping invalid drawing at index {idx}: {drawing}")
                 continue

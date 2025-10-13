@@ -38,31 +38,59 @@ SUPPORTED_RESOLUTIONS = ["1m", "5m", "1h", "4h", "1d", "1w"]
 # Trade aggregator configuration
 TRADE_AGGREGATION_RESOLUTION = "1m"  # Aggregate trades into 1-minute bars
 
-# Supported exchanges for trade aggregation (CCXT exchange IDs)
+# Supported exchanges for trade aggregation (CCXT exchange IDs + DEX APIs)
 SUPPORTED_EXCHANGES = {
     "binance": {
         "name": "Binance",
+        "type": "cex",
         "symbols": {"BTCUSDT": "BTC/USDT", "ETHUSDT": "ETH/USDT", "SOLUSDT": "SOL/USDT", "ADAUSDT": "ADA/USDT", "BNBUSDT": "BNB/USDT"},
         "rate_limit": 1200,  # requests per minute
         "weight_limit": 60000  # API weight per minute
     },
     "bybit": {
         "name": "Bybit",
+        "type": "cex",
         "symbols": {"BTCUSDT": "BTCUSDT", "ETHUSDT": "ETHUSDT", "SOLUSDT": "SOLUSDT", "ADAUSDT": "ADAUSDT", "XMRUSDT": "XMRUSDT", "SUIUSDT": "SUIUSDT", "PAXGUSDT": "PAXGUSDT"},
         "rate_limit": 50,  # requests per second
         "weight_limit": 100  # API requests per second limit
     },
     "kucoin": {
         "name": "KuCoin",
+        "type": "cex",
         "symbols": {"BTCUSDT": "BTC-USDT", "ETHUSDT": "ETH-USDT", "SOLUSDT": "SOL-USDT", "ADAUSDT": "ADA-USDT"},
         "rate_limit": 30,  # requests per second
         "weight_limit": 30
     },
     "okex": {
         "name": "OKX",
+        "type": "cex",
         "symbols": {"BTCUSDT": "BTC-USDT", "ETHUSDT": "ETH-USDT", "SOLUSDT": "SOL-USDT", "ADAUSDT": "ADA/USDT"},
         "rate_limit": 20,  # requests per second
         "weight_limit": 20
+    },
+    "hyperliquid": {
+        "name": "Hyperliquid",
+        "type": "dex",
+        "symbols": {"BTCUSDT": "BTC", "ETHUSDT": "ETH", "SOLUSDT": "SOL", "ADAUSDT": "ADA"},
+        "rate_limit": 10,  # requests per second (conservative)
+        "weight_limit": 10,
+        "api_base_url": "https://api.hyperliquid.xyz"
+    },
+    "aster": {
+        "name": "Aster",
+        "type": "dex",
+        "symbols": {"BTCUSDT": "BTC", "ETHUSDT": "ETH", "SOLUSDT": "SOL"},
+        "rate_limit": 5,  # requests per second (conservative)
+        "weight_limit": 5,
+        "api_base_url": "https://api.aster.network"
+    },
+    "dxdy": {
+        "name": "dYdX",
+        "type": "dex",
+        "symbols": {"BTCUSDT": "BTC-USD", "ETHUSDT": "ETH-USD", "SOLUSDT": "SOL-USD", "ADAUSDT": "ADA-USD"},
+        "rate_limit": 10,  # requests per second
+        "weight_limit": 10,
+        "api_base_url": "https://api.dydx.exchange"
     }
 }
 
