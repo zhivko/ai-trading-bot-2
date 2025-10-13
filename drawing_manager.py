@@ -48,18 +48,30 @@ async def get_drawings(symbol: str, request: Request = None, resolution: Optiona
     redis = await get_redis_connection()
     key = get_drawings_redis_key(symbol, request, email)
 
+    logger.info(f"🔍 GET_DRAWINGS: Retrieving drawings from Redis key {key}")
     drawings_data_str = await redis.get(key)
     all_drawings = json.loads(drawings_data_str) if drawings_data_str else []
+    
+    logger.info(f"🔍 GET_DRAWINGS: Found {len(all_drawings)} drawings in Redis key {key}")
+    if all_drawings:
+        logger.info(f"🔍 GET_DRAWINGS: Available drawing IDs: {[d.get('id') for d in all_drawings if isinstance(d, dict)]}")
+        # Log properties of each drawing for debugging
+        for drawing in all_drawings:
+            if isinstance(drawing, dict):
+                drawing_id = drawing.get('id')
+                drawing_props = drawing.get('properties', {})
+                logger.info(f"🔍 GET_DRAWINGS: Drawing {drawing_id} properties: {drawing_props}")
 
     if not resolution:
         # If no resolution is specified, return all drawings for backward compatibility or other uses.
+        logger.info(f"🔍 GET_DRAWINGS: Returning all {len(all_drawings)} drawings (no resolution filter)")
         return all_drawings
 
     # If a resolution is specified, filter the drawings.
     # A drawing is included if its 'resolution' property matches the requested resolution.
     # Drawings without a 'resolution' property will be excluded.
     filtered_drawings = [d for d in all_drawings if d.get("resolution") == resolution]
-    # logger.info(f"get_drawings for {symbol} with resolution '{resolution}': found {len(all_drawings)} total, returning {len(filtered_drawings)} filtered.")
+    logger.info(f"🔍 GET_DRAWINGS: After resolution filter '{resolution}': found {len(all_drawings)} total, returning {len(filtered_drawings)} filtered.")
     return filtered_drawings
 
 async def delete_drawing(symbol: str, drawing_id: str, request: Request = None, email: Optional[str] = None) -> bool:
@@ -121,5 +133,48 @@ async def update_drawing(symbol: str, drawing_id: str, drawing_data: DrawingData
 
     await redis.set(key, json.dumps(drawings))
     logger.info(f"Drawing {drawing_id} updated.")
+
+    return True
+
+
+async def update_drawing_properties(symbol: str, drawing_id: str, properties: Dict[str, Any], email: Optional[str] = None) -> bool:
+    """
+    Update only the properties of a drawing without affecting other fields.
+    """
+    redis = await get_redis_connection()
+    key = get_drawings_redis_key(symbol, None, email)
+    logger.info(f"🔧 UPDATE_DRAWING_PROPERTIES: Looking for drawing {drawing_id} in Redis key {key}")
+    
+    drawings_data_str = await redis.get(key)
+    if not drawings_data_str:
+        logger.warning(f"⚠️ UPDATE_DRAWING_PROPERTIES: No drawings found in Redis key {key}")
+        return False
+    
+    drawings = json.loads(drawings_data_str)
+    logger.info(f"🔧 UPDATE_DRAWING_PROPERTIES: Found {len(drawings)} drawings in Redis, looking for ID {drawing_id}")
+    
+    found = False
+    for i, drawing_item in enumerate(drawings):
+        if not isinstance(drawing_item, dict):
+            continue
+        if drawing_item.get("id") == drawing_id:
+            logger.info(f"🔧 UPDATE_DRAWING_PROPERTIES: Found drawing {drawing_id}, updating properties")
+            logger.info(f"🔧 UPDATE_DRAWING_PROPERTIES: Old properties: {drawing_item.get('properties', {})}")
+            logger.info(f"🔧 UPDATE_DRAWING_PROPERTIES: New properties: {properties}")
+            
+            # Update only the properties field
+            drawing_item['properties'] = properties
+            logger.info(f"🔧 UPDATE_DRAWING_PROPERTIES: Updated properties for drawing {drawing_id}: {drawing_item['properties']}")
+            found = True
+            break
+    
+    if not found:
+        logger.warning(f"❌ UPDATE_DRAWING_PROPERTIES: Drawing {drawing_id} not found for properties update in key {key}")
+        logger.info(f"🔧 UPDATE_DRAWING_PROPERTIES: Available drawing IDs: {[d.get('id') for d in drawings if isinstance(d, dict)]}")
+        return False
+
+    await redis.set(key, json.dumps(drawings))
+    logger.info(f"💾 UPDATE_DRAWING_PROPERTIES: Successfully saved updated drawings to Redis key {key}")
+    logger.info(f"🔧 UPDATE_DRAWING_PROPERTIES: Updated drawing {drawing_id} properties in Redis")
 
     return True

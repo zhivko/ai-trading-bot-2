@@ -1,4 +1,4 @@
-function updateSelectedShapeInfoPanel(activeShape) {
+async function updateSelectedShapeInfoPanel(activeShape) {
     // Get the element directly to ensure it works across all contexts
     let selectedShapeInfoDiv = window.selectedShapeInfoDiv;
     if (!selectedShapeInfoDiv) {
@@ -37,6 +37,97 @@ function updateSelectedShapeInfoPanel(activeShape) {
         return info;
     }
 
+    async function formatShapeProperties(shapeId) {
+        try {
+            const symbol = window.symbolSelect ? window.symbolSelect.value : null;
+            if (!symbol) return '';
+
+            if (window.wsAPI && window.wsAPI.connected) {
+                const requestId = Date.now().toString();
+
+                const fetchPromise = new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => {
+                        reject(new Error('Timeout waiting for shape properties'));
+                    }, 5000);
+
+                    const messageHandler = (message) => {
+                        if (message.type === 'shape_properties_response' && message.request_id === requestId) {
+                            clearTimeout(timeout);
+                            window.wsAPI.offMessage('shape_properties_response', messageHandler);
+                            window.wsAPI.offMessage('error', messageHandler);
+                            resolve(message.data);
+                        } else if (message.type === 'error' && message.request_id === requestId) {
+                            clearTimeout(timeout);
+                            window.wsAPI.offMessage('shape_properties_response', messageHandler);
+                            window.wsAPI.offMessage('error', messageHandler);
+                            reject(new Error(message.message || 'Failed to fetch shape properties'));
+                        }
+                    };
+
+                    window.wsAPI.onMessage('shape_properties_response', messageHandler);
+                    window.wsAPI.onMessage('error', messageHandler);
+                });
+
+                window.wsAPI.sendMessage({
+                    type: 'shape',
+                    action: 'get_properties',
+                    data: {
+                        symbol: symbol,
+                        drawing_id: shapeId
+                    },
+                    request_id: requestId
+                });
+
+                const result = await fetchPromise;
+
+                if (result && result.properties) {
+                    const props = result.properties;
+                    let propHtml = '<p><strong>Trading Properties:</strong></p>';
+
+                    if (props.buyOnCross !== undefined) {
+                        propHtml += `<p><strong>Buy on Cross:</strong> ${props.buyOnCross ? 'Yes' : 'No'}</p>`;
+                    }
+                    if (props.sellOnCross !== undefined) {
+                        propHtml += `<p><strong>Sell on Cross:</strong> ${props.sellOnCross ? 'Yes' : 'No'}</p>`;
+                    }
+                    if (props.sendEmailOnCross !== undefined) {
+                        propHtml += `<p><strong>Email on Cross:</strong> ${props.sendEmailOnCross ? 'Yes' : 'No'}</p>`;
+                    }
+                    if (props.amount !== undefined) {
+                        propHtml += `<p><strong>Amount:</strong> ${props.amount}</p>`;
+                    }
+                    if (props.amountPercent !== undefined) {
+                        propHtml += `<p><strong>Amount %:</strong> ${props.amountPercent}%</p>`;
+                    }
+                    if (props.amountUsdt !== undefined) {
+                        propHtml += `<p><strong>Amount USDT:</strong> ${props.amountUsdt}</p>`;
+                    }
+                    if (props.emailSent !== undefined) {
+                        propHtml += `<p><strong>Email Sent:</strong> ${props.emailSent ? 'Yes' : 'No'}</p>`;
+                    }
+                    if (props.buy_sent !== undefined) {
+                        propHtml += `<p><strong>Buy Sent:</strong> ${props.buy_sent ? 'Yes' : 'No'}</p>`;
+                    }
+                    if (props.sell_sent !== undefined) {
+                        propHtml += `<p><strong>Sell Sent:</strong> ${props.sell_sent ? 'Yes' : 'No'}</p>`;
+                    }
+                    if (props.emailDate) {
+                        propHtml += `<p><strong>Email Date:</strong> ${new Date(props.emailDate).toLocaleString()}</p>`;
+                    }
+                    if (props.alert_actions) {
+                        const actions = Array.isArray(props.alert_actions) ? props.alert_actions.join(', ') : props.alert_actions;
+                        propHtml += `<p><strong>Alert Actions:</strong> ${actions}</p>`;
+                    }
+
+                    return propHtml;
+                }
+            }
+        } catch (error) {
+            console.error('Error fetching shape properties for panel:', error);
+        }
+        return '';
+    }
+
     if (hasSelection || isHovering) {
         let infoHtml = '';
 
@@ -45,6 +136,9 @@ function updateSelectedShapeInfoPanel(activeShape) {
 
             if (selectedCount === 1 && activeShape && activeShape.id) {
                 infoHtml += formatShapeInfo(activeShape.shape);
+                // Fetch and display trading properties for single selected shape
+                const propertiesHtml = await formatShapeProperties(activeShape.id);
+                infoHtml += propertiesHtml;
             } else if (selectedCount > 1) {
                 infoHtml += '<p><strong>Selected Shapes:</strong></p><ul>';
                 selectedIds.forEach(id => {
@@ -57,6 +151,9 @@ function updateSelectedShapeInfoPanel(activeShape) {
                 if (activeShape && activeShape.shape) {
                     infoHtml += '<p><strong>Last Selected Shape Details:</strong></p>';
                     infoHtml += formatShapeInfo(activeShape.shape);
+                    // Fetch and display trading properties for last selected shape
+                    const propertiesHtml = await formatShapeProperties(activeShape.id);
+                    infoHtml += propertiesHtml;
                 }
             }
         } else if (isHovering) {

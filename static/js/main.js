@@ -558,7 +558,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Event listener for "Edit line" button
     if (window.editShapeBtn) {
-        window.editShapeBtn.addEventListener('click', () => {
+        window.editShapeBtn.addEventListener('click', async () => {
+            console.log('[DEBUG] Edit button clicked');
+            console.log('[DEBUG] activeShapeForPotentialDeletion:', window.activeShapeForPotentialDeletion);
+
             if (!window.activeShapeForPotentialDeletion || !window.activeShapeForPotentialDeletion.id) {
                 alert("No shape selected for editing.");
                 return;
@@ -566,14 +569,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // Show the dialog first
             const dialog = document.getElementById('shape-properties-dialog');
+            console.log('[DEBUG] Dialog element found:', !!dialog);
+
             if (dialog) {
                 dialog.style.display = 'block';
-        
+                console.log('[DEBUG] Dialog displayed, now populating...');
+
                 // Then populate the dialog with current shape properties
-                populateShapePropertiesDialog(window.activeShapeForPotentialDeletion);
+                await populateShapePropertiesDialog(window.activeShapeForPotentialDeletion);
+                console.log('[DEBUG] Dialog population completed');
+            } else {
+                console.error('[DEBUG] Dialog element not found!');
             }
         });
     }
+
 
     // Event listener for "Delete ALL Drawings" button
     if (window.deleteAllShapesBtn) {
@@ -1822,18 +1832,28 @@ window.applyAutoscale = applyAutoscale; // Ensure it's globally available if cal
 
 // Shape Properties Dialog Functions
 async function populateShapePropertiesDialog(activeShape) {
-    if (!activeShape || !activeShape.id) return;
+    console.log('[DEBUG] populateShapePropertiesDialog called with:', activeShape);
+
+    if (!activeShape || !activeShape.id) {
+        console.warn('[DEBUG] No activeShape or activeShape.id provided');
+        return;
+    }
+
+    console.log('[DEBUG] Active shape ID:', activeShape.id);
 
     // Set the shape ID display
     const shapeIdDisplay = document.getElementById('shape-id-display');
     if (shapeIdDisplay) {
         shapeIdDisplay.textContent = activeShape.id;
+        console.log('[DEBUG] Set shape ID display to:', activeShape.id);
     }
 
     // Get symbol
     const symbol = window.symbolSelect ? window.symbolSelect.value : null;
+    console.log('[DEBUG] Current symbol:', symbol);
+
     if (!symbol) {
-        console.warn('No symbol selected, cannot fetch shape properties');
+        console.warn('[DEBUG] No symbol selected, cannot fetch shape properties');
         return;
     }
 
@@ -1849,39 +1869,89 @@ async function populateShapePropertiesDialog(activeShape) {
     const emailSent = document.getElementById('email-sent');
     const emailDateDisplay = document.getElementById('email-date-display');
 
+    console.log('[DEBUG] DOM elements found:');
+    console.log('[DEBUG] startPrice element:', startPrice);
+    console.log('[DEBUG] endPrice element:', endPrice);
+    console.log('[DEBUG] buyOnCross element:', buyOnCross);
+    console.log('[DEBUG] sellOnCross element:', sellOnCross);
+    console.log('[DEBUG] sendEmailOnCross element:', sendEmailOnCross);
+
+    console.log('[DEBUG] Setting default values...');
 
     // Load current Y values from the shape properties endpoint
     if (startPrice && endPrice) {
-        // Y values will be loaded from the properties response below
+        console.log('[DEBUG] startPrice and endPrice elements found');
+    } else {
+        console.log('[DEBUG] startPrice or endPrice elements NOT found');
     }
 
-    if (buyOnCross) buyOnCross.checked = false;
-    if (sellOnCross) sellOnCross.checked = false;
-    if (amount) amount.value = '';
-    if (amountPercent) amountPercent.value = '';
-    if (amountUsdt) amountUsdt.value = '';
-    if (sendEmailOnCross) sendEmailOnCross.checked = true;
-    if (emailSent) emailSent.checked = false;
-    if (emailDateDisplay) emailDateDisplay.textContent = 'Not sent yet';
+    if (buyOnCross) {
+        buyOnCross.checked = false;
+        console.log('[DEBUG] Set buyOnCross default to false');
+    } else {
+        console.log('[DEBUG] buyOnCross element NOT found');
+    }
+    if (sellOnCross) {
+        sellOnCross.checked = false;
+        console.log('[DEBUG] Set sellOnCross default to false');
+    } else {
+        console.log('[DEBUG] sellOnCross element NOT found');
+    }
+    if (amount) {
+        amount.value = '';
+        console.log('[DEBUG] Set amount default to empty');
+    }
+    if (amountPercent) {
+        amountPercent.value = '';
+        console.log('[DEBUG] Set amountPercent default to empty');
+    }
+    if (amountUsdt) {
+        amountUsdt.value = '';
+        console.log('[DEBUG] Set amountUsdt default to empty');
+    }
+    if (sendEmailOnCross) {
+        sendEmailOnCross.checked = true;
+        console.log('[DEBUG] Set sendEmailOnCross default to true');
+    } else {
+        console.log('[DEBUG] sendEmailOnCross element NOT found');
+    }
+    if (emailSent) {
+        emailSent.checked = false;
+        console.log('[DEBUG] Set emailSent default to false');
+    }
+    if (emailDateDisplay) {
+        emailDateDisplay.textContent = 'Not sent yet';
+        console.log('[DEBUG] Set emailDateDisplay default text');
+    }
+
+    console.log('[DEBUG] Default values set, now fetching properties...');
 
     // Fetch existing properties from backend via WebSocket
     try {
+        console.log('[DEBUG] WebSocket connected?', window.wsAPI && window.wsAPI.connected);
+
         if (window.wsAPI && window.wsAPI.connected) {
             const requestId = Date.now().toString();
+            console.log('[DEBUG] Sending WebSocket request with ID:', requestId);
 
             // Set up promise to wait for response
             const fetchPromise = new Promise((resolve, reject) => {
                 const timeout = setTimeout(() => {
+                    console.error('[DEBUG] Timeout waiting for shape properties response');
                     reject(new Error('Timeout waiting for shape properties'));
                 }, 5000); // 5 second timeout
 
                 const messageHandler = (message) => {
+                    console.log('[DEBUG] Received WebSocket message:', message.type, message.request_id);
+
                     if (message.type === 'shape_properties_response' && message.request_id === requestId) {
+                        console.log('[DEBUG] Received shape_properties_response:', message.data);
                         clearTimeout(timeout);
                         window.wsAPI.offMessage('shape_properties_response', messageHandler);
                         window.wsAPI.offMessage('error', messageHandler);
                         resolve(message.data);
                     } else if (message.type === 'error' && message.request_id === requestId) {
+                        console.error('[DEBUG] Received error response:', message.message);
                         clearTimeout(timeout);
                         window.wsAPI.offMessage('shape_properties_response', messageHandler);
                         window.wsAPI.offMessage('error', messageHandler);
@@ -1895,7 +1965,7 @@ async function populateShapePropertiesDialog(activeShape) {
             });
 
             // Send fetch properties message
-            window.wsAPI.sendMessage({
+            const requestMessage = {
                 type: 'shape',
                 action: 'get_properties',
                 data: {
@@ -1903,74 +1973,127 @@ async function populateShapePropertiesDialog(activeShape) {
                     drawing_id: activeShape.id
                 },
                 request_id: requestId
-            });
+            };
+
+            console.log('[DEBUG] Sending request message:', requestMessage);
+            window.wsAPI.sendMessage(requestMessage);
 
             const result = await fetchPromise;
+            console.log('[DEBUG] Fetch promise resolved with result:', result);
 
             if (result && result.properties) {
                 const properties = result.properties;
+                console.log('[DEBUG] Properties received:', properties);
 
-                // Populate Y values
-                if (startPrice) {
-                    if (properties.start_price !== undefined) {
-                        startPrice.value = properties.start_price;
+                // Populate Y values from the shape object itself, not from properties
+                console.log('[DEBUG] Shape object:', activeShape.shape);
+                if (startPrice && activeShape.shape) {
+                    if (activeShape.shape.y0 !== undefined) {
+                        startPrice.value = activeShape.shape.y0;
+                        console.log('[DEBUG] Set start price from shape.y0 to:', activeShape.shape.y0, 'element value:', startPrice.value);
+                    } else {
+                        console.log('[DEBUG] No y0 in shape object');
                     }
                 }
 
-                if (endPrice) {
-                    if (properties.end_price !== undefined) {
-                        endPrice.value = properties.end_price;
+                if (endPrice && activeShape.shape) {
+                    if (activeShape.shape.y1 !== undefined) {
+                        endPrice.value = activeShape.shape.y1;
+                        console.log('[DEBUG] Set end price from shape.y1 to:', activeShape.shape.y1, 'element value:', endPrice.value);
+                    } else {
+                        console.log('[DEBUG] No y1 in shape object');
                     }
                 }
 
                 // Populate form with existing properties
                 if (buyOnCross && properties.buyOnCross !== undefined) {
                     buyOnCross.checked = properties.buyOnCross;
+                    console.log('[DEBUG] Set buyOnCross to:', properties.buyOnCross, 'element checked:', buyOnCross.checked);
+                } else {
+                    console.log('[DEBUG] buyOnCross not set - element found:', !!buyOnCross, 'property exists:', properties.buyOnCross !== undefined);
                 }
                 if (sellOnCross && properties.sellOnCross !== undefined) {
                     sellOnCross.checked = properties.sellOnCross;
+                    console.log('[DEBUG] Set sellOnCross to:', properties.sellOnCross, 'element checked:', sellOnCross.checked);
+                } else {
+                    console.log('[DEBUG] sellOnCross not set - element found:', !!sellOnCross, 'property exists:', properties.sellOnCross !== undefined);
                 }
                 if (amount && properties.amount !== undefined) {
                     amount.value = properties.amount;
+                    console.log('[DEBUG] Set amount to:', properties.amount, 'element value:', amount.value);
+                } else {
+                    console.log('[DEBUG] amount not set - element found:', !!amount, 'property exists:', properties.amount !== undefined);
                 }
                 if (amountPercent && properties.amountPercent !== undefined) {
                     amountPercent.value = properties.amountPercent;
+                    console.log('[DEBUG] Set amountPercent to:', properties.amountPercent, 'element value:', amountPercent.value);
+                } else {
+                    console.log('[DEBUG] amountPercent not set - element found:', !!amountPercent, 'property exists:', properties.amountPercent !== undefined);
                 }
                 if (amountUsdt && properties.amountUsdt !== undefined) {
                     amountUsdt.value = properties.amountUsdt;
+                    console.log('[DEBUG] Set amountUsdt to:', properties.amountUsdt, 'element value:', amountUsdt.value);
+                } else {
+                    console.log('[DEBUG] amountUsdt not set - element found:', !!amountUsdt, 'property exists:', properties.amountUsdt !== undefined);
                 }
                 if (sendEmailOnCross && properties.sendEmailOnCross !== undefined) {
                     sendEmailOnCross.checked = properties.sendEmailOnCross;
+                    console.log('[DEBUG] Set sendEmailOnCross to:', properties.sendEmailOnCross, 'element checked:', sendEmailOnCross.checked);
+                } else {
+                    console.log('[DEBUG] sendEmailOnCross not set - element found:', !!sendEmailOnCross, 'property exists:', properties.sendEmailOnCross !== undefined);
                 }
                 if (emailSent && properties.emailSent !== undefined) {
                     emailSent.checked = properties.emailSent;
-                    // No longer disable the checkbox - allow manual changes
+                    console.log('[DEBUG] Set emailSent to:', properties.emailSent, 'element checked:', emailSent.checked);
+                } else {
+                    console.log('[DEBUG] emailSent not set - element found:', !!emailSent, 'property exists:', properties.emailSent !== undefined);
                 }
                 if (document.getElementById('buy-sent') && properties.buy_sent !== undefined) {
                     document.getElementById('buy-sent').checked = properties.buy_sent;
+                    console.log('[DEBUG] Set buy_sent to:', properties.buy_sent, 'element checked:', document.getElementById('buy-sent').checked);
+                } else {
+                    console.log('[DEBUG] buy_sent not set - element found:', !!document.getElementById('buy-sent'), 'property exists:', properties.buy_sent !== undefined);
                 }
                 if (document.getElementById('sell-sent') && properties.sell_sent !== undefined) {
                     document.getElementById('sell-sent').checked = properties.sell_sent;
+                    console.log('[DEBUG] Set sell_sent to:', properties.sell_sent, 'element checked:', document.getElementById('sell-sent').checked);
+                } else {
+                    console.log('[DEBUG] sell_sent not set - element found:', !!document.getElementById('sell-sent'), 'property exists:', properties.sell_sent !== undefined);
                 }
                 if (emailDateDisplay && properties.emailDate) {
                     emailDateDisplay.textContent = new Date(properties.emailDate).toLocaleString();
+                    console.log('[DEBUG] Set emailDate to:', properties.emailDate, 'element text:', emailDateDisplay.textContent);
+                } else {
+                    console.log('[DEBUG] emailDate not set - element found:', !!emailDateDisplay, 'property exists:', !!properties.emailDate);
                 }
 
                 // Populate alert actions
-                if (document.getElementById('alert-actions-display') && properties.alert_actions) {
-                    document.getElementById('alert-actions-display').value = Array.isArray(properties.alert_actions) ? properties.alert_actions.join('\n') : properties.alert_actions;
+                const alertActionsElement = document.getElementById('alert-actions-display');
+                if (alertActionsElement && properties.alert_actions) {
+                    alertActionsElement.value = Array.isArray(properties.alert_actions) ? properties.alert_actions.join('\n') : properties.alert_actions;
+                    console.log('[DEBUG] Set alert_actions to:', properties.alert_actions, 'element value:', alertActionsElement.value);
+                } else {
+                    console.log('[DEBUG] alert_actions not set - element found:', !!alertActionsElement, 'property exists:', !!properties.alert_actions);
                 }
 
                 // Populate resolution
-                if (document.getElementById('shape-resolution')) {
-                    document.getElementById('shape-resolution').value = properties.resolution || '';
+                const resolutionElement = document.getElementById('shape-resolution');
+                if (resolutionElement) {
+                    resolutionElement.value = properties.resolution || '';
+                    console.log('[DEBUG] Set resolution to:', properties.resolution, 'element value:', resolutionElement.value);
+                } else {
+                    console.log('[DEBUG] resolution not set - element found:', !!resolutionElement);
                 }
+
+                console.log('[DEBUG] All properties populated successfully');
+            } else {
+                console.warn('[DEBUG] No properties in result:', result);
             }
         } else {
-            console.warn('WebSocket not connected, cannot fetch shape properties');
+            console.warn('[DEBUG] WebSocket not connected, cannot fetch shape properties');
         }
     } catch (error) {
-        console.error('Error fetching shape properties:', error);
+        console.error('[DEBUG] Error fetching shape properties:', error);
         // Continue with default values
     }
 }
@@ -2078,28 +2201,28 @@ async function saveShapeProperties() {
                 }, 5000); // 5 second timeout
 
                 const messageHandler = (message) => {
-                    if (message.type === 'shape_properties_success' && message.request_id === requestId) {
+                    if (message.type === 'shape_success' && message.request_id === requestId) {
                         clearTimeout(timeout);
-                        window.wsAPI.offMessage('shape_properties_success', messageHandler);
+                        window.wsAPI.offMessage('shape_success', messageHandler);
                         window.wsAPI.offMessage('error', messageHandler);
                         resolve(message.data);
                     } else if (message.type === 'error' && message.request_id === requestId) {
                         clearTimeout(timeout);
-                        window.wsAPI.offMessage('shape_properties_success', messageHandler);
+                        window.wsAPI.offMessage('shape_success', messageHandler);
                         window.wsAPI.offMessage('error', messageHandler);
                         reject(new Error(message.message || 'Failed to save shape properties'));
                     }
                 };
 
                 // Listen for both success and error messages
-                window.wsAPI.onMessage('shape_properties_success', messageHandler);
+                window.wsAPI.onMessage('shape_success', messageHandler);
                 window.wsAPI.onMessage('error', messageHandler);
             });
 
             // Send save properties message
             window.wsAPI.sendMessage({
                 type: 'shape',
-                action: 'save_properties',
+                action: 'update',
                 data: {
                     symbol: symbol,
                     drawing_id: drawingId,
@@ -2109,11 +2232,6 @@ async function saveShapeProperties() {
             });
 
             const result = await savePromise;
-
-            // If Y values were provided, update the shape coordinates
-            if (startPrice !== undefined || endPrice !== undefined) {
-                await updateShapeYValues(symbol, drawingId, startPrice, endPrice);
-            }
 
             // Close the dialog
             closeShapePropertiesDialog();

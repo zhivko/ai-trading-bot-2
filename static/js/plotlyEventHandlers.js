@@ -45,6 +45,7 @@ async function handleNewShapeSave(shapeObject) {
                 }
                 const shapeMessage = {
                     type: 'shape',
+                    action: 'save',
                     data: drawingData,
                     request_id: Date.now().toString()
                 };

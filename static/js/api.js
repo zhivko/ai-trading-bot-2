@@ -198,6 +198,7 @@ async function sendShapeUpdateToServer(shapeToUpdate, symbol) {
         if (window.wsAPI && window.wsAPI.connected) {
             const shapeMessage = {
                 type: 'shape',
+                action: drawingData.drawing_id ? 'update' : 'save',
                 data: drawingData,
                 request_id: Date.now().toString()
             };

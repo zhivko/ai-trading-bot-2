@@ -431,7 +431,7 @@ async def handle_websocket_message(message: dict, websocket: WebSocket) -> dict:
             return await handle_config_message(message.get('data', {}), websocket, request_id)
 
         elif message_type == "shape":
-            return await handle_shape_message(message.get('data', {}), websocket, request_id)
+            return await handle_shape_message(message.get('data', {}), websocket, request_id, message.get('action'))
 
         elif message_type == "get_volume_profile":
             return await handle_get_volume_profile_direct(message, websocket, request_id)
@@ -1852,7 +1852,7 @@ async def handle_trade_history_message(data: dict, websocket: WebSocket, request
         }
 
 
-async def handle_shape_message(data: dict, websocket: WebSocket, request_id: str) -> dict:
+async def handle_shape_message(data: dict, websocket: WebSocket, request_id: str, action: str = None) -> dict:
     """Handle shape save/update/delete message from client"""
     session = websocket.scope.get('session', {})
 
@@ -1874,8 +1874,15 @@ async def handle_shape_message(data: dict, websocket: WebSocket, request_id: str
         from fastapi import Request as FastAPIRequest
         fake_request = FastAPIRequest(scope={"type": "http", "session": {"email": email}})
 
-        # Check the action type
-        action = data.get('action', 'save')  # Default to 'save' for backward compatibility
+        # Check the action type - use parameter if provided, otherwise get from data
+        if not action:
+            action = data.get('action')
+        if not action:
+            return {
+                "type": "error",
+                "message": "Action is required for shape message",
+                "request_id": request_id
+            }
 
         if action == 'delete':
             # Handle delete operation
@@ -1907,7 +1914,7 @@ async def handle_shape_message(data: dict, websocket: WebSocket, request_id: str
             # Prepare drawing data from the shape message
             drawing_data = {
                 'symbol': symbol,
-                'type': data.get('type'),  # 'line' or 'rect'
+                'type': data.get('type'),  # Include type from client data
                 'start_time': data.get('start_time'),
                 'end_time': data.get('end_time'),
                 'start_price': data.get('start_price'),
@@ -1964,31 +1971,28 @@ async def handle_shape_message(data: dict, websocket: WebSocket, request_id: str
 
             logger.info(f"Getting properties for drawing {drawing_id} for {symbol}:{email}")
 
-            # Get drawing properties using existing endpoint
-            properties_result = await get_shape_properties_api_endpoint(
-                symbol=symbol,
-                drawing_id=drawing_id,
-                request=fake_request
-            )
-
-            if properties_result.status_code == 200:
-                # Parse the response body
-                import json
-                properties_data = json.loads(properties_result.body.decode('utf-8'))
-                return {
-                    "type": "shape_properties_response",
-                    "symbol": symbol,
-                    "email": email,
-                    "data": properties_data,
-                    "timestamp": int(time.time()),
-                    "request_id": request_id
-                }
-            else:
+            # Get drawing data to retrieve properties
+            drawings = await get_drawings(symbol, drawing_id, None, email)
+            if not drawings or len(drawings) == 0:
                 return {
                     "type": "error",
-                    "message": "Failed to get shape properties",
+                    "message": f"Drawing {drawing_id} not found",
                     "request_id": request_id
                 }
+
+            drawing = drawings[0]
+            properties = drawing.get('properties', {})
+
+            return {
+                "type": "shape_properties_response",
+                "symbol": symbol,
+                "email": email,
+                "data": {
+                    "properties": properties
+                },
+                "timestamp": int(time.time()),
+                "request_id": request_id
+            }
 
         elif action == 'save_properties':
             # Handle save properties operation
@@ -1996,23 +2000,22 @@ async def handle_shape_message(data: dict, websocket: WebSocket, request_id: str
             properties = data.get('properties', {})
 
             if not drawing_id:
+                logger.error("Drawing ID is required for save_properties operation")
                 return {
                     "type": "error",
                     "message": "Drawing ID is required for save_properties operation",
                     "request_id": request_id
                 }
 
-            logger.info(f"Saving properties for drawing {drawing_id} for {symbol}:{email}")
+            logger.info(f"📝 SAVE_PROPERTIES: Attempting to save properties for drawing {drawing_id} for {symbol}:{email}")
+            logger.info(f"📝 SAVE_PROPERTIES: Properties to save: {properties}")
 
-            # Save drawing properties using existing endpoint
-            save_result = await save_shape_properties_api_endpoint(
-                symbol=symbol,
-                drawing_id=drawing_id,
-                properties=properties,
-                request=fake_request
-            )
+            # Update drawing properties using existing function
+            success = await update_drawing_properties(symbol, drawing_id, properties, email)
+            logger.info(f"📝 SAVE_PROPERTIES: Update result - success: {success}")
 
-            if save_result.status_code == 200:
+            if success:
+                logger.info(f"✅ SAVE_PROPERTIES: Successfully saved properties for drawing {drawing_id}")
                 return {
                     "type": "shape_properties_success",
                     "symbol": symbol,
@@ -2022,6 +2025,7 @@ async def handle_shape_message(data: dict, websocket: WebSocket, request_id: str
                     "request_id": request_id
                 }
             else:
+                logger.error(f"❌ SAVE_PROPERTIES: Failed to save properties for drawing {drawing_id}")
                 return {
                     "type": "error",
                     "message": "Failed to save shape properties",
