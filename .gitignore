@@ -18,8 +18,9 @@ data/*.*
 .gemini
 .env
 /node_modules
-/logs/trading_view.log
 /puppeteer_*.*
 **/__pycache__
-/logs/*.*
-/tests/*.*
+logs/trading_view.log
+logs/*.*
+tests/*.*
+logs/trading_view.log.1

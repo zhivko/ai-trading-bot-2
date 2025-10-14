@@ -90,8 +90,8 @@ async def delete_drawing(symbol: str, drawing_id: str, request: Request = None, 
 
 async def update_drawing(symbol: str, drawing_id: str, drawing_data: DrawingData, request: Request = None, email: Optional[str] = None) -> bool:
     redis = await get_redis_connection()
-    key = get_drawings_redis_key(symbol, request, email)
-    drawings_data_str = await redis.get(key)
+    redis_key = get_drawings_redis_key(symbol, request, email)
+    drawings_data_str = await redis.get(redis_key)
     if not drawings_data_str:
         return False
     drawings = json.loads(drawings_data_str)
@@ -100,27 +100,29 @@ async def update_drawing(symbol: str, drawing_id: str, drawing_data: DrawingData
         if not isinstance(drawing_item, dict):
             continue
         if drawing_item.get("id") == drawing_id:
-            # Preserve existing properties to prevent them from being overwritten.
-            existing_properties = drawing_item.get('properties', {})
+            # Preserve all existing fields to prevent them from being overwritten with null values
             update_payload = drawing_data.to_dict() if hasattr(drawing_data, 'to_dict') else {}
-
-            # If the incoming data has properties, merge them with existing ones.
+            
+            # Merge existing fields with new data, preserving existing values when new data is missing/null
+            for key, value in drawing_item.items():
+                # If the key is not in update_payload or the value is None/null, preserve the existing value
+                if key not in update_payload or update_payload.get(key) is None:
+                    update_payload[key] = value
+            
+            # Special handling for properties - merge them properly
+            existing_properties = drawing_item.get('properties', {})
             if isinstance(update_payload, dict) and update_payload.get('properties'):
                 if isinstance(existing_properties, dict) and isinstance(update_payload['properties'], dict):
-                    existing_properties.update(update_payload['properties'])
+                    # Merge new properties with existing ones
+                    merged_properties = existing_properties.copy()
+                    merged_properties.update(update_payload['properties'])
+                    update_payload['properties'] = merged_properties
+            else:
+                # If no new properties, preserve existing ones
+                update_payload['properties'] = existing_properties
 
-            # Ensure properties are properly set
-            if not isinstance(existing_properties, dict):
-                existing_properties = {}
-
-            update_payload['properties'] = existing_properties
-            update_payload['id'] = drawing_id  # Ensure the ID is preserved.
-
-            # Preserve alert status fields
-            if 'alert_sent' in drawing_item:
-                update_payload['alert_sent'] = drawing_item['alert_sent']
-            if 'alert_sent_time' in drawing_item:
-                update_payload['alert_sent_time'] = drawing_item['alert_sent_time']
+            # Ensure ID is preserved
+            update_payload['id'] = drawing_id
 
             if isinstance(update_payload, dict):
                 drawings[i] = update_payload
@@ -131,7 +133,7 @@ async def update_drawing(symbol: str, drawing_id: str, drawing_data: DrawingData
         logger.info(f"Drawing {drawing_id} not found.")
         return False
 
-    await redis.set(key, json.dumps(drawings))
+    await redis.set(redis_key, json.dumps(drawings))
     logger.info(f"Drawing {drawing_id} updated.")
 
     return True
@@ -162,9 +164,18 @@ async def update_drawing_properties(symbol: str, drawing_id: str, properties: Di
             logger.info(f"🔧 UPDATE_DRAWING_PROPERTIES: Old properties: {drawing_item.get('properties', {})}")
             logger.info(f"🔧 UPDATE_DRAWING_PROPERTIES: New properties: {properties}")
             
-            # Update only the properties field
-            drawing_item['properties'] = properties
-            logger.info(f"🔧 UPDATE_DRAWING_PROPERTIES: Updated properties for drawing {drawing_id}: {drawing_item['properties']}")
+            # Merge new properties with existing properties
+            existing_properties = drawing_item.get('properties', {})
+            if isinstance(existing_properties, dict) and isinstance(properties, dict):
+                # Create a copy of existing properties and update with new ones
+                merged_properties = existing_properties.copy()
+                merged_properties.update(properties)
+                drawing_item['properties'] = merged_properties
+                logger.info(f"🔧 UPDATE_DRAWING_PROPERTIES: Merged properties for drawing {drawing_id}: {drawing_item['properties']}")
+            else:
+                # If one of them is not a dict, just use the new properties
+                drawing_item['properties'] = properties
+                logger.info(f"🔧 UPDATE_DRAWING_PROPERTIES: Replaced properties for drawing {drawing_id}: {drawing_item['properties']}")
             found = True
             break
     

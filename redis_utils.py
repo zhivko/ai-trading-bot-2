@@ -157,6 +157,11 @@ async def get_cached_klines(symbol: str, resolution: str, start_ts: int, end_ts:
         logger.warning(f"get_cached_klines called with None timestamps - start_ts: {start_ts}, end_ts: {end_ts}. Returning empty list.")
         return []
 
+    # Defensive check: if start_ts > end_ts, swap them to prevent invalid range queries
+    if start_ts > end_ts:
+        logger.warning(f"get_cached_klines called with start_ts ({start_ts}) > end_ts ({end_ts}), swapping them to prevent invalid range query")
+        start_ts, end_ts = end_ts, start_ts
+
     try:
         redis = await get_redis_connection()
         sorted_set_key = get_sorted_set_key(symbol, resolution)

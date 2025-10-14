@@ -87,7 +87,7 @@ from websocket_handlers import (
     fetch_MY_recent_trade_history, calculate_indicators_for_data
 )
 from redis_utils import get_cached_klines
-from drawing_manager import save_drawing, delete_drawing, update_drawing, get_drawings, DrawingData
+from drawing_manager import save_drawing, delete_drawing, update_drawing, get_drawings, DrawingData, update_drawing_properties
 
 
 # Lifespan manager for startup and shutdown events
@@ -1921,11 +1921,7 @@ async def handle_shape_message(data: dict, websocket: WebSocket, request_id: str
                 'end_price': data.get('end_price'),
                 'subplot_name': data.get('subplot_name', symbol),
                 'resolution': resolution,
-                'properties': data.get('properties', {
-                    'sendEmailOnCross': True,
-                    'buyOnCross': False,
-                    'sellOnCross': False
-                })
+                'properties': data.get('properties')
             }
 
             # Check if this is an update (has drawing_id) or new save
@@ -1972,15 +1968,15 @@ async def handle_shape_message(data: dict, websocket: WebSocket, request_id: str
             logger.info(f"Getting properties for drawing {drawing_id} for {symbol}:{email}")
 
             # Get drawing data to retrieve properties
-            drawings = await get_drawings(symbol, drawing_id, None, email)
-            if not drawings or len(drawings) == 0:
+            drawings = await get_drawings(symbol, None, None, email)
+            drawing = next((d for d in drawings if d.get('id') == drawing_id), None)
+            if not drawing:
                 return {
                     "type": "error",
                     "message": f"Drawing {drawing_id} not found",
                     "request_id": request_id
                 }
 
-            drawing = drawings[0]
             properties = drawing.get('properties', {})
 
             return {
@@ -1988,6 +1984,8 @@ async def handle_shape_message(data: dict, websocket: WebSocket, request_id: str
                 "symbol": symbol,
                 "email": email,
                 "data": {
+                    "id": drawing_id,
+                    "type": drawing.get('type'),  # Include 
                     "properties": properties
                 },
                 "timestamp": int(time.time()),
@@ -2020,6 +2018,7 @@ async def handle_shape_message(data: dict, websocket: WebSocket, request_id: str
                     "type": "shape_properties_success",
                     "symbol": symbol,
                     "email": email,
+                    "id": drawing_id,
                     "data": {"success": True, "id": drawing_id},
                     "timestamp": int(time.time()),
                     "request_id": request_id

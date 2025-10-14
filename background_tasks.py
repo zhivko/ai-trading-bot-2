@@ -434,7 +434,7 @@ async def fill_trade_data_gaps_background_task():
 
                 total_exchanges_processed += 1
                 symbols_in_exchange = 0
-
+    
                 logger.debug(f"🔍 Checking for trade gaps on {exchange_name} ({exchange_id})")
 
                 # Process each symbol supported by this exchange

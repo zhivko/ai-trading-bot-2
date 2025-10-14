@@ -2,6 +2,7 @@ server side uses AppTradingView2.py.
 
 basic communication with client works through ws endpoint with different message types.
 Url to use for testing will be done using puppeteer and navigating to http://192.168.1.52:5000
+When using puppeteer use --window-size=1920,1080
 There are no existing test files. You should use puppeteer to execute below tests.
 
 Server code is in python in AppTradingView2.py
@@ -65,3 +66,50 @@ Click edit line.
 "Buy On Cross" should be checked - confirm it is checked.
 Proof - save screenshot of modified shape properties.
 
+
+
+
+Before save - Parsed JSON data:
+[
+  {
+    "symbol": "BTCUSDT",
+    "type": "line",
+    "start_time": 1760376601,
+    "end_time": 1760382354,
+    "start_price": 115358.15559196302,
+    "end_price": 114414.1905102394,
+    "subplot_name": "BTCUSDT",
+    "resolution": "1m",
+    "properties": {
+      "sendEmailOnCross": true,
+      "buyOnCross": false,
+      "sellOnCross": false
+    },
+    "id": "9719f99f-fffd-40fa-8a18-706e46b46af6"
+  }
+]
+
+
+After save - Parsed JSON data:
+[
+  {
+    "symbol": "BTCUSDT",
+    "type": null,
+    "start_time": null,
+    "end_time": null,
+    "start_price": null,
+    "end_price": null,
+    "subplot_name": "BTCUSDT",
+    "resolution": "1h",
+    "properties": {
+      "sendEmailOnCross": true,
+      "buyOnCross": true,
+      "sellOnCross": false,
+      "resolution": "",
+      "buy_sent": false,
+      "sell_sent": false,
+      "emailSent": false
+    },
+    "id": "9719f99f-fffd-40fa-8a18-706e46b46af6"
+  }
+]
