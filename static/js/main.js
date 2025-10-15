@@ -2374,6 +2374,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Update button states
                 updateToolbarButtonStates('pan');
                 console.log('[TOOLBAR] Pan mode activated');
+                console.log('Plotly config:', window.gd.config || window.config || 'config not found');
             } else {
                 console.log('[TOOLBAR] Chart not ready (window.gd is null)');
             }
@@ -2396,6 +2397,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Update button states
                     updateToolbarButtonStates('zoom');
                     console.log('[TOOLBAR] Zoom mode activated - button states updated');
+                    console.log('Plotly config:', window.gd.config || window.config || 'config not found');
                 }).catch(function(error) {
                     console.error('[TOOLBAR] Zoom relayout failed:', error);
                 });
@@ -2429,6 +2431,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Update button states
                     updateToolbarButtonStates('drawline');
                     console.log('[TOOLBAR] Draw line mode activated');
+                    console.log('Plotly config:', window.gd.config || window.config || 'config not found');
                 }).catch((error) => {
                     console.error('[TOOLBAR] Failed to set newshape and dragmode for line:', error);
                 });
@@ -2464,6 +2467,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Update button states
                     updateToolbarButtonStates('drawrect');
                     console.log('[TOOLBAR] Draw rectangle mode activated');
+                    console.log('Plotly config:', window.gd.config || window.config || 'config not found');
                 }).catch((error) => {
                     console.error('[TOOLBAR] Failed to set newshape and dragmode for rectangle:', error);
                 });
@@ -2486,6 +2490,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         height: 800,
                         filename: `chart-${window.symbolSelect ? window.symbolSelect.value : 'trading'}-${new Date().toISOString().split('T')[0]}`
                     });
+                    console.log('Plotly config:', window.gd.config || window.config || 'config not found');
                 } catch (error) {
                     console.error('Screenshot failed:', error);
                     alert('Screenshot failed. Please try again.');
@@ -2500,6 +2505,7 @@ document.addEventListener('DOMContentLoaded', function() {
         autoscaleBtn.addEventListener('click', function() {
             if (window.gd && typeof applyAutoscale === 'function') {
                 applyAutoscale(window.gd);
+                console.log('Plotly config:', window.gd.config || window.config || 'config not found');
             }
         });
     }

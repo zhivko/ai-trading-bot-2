@@ -902,6 +902,48 @@ function initializeChartInteractions() {
         if (window.cursorPriceDisplay) window.cursorPriceDisplay.textContent = 'N/A'; // From main.js
         */
     });
+    
+    // Add mouse wheel event listener to handle zoom if Plotly's default doesn't work
+    window.chartDiv.addEventListener('wheel', function(event) {
+        // Only handle zoom if Ctrl key is pressed (standard browser zoom behavior)
+        if (event.ctrlKey) {
+            event.preventDefault(); // Prevent default browser zoom behavior
+            
+            // Use Plotly's zoom functionality
+            if (window.gd && window.gd.layout && window.gd._fullLayout) {
+                // Calculate zoom factor based on wheel delta
+                const zoomIntensity = 0.1; // Adjust as needed
+                const direction = event.deltaY > 0 ? 1 : -1; // Positive deltaY means scrolling down (zoom out)
+                
+                // Get current axis ranges
+                const currentXRange = window.gd.layout.xaxis.range;
+                const currentYRange = window.gd.layout.yaxis.range;
+                
+                if (currentXRange && currentYRange) {
+                    // Calculate new ranges based on zoom direction
+                    const xRange = currentXRange[1] - currentXRange[0];
+                    const newXRange = [
+                        currentXRange[0] + (xRange * direction * zoomIntensity) / 2,
+                        currentXRange[1] - (xRange * direction * zoomIntensity) / 2
+                    ];
+                    
+                    const yRange = currentYRange[1] - currentYRange[0];
+                    const newYRange = [
+                        currentYRange[0] + (yRange * direction * zoomIntensity) / 2,
+                        currentYRange[1] - (yRange * direction * zoomIntensity) / 2
+                    ];
+                    
+                    // Apply new ranges
+                    Plotly.relayout(window.gd, {
+                        'xaxis.range[0]': newXRange[0],
+                        'xaxis.range[1]': newXRange[1],
+                        'yaxis.range[0]': newYRange[0],
+                        'yaxis.range[1]': newYRange[1]
+                    });
+                }
+            }
+        }
+    }, { passive: false }); // Use passive: false to allow preventDefault
 
     document.addEventListener('keydown', async function(event) {
         if (!window.gd || !window.gd.layout) return;

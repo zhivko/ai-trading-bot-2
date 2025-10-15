@@ -154,7 +154,7 @@ function renderVolumeProfileWithinRectangle(volumeProfileData, symbol, rectangle
     // Debug: Check data before Plotly.react
 
     // Update the chart with new volume profile traces
-    Plotly.react(gd, filteredData, gd.layout).then(() => {
+    Plotly.react(gd, filteredData, gd.layout, window.config).then(() => {
 
         // Verify traces are in chart after update
         if (window.gd && window.gd.data) {
@@ -540,7 +540,7 @@ function handleShapeVolumeProfilesMessage(message) {
     if (shapeVolumeTraces.length > 0) {
         filteredData.push(...shapeVolumeTraces);
 
-        Plotly.react(window.gd, filteredData, window.gd.layout);
+        Plotly.react(window.gd, filteredData, window.gd.layout, window.config);
     } else {
     }
 
@@ -5076,7 +5076,7 @@ function updateChartWithLiveData(dataPoint, symbol) {
                     if (gd.layout && gd.layout.shapes) {
                         layoutWithShapes.shapes = gd.layout.shapes;
                     }
-                    Plotly.react(gd, gd.data, layoutWithShapes);
+                    Plotly.react(gd, gd.data, layoutWithShapes, window.config);
                 });
             } catch (error) {
                 console.error('❌ Error during candlestick restyle:', error);
@@ -5085,7 +5085,7 @@ function updateChartWithLiveData(dataPoint, symbol) {
                 if (gd.layout && gd.layout.shapes) {
                     layoutWithShapes.shapes = gd.layout.shapes;
                 }
-                Plotly.react(gd, gd.data, layoutWithShapes);
+                Plotly.react(gd, gd.data, layoutWithShapes, window.config);
             }
 
         }
@@ -5556,7 +5556,7 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
 
     // Update the chart with new trade markers
     try {
-        Plotly.react(chartElement, window.gd.data, window.gd.layout, { responsive: true });
+        Plotly.react(chartElement, window.gd.data, window.gd.layout, window.config);
         console.log(`📊 Combined WebSocket: Successfully added trade history markers for ${tradeHistoryData.length} trades`);
     } catch (error) {
         console.error('Combined WebSocket: Error updating chart with trade markers:', error);
@@ -5817,18 +5817,28 @@ function ensureScrollZoomEnabled() {
         return;
     }
 
-    // Get current layout configuration safely
-    const currentConfig = (gd._fullLayout && gd._fullLayout.config) ? gd._fullLayout.config : {};
-
     // Check if scrollZoom is enabled in current configuration
-    const scrollZoomEnabled = currentConfig.scrollZoom !== false;
+    let scrollZoomEnabled = false;
+    if (gd._fullLayout && gd._fullLayout.config) {
+        scrollZoomEnabled = gd._fullLayout.config.scrollZoom !== false;
+    } else {
+        // If _fullLayout is not available, check the layout config directly
+        scrollZoomEnabled = gd.layout && gd.layout.config ? gd.layout.config.scrollZoom !== false : true; // Default to true if not found
+    }
 
     // If scrollZoom is disabled, re-enable it
     if (!scrollZoomEnabled) {
         try {
-            Plotly.relayout(gd, { 'config.scrollZoom': true });
+            // Use update instead of relayout for config changes
+            Plotly.update(gd, {}, { config: { scrollZoom: true } });
         } catch (error) {
-            console.warn('ensureScrollZoomEnabled: Failed to re-enable scrollZoom via relayout:', error);
+            console.warn('ensureScrollZoomEnabled: Failed to re-enable scrollZoom via update:', error);
+            // Fallback to relayout
+            try {
+                Plotly.relayout(gd, { 'config.scrollZoom': true });
+            } catch (error2) {
+                console.warn('ensureScrollZoomEnabled: Failed to re-enable scrollZoom via relayout:', error2);
+            }
         }
     }
 

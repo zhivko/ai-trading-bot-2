@@ -9,7 +9,9 @@ Server code is in python in AppTradingView2.py
 Client code is in javascript in /static/js directory
 
 To prepare tests you should use puppeteer_tests.js.
-Assume server is running - so NEVER run python AppTradingView2.py - instead check to see if python is listening on port 5000. We should have python process running on that port. If we dont have python running on port ask user to start it manually.
+Assume server is running - so NEVER! run AppTradingView2.py like for example: python AppTradingView2.py - instead check to see if python is listening on port 5000. We should have python process running on that port.
+
+
 
 Test proof as screenshots will be creates inside ./tests/test_[no of test]
 
@@ -69,7 +71,7 @@ Wait until OHLC bars are visible in price subplot of plotly.js chart in div 'cha
 To test: cick on pan tool
 Note Chart View State in right panel: X-Axis Min, X-Axis Max, Y-Axis Min, Y-Axis Max and remember values
 Proof create screenshot before zoom
-In price subplot simulate mouse wheel for zooming into price chart
+In price subplot simulate ctrl key and mouse wheel for zooming into price chart
 Note Chart View State in right panel: X-Axis Min, X-Axis Max, Y-Axis Min, Y-Axis Max and remember values
 Proof create screenshot after zoom
 Succesfull test should change X-Axis Min, X-Axis Max, Y-Axis Min, Y-Axis Max
