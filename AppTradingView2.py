@@ -1289,6 +1289,8 @@ async def handle_get_settings(data: dict, websocket: WebSocket, request_id: str)
 async def handle_set_settings(data: dict, websocket: WebSocket, request_id: str) -> dict:
     """Handle set_settings request - save directly to Redis"""
     session = websocket.scope.get('session', {})
+    logger.info(f"DRAWING: {json.dumps(data, indent=2)}")
+    logger.info(f"DRAWING: {json.dumps(data, indent=2)}")
 
     try:
         symbol = data.get('symbol', session.get('symbol'))

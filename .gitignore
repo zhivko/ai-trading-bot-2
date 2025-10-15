@@ -21,6 +21,5 @@ data/*.*
 /puppeteer_*.*
 **/__pycache__
 logs/trading_view.log
-logs/*.*
-tests/*.*
-logs/trading_view.log.1
+logs/**
+tests/**

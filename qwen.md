@@ -55,7 +55,7 @@ Proof - save two screenshots - first one before line clicked, second one after l
 
 7) edit shape properties
 Wait until OHLC bars are visible in price subplot of plotly chart. 
-To test: cick on pan tool - 
+To test: cick on pan tool
 Click on existing line - it should select line - in right panel shape properies - id of line should be visible.
 Click edit line.
 Click "Buy On Cross" checkbox
@@ -64,52 +64,14 @@ Reopen page.
 Same line with same ID should still be there - confirm it is.
 Click edit line.
 "Buy On Cross" should be checked - confirm it is checked.
-Proof - save screenshot of modified shape properties.
+Proof - save screenshot of modified shape properties. Make sure dialog of line apear when you are doing screenshots.
 
-
-
-
-Before save - Parsed JSON data:
-[
-  {
-    "symbol": "BTCUSDT",
-    "type": "line",
-    "start_time": 1760376601,
-    "end_time": 1760382354,
-    "start_price": 115358.15559196302,
-    "end_price": 114414.1905102394,
-    "subplot_name": "BTCUSDT",
-    "resolution": "1m",
-    "properties": {
-      "sendEmailOnCross": true,
-      "buyOnCross": false,
-      "sellOnCross": false
-    },
-    "id": "9719f99f-fffd-40fa-8a18-706e46b46af6"
-  }
-]
-
-
-After save - Parsed JSON data:
-[
-  {
-    "symbol": "BTCUSDT",
-    "type": null,
-    "start_time": null,
-    "end_time": null,
-    "start_price": null,
-    "end_price": null,
-    "subplot_name": "BTCUSDT",
-    "resolution": "1h",
-    "properties": {
-      "sendEmailOnCross": true,
-      "buyOnCross": true,
-      "sellOnCross": false,
-      "resolution": "",
-      "buy_sent": false,
-      "sell_sent": false,
-      "emailSent": false
-    },
-    "id": "9719f99f-fffd-40fa-8a18-706e46b46af6"
-  }
-]
+8) zoom in subplots
+Wait until OHLC bars are visible in price subplot of plotly.js chart in div 'chart'
+To test: cick on pan tool
+Note Chart View State in right panel: X-Axis Min, X-Axis Max, Y-Axis Min, Y-Axis Max and remember values
+Proof create screenshot before zoom
+In price subplot simulate ctrl key and mouse wheel for zooming into price chart
+Note Chart View State in right panel: X-Axis Min, X-Axis Max, Y-Axis Min, Y-Axis Max and remember values
+Proof create screenshot after zoom
+Succesfull test should change X-Axis Min, X-Axis Max, Y-Axis Min, Y-Axis Max

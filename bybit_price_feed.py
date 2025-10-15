@@ -85,6 +85,14 @@ async def bybit_price_feed_task():
             logger.debug(f"Updated Redis key {key} with price {price} for {symbol}")
         except Exception as e:
             logger.error(f"Failed to store price for {symbol} in Redis: {e}")
+            # Try to reconnect and retry once
+            try:
+                logger.info(f"Attempting to reconnect to Redis for {symbol}")
+                redis_conn = await get_redis_connection()
+                await redis_conn.set(key, str(price))
+                logger.info(f"Successfully reconnected and stored price for {symbol}")
+            except Exception as retry_e:
+                logger.error(f"Failed to reconnect and store price for {symbol}: {retry_e}")
 
     # Subscribe to ticker updates for all supported symbols
     # Use the same pattern as existing WebSocket handlers

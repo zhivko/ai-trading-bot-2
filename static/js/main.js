@@ -2076,11 +2076,13 @@ async function populateShapePropertiesDialog(activeShape) {
                     console.log('[DEBUG] alert_actions not set - element found:', !!alertActionsElement, 'property exists:', !!properties.alert_actions);
                 }
 
-                // Populate resolution
+                // Populate resolution from the drawing data (not from properties)
                 const resolutionElement = document.getElementById('shape-resolution');
                 if (resolutionElement) {
-                    resolutionElement.value = properties.resolution || '';
-                    console.log('[DEBUG] Set resolution to:', properties.resolution, 'element value:', resolutionElement.value);
+                    // Get resolution from the drawing object itself, not properties
+                    const drawingResolution = activeShape.shape ? activeShape.shape.resolution : null;
+                    resolutionElement.value = drawingResolution || window.resolutionSelect.value || '1h';
+                    console.log('[DEBUG] Set resolution to:', drawingResolution, 'fallback to:', window.resolutionSelect.value, 'element value:', resolutionElement.value);
                 } else {
                     console.log('[DEBUG] resolution not set - element found:', !!resolutionElement);
                 }
@@ -2140,8 +2142,9 @@ async function saveShapeProperties() {
     }
 
     // Prepare properties object
+    const resolutionValue = document.getElementById('shape-resolution').value;
     const properties = {
-        resolution: document.getElementById('shape-resolution').value,
+        resolution: resolutionValue && resolutionValue.trim() !== '' ? resolutionValue : window.resolutionSelect.value,
         buyOnCross,
         sellOnCross,
         sendEmailOnCross
