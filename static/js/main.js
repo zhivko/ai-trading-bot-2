@@ -796,6 +796,7 @@ async function initializeWebSocketClient() {
         window.wsAPI.onMessage('trade_history', handleTradeHistoryData);
         window.wsAPI.onMessage('trade_history_success', handleTradeHistorySuccess);
         window.wsAPI.onMessage('trading_sessions', handleTradingSessionsData);
+        window.wsAPI.onMessage('get_trading_sessions_response', handleGetTradingSessionsResponse);
         window.wsAPI.onMessage('volume_profile', handleVolumeProfileData);
         window.wsAPI.onMessage('live', handleLiveData);
         window.wsAPI.onMessage('history_success', handleHistorySuccess);
@@ -1002,6 +1003,24 @@ function applySettingsToUI(settings, symbol, email) {
     } catch (error) {
         console.error('❌ Failed to send history message:', error);
     }
+
+    // Also send get_trading_sessions message to display trading sessions on chart
+    const tradingSessionsMessage = {
+        type: "get_trading_sessions",
+        data: {
+            symbol: symbol,
+            from_ts: fromTs,
+            to_ts: toTs
+        }
+    };
+
+    console.log('📤 Sending trading sessions message after initSuccess:', tradingSessionsMessage);
+    try {
+        window.wsAPI.sendMessage(tradingSessionsMessage);
+        console.log('✅ Trading sessions message sent successfully');
+    } catch (error) {
+        console.error('❌ Failed to send trading sessions message:', error);
+    }
 }
 
 // Handle historical data from WebSocket
@@ -1104,6 +1123,23 @@ function handleTradingSessionsData(message) {
 
     if (sessions.length > 0 && window.addTradingSessionsToChart) {
         window.addTradingSessionsToChart(sessions, message.symbol || 'UNKNOWN');
+    }
+}
+
+// Handle get_trading_sessions_response message from WebSocket
+function handleGetTradingSessionsResponse(message) {
+    console.log('📊 Received get_trading_sessions_response:', message);
+
+    // Handle the response from get_trading_sessions request
+    if (message.data && message.data.sessions) {
+        // Wrap sessions in the format expected by handleTradingSessionsMessage
+        const sessionsMessage = {
+            ...message,
+            data: message.data.sessions
+        };
+        handleTradingSessionsMessage(sessionsMessage);
+    } else {
+        console.warn('📈 Combined WebSocket: Invalid get_trading_sessions_response format - missing data.sessions');
     }
 }
 
@@ -1352,6 +1388,72 @@ function handleHistorySuccess(message) {
                 handleVolumeProfileData(volumeProfileMessage);
             }
         });
+    }
+
+    // Check if x-axis min or max is set to "Auto" and scale accordingly
+    if (window.xAxisMinDisplay && window.xAxisMaxDisplay &&
+        (window.xAxisMinDisplay.textContent === 'Auto' || window.xAxisMaxDisplay.textContent === 'Auto')) {
+
+        // Get min and max timestamps from history data
+        if (ohlcv && ohlcv.length > 0) {
+            const timestamps = ohlcv.map(point => point.time);
+            const xmin = Math.min(...timestamps) * 1000; // Convert to milliseconds
+            const xmax = Math.max(...timestamps) * 1000;
+
+            // Set the x-axis range
+            window.currentXAxisRange = [xmin, xmax];
+            window.xAxisMinDisplay.textContent = `${new Date(xmin).toISOString()}`;
+            window.xAxisMaxDisplay.textContent = `${new Date(xmax).toISOString()}`;
+
+            // Update chart x-axis range
+            if (window.gd) {
+                Plotly.relayout(window.gd, {
+                    'xaxis.range': [new Date(xmin), new Date(xmax)],
+                    'xaxis.autorange': false
+                });
+            }
+
+            console.log(`📊 Auto-scaled x-axis from history data: ${new Date(xmin).toISOString()} to ${new Date(xmax).toISOString()}`);
+        }
+    }
+
+    // Check if y-axis min or max is set to "Auto" and scale accordingly for price chart
+    if (window.yAxisMinDisplay && window.yAxisMaxDisplay &&
+        (window.yAxisMinDisplay.textContent === 'Auto' || window.yAxisMaxDisplay.textContent === 'Auto')) {
+
+        // Get min and max prices from history data (OHLC values)
+        if (ohlcv && ohlcv.length > 0) {
+            let yMin = Infinity, yMax = -Infinity;
+            ohlcv.forEach(point => {
+                const ohlc = point.ohlc;
+                if (ohlc) {
+                    yMin = Math.min(yMin, ohlc.open, ohlc.high, ohlc.low, ohlc.close);
+                    yMax = Math.max(yMax, ohlc.open, ohlc.high, ohlc.low, ohlc.close);
+                }
+            });
+
+            if (yMin !== Infinity && yMax !== -Infinity) {
+                // Add padding (5% like in autoscale)
+                const yPadding = (yMax - yMin) * 0.05;
+                const finalYMin = yMin - yPadding;
+                const finalYMax = yMax + yPadding;
+
+                // Set the y-axis range
+                window.currentYAxisRange = [finalYMin, finalYMax];
+                window.yAxisMinDisplay.textContent = finalYMin.toFixed(2);
+                window.yAxisMaxDisplay.textContent = finalYMax.toFixed(2);
+
+                // Update chart y-axis range
+                if (window.gd) {
+                    Plotly.relayout(window.gd, {
+                        'yaxis.range': [finalYMin, finalYMax],
+                        'yaxis.autorange': false
+                    });
+                }
+
+                console.log(`📊 Auto-scaled y-axis from history data: ${finalYMin.toFixed(2)} to ${finalYMax.toFixed(2)}`);
+            }
+        }
     }
 
     window.updateTradeHistoryVisualizations();

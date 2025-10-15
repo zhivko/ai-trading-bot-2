@@ -414,8 +414,8 @@ async def handle_websocket_message(message: dict, websocket: WebSocket) -> dict:
             }
 
         # Handle request messages
-        if message_type == "request":
-            return await handle_request_action(action, message.get('data', {}), websocket, request_id)
+        # if message_type == "request":
+        #    return await handle_request_action(action, message.get('data', {}), websocket, request_id)
 
         # Handle initialization messages
         if message_type == "init":
@@ -435,6 +435,9 @@ async def handle_websocket_message(message: dict, websocket: WebSocket) -> dict:
 
         elif message_type == "get_volume_profile":
             return await handle_get_volume_profile_direct(message, websocket, request_id)
+
+        elif message_type == "get_trading_sessions":
+            return await handle_get_trading_sessions(message.get('data', {}), websocket, request_id)
 
         # Handle unknown message types
         logger.warn(f"Unknown WS message type: {message_type}")
@@ -1613,8 +1616,7 @@ async def handle_get_trading_sessions(data: dict, websocket: WebSocket, request_
         )
 
         return {
-            "type": "response",
-            "action": "get_trading_sessions",
+            "type": "get_trading_sessions_response",
             "success": True,
             "data": {"sessions": sessions},
             "request_id": request_id
