@@ -145,8 +145,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Initialize Plotly chart (empty initially)
     const initialLayout = {
-        title: 'Loading chart data...',
         dragmode: 'pan', // Set default dragmode to pan
+        margin: { t: 0, b: 0, l: 0, r: 0 }, // Tight margins for more space
         newshape: {
             line: { color: DEFAULT_DRAWING_COLOR, width: 2 },
             fillcolor: 'rgba(0, 0, 255, 0.1)',
@@ -2142,9 +2142,7 @@ async function saveShapeProperties() {
     }
 
     // Prepare properties object
-    const resolutionValue = document.getElementById('shape-resolution').value;
     const properties = {
-        resolution: resolutionValue && resolutionValue.trim() !== '' ? resolutionValue : window.resolutionSelect.value,
         buyOnCross,
         sellOnCross,
         sendEmailOnCross
@@ -2223,13 +2221,15 @@ async function saveShapeProperties() {
             });
 
             // Send save properties message
+            const resolutionValue = document.getElementById('shape-resolution').value;
             window.wsAPI.sendMessage({
                 type: 'shape',
                 action: 'update',
                 data: {
                     symbol: symbol,
                     drawing_id: drawingId,
-                    properties: properties
+                    properties: properties,
+                    resolution: resolutionValue && resolutionValue.trim() !== '' ? resolutionValue : window.resolutionSelect.value
                 },
                 request_id: requestId
             });

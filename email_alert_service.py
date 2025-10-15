@@ -194,12 +194,16 @@ class EmailAlertService:
         all_drawings = await self.get_all_drawings(redis)
         for drawing in all_drawings:
             if drawing['user_email'] == user_email and drawing['symbol'] == symbol:
-                t1_dt = datetime.fromtimestamp(drawing['start_time'], tz=timezone.utc).astimezone(pytz.timezone('America/New_York'))
+                # Skip drawings with None start_time or end_time
+                if drawing.get('start_time') is None or drawing.get('end_time') is None:
+                    logger.warning(f"Skipping drawing {drawing.get('id')} with None start_time or end_time in chart generation")
+                    continue
+                t1_dt = datetime.fromtimestamp(drawing['start_time'], tz=timezone.utc).astimezone(pytz.timezone('Europe/Ljubljana'))
                 p1 = drawing['start_price']
-                t2_dt = datetime.fromtimestamp(drawing['end_time'], tz=timezone.utc).astimezone(pytz.timezone('America/New_York'))
+                t2_dt = datetime.fromtimestamp(drawing['end_time'], tz=timezone.utc).astimezone(pytz.timezone('Europe/Ljubljana'))
                 p2 = drawing['end_price']
                 subplot_name = drawing.get('subplot_name', symbol)
-                
+
                 try:
                     row = 1 if subplot_name == symbol else active_indicators.index(subplot_name.split('-', 1)[1]) + 2
                     fig.add_trace(go.Scatter(
@@ -231,19 +235,11 @@ class EmailAlertService:
                 ), row=1, col=1)
 
         # --- Layout and Theming ---
-        cross_time_dt = datetime.fromtimestamp(cross_time, tz=timezone.utc).astimezone(pytz.timezone('Europe/Ljubljana'))
         fig.update_layout(
-            title={
-                'text': f'{symbol} Alert ({resolution}) - {cross_time_dt.strftime("%Y-%m-%d %H:%M:%S")}',
-                'y':0.95,
-                'x':0.5,
-                'xanchor': 'center',
-                'yanchor': 'top'
-            },
             template='plotly_white',
             showlegend=False,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            margin=dict(l=70, r=70, t=120, b=80), # Increased top margin
+            margin=dict(l=70, r=70, t=80, b=80), # Reduced top margin since no title
             xaxis_rangeslider_visible=False,
             font=dict(family="Arial, sans-serif", size=12, color="black")
         )

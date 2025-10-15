@@ -3799,8 +3799,7 @@ function updateChartWithHistoricalData(dataPoints, symbol) {
         // Reuse existing layout and just update necessary properties
         layout = { ...window.gd.layout };
 
-        // Update title and axis ranges if needed
-        layout.title = `${symbol} - ${combinedResolution.toUpperCase()}`;
+        // Update axis ranges if needed
 
         // Preserve user's saved X-axis range if it exists
         if (window.currentXAxisRange && window.currentXAxisRange.length === 2) {
@@ -4703,7 +4702,6 @@ function updateLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
     }
 
     const baseLayout = {
-        title: `${combinedSymbol} - ${combinedResolution.toUpperCase()}`,
         // Remove fixed height to allow full viewport height
         autosize: true, // Enable autosizing
         dragmode: 'pan', // Set default dragmode to pan for chart navigation
@@ -4736,7 +4734,7 @@ function updateLayoutForIndicators(activeIndicatorIds, indicatorsWithData = []) 
         },
         showlegend: false,
         hovermode: 'x unified',
-        margin: { l: 50, r: 10, b: 80, t: 120 } // Increased top margin to 120px for session shapes above chart
+        margin: { l: 50, r: 10, b: 80, t: 30 } // Reduced top margin for tighter layout
     };
 
     if (activeIndicatorIds.length > 0) {
