@@ -2425,6 +2425,7 @@ async def symbol_chart_page(symbol: str, request: Request):
     logger.info(f"Legacy symbol chart page request for {symbol} from {client_host}. Current session state: authenticated={request.session.get('authenticated')}, email={request.session.get('email')}")
 
     # Check for secret query parameter
+    '''
     secret = request.query_params.get('secret')
     if secret:
         current_date = datetime.now().strftime('%d.%m.%Y')
@@ -2433,7 +2434,8 @@ async def symbol_chart_page(symbol: str, request: Request):
             request.session["email"] = "test@example.com"
             authenticated = True
             logger.info(f"Secret authentication successful for date {current_date}")
-
+    '''
+    
     # Skip if API route
     if symbol in ["static", "ws", "health", "logout", "OAuthCallback"]:
         raise HTTPException(status_code=404, detail="Not found")

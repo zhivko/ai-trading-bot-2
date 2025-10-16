@@ -206,9 +206,9 @@ function initializePlotlyEventHandlers(gd) {
             // Add larger markers for mobile touch targets (only for user-drawn lines)
             if (newlyAddedShapeInLayout.type === 'line' && !newlyAddedShapeInLayout.isSystemShape) {
                 newlyAddedShapeInLayout.marker = {
-                    size: isMobileDevice() ? 24 : 16, // Even larger markers for maximum visibility
+                    size: isMobileDevice() ? 34 : 24, // Even larger markers for maximum visibility
                     color: DEFAULT_DRAWING_COLOR,
-                    symbol: 'diamond', // Diamond symbol is more distinctive than circle
+                    symbol: 'circle', // Circle markers for line endpoints
                     line: { width: 3, color: 'white' }, // Thicker white border
                     opacity: 0.95 // Make markers more opaque for better visibility
                 };
@@ -488,6 +488,12 @@ function initializePlotlyEventHandlers(gd) {
                         } else {
                             // Restore original color after successful save
                             await updateShapeVisuals(); // This should handle restoring the color
+                            // Force immediate visual update to ensure line is visible
+                            delay(50).then(() => {
+                                if (window.updateShapeVisuals) {
+                                    window.updateShapeVisuals();
+                                }
+                            });
                         }
                     }
                 });
@@ -573,9 +579,9 @@ function initializePlotlyEventHandlers(gd) {
                 // Add larger markers for mobile touch targets (only for user-drawn lines)
                 if (shapeInLayout.type === 'line' && !shapeInLayout.isSystemShape) {
                     shapeInLayout.marker = {
-                        size: isMobileDevice() ? 24 : 16, // Even larger markers for maximum visibility
+                        size: isMobileDevice() ? 34 : 24, // Even larger markers for maximum visibility
                         color: DEFAULT_DRAWING_COLOR,
-                        symbol: 'diamond', // Diamond symbol is more distinctive than circle
+                        symbol: 'circle', // Circle markers for line endpoints
                         line: { width: 3, color: 'white' }, // Thicker white border
                         opacity: 0.95 // Make markers more opaque for better visibility
                     };
@@ -818,6 +824,13 @@ function debouncedSaveSettingsForResize() {
                     window.colorTheLine();
                 }
             }); // Small delay to ensure relayout is complete
+
+            // Force update shape visuals to ensure line is visible after drag
+            delay(150).then(() => {
+                if (window.updateShapeVisuals) {
+                    window.updateShapeVisuals();
+                }
+            });
         }
     });
 

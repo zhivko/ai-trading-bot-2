@@ -206,18 +206,18 @@ async function updateShapeVisuals() {
             // Add markers for user-drawn lines if not already present
             if (!newShape.marker) {
                 newShape.marker = {
-                    size: isMobileDevice() ? 24 : 16,
+                    size: isMobileDevice() ? 34 : 24,
                     color: window.DEFAULT_DRAWING_COLOR,
-                    symbol: 'diamond',
+                    symbol: 'circle',
                     line: { width: 3, color: 'white' },
                     opacity: 0.95
                 };
             } else {
                 // Ensure marker properties are complete
                 newShape.marker = { ...newShape.marker };
-                if (newShape.marker.size === undefined) newShape.marker.size = isMobileDevice() ? 24 : 16;
+                if (newShape.marker.size === undefined) newShape.marker.size = isMobileDevice() ? 34 : 24;
                 if (newShape.marker.color === undefined) newShape.marker.color = window.DEFAULT_DRAWING_COLOR;
-                if (newShape.marker.symbol === undefined) newShape.marker.symbol = 'diamond';
+                if (newShape.marker.symbol === undefined) newShape.marker.symbol = 'circle';
                 if (!newShape.marker.line) newShape.marker.line = { width: 3, color: 'white' };
                 if (newShape.marker.opacity === undefined) newShape.marker.opacity = 0.95;
             }

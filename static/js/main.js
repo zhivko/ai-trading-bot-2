@@ -1005,21 +1005,29 @@ function applySettingsToUI(settings, symbol, email) {
     }
 
     // Also send get_trading_sessions message to display trading sessions on chart
-    const tradingSessionsMessage = {
-        type: "get_trading_sessions",
-        data: {
-            symbol: symbol,
-            from_ts: fromTs,
-            to_ts: toTs
-        }
-    };
+    // Only if x-axis range is below 3 days (3 * 24 * 60 * 60 = 259200 seconds)
+    const timeRangeSeconds = toTs - fromTs;
+    const threeDaysSeconds = 3 * 24 * 60 * 60; // 259200 seconds
 
-    console.log('📤 Sending trading sessions message after initSuccess:', tradingSessionsMessage);
-    try {
-        window.wsAPI.sendMessage(tradingSessionsMessage);
-        console.log('✅ Trading sessions message sent successfully');
-    } catch (error) {
-        console.error('❌ Failed to send trading sessions message:', error);
+    if (timeRangeSeconds < threeDaysSeconds) {
+        const tradingSessionsMessage = {
+            type: "get_trading_sessions",
+            data: {
+                symbol: symbol,
+                from_ts: fromTs,
+                to_ts: toTs
+            }
+        };
+
+        console.log('📤 Sending trading sessions message after initSuccess:', tradingSessionsMessage);
+        try {
+            window.wsAPI.sendMessage(tradingSessionsMessage);
+            console.log('✅ Trading sessions message sent successfully');
+        } catch (error) {
+            console.error('❌ Failed to send trading sessions message:', error);
+        }
+    } else {
+        console.log('📤 Skipping trading sessions message - time range too large:', timeRangeSeconds, 'seconds');
     }
 }
 
