@@ -5313,7 +5313,7 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
     const maxMarkerSize = Math.min(40, yAxisRange * 0.40); // Max marker size = 40% of Y-axis range, capped at 40px
     const minMarkerSize = 4; // Smaller minimum marker size
 
-    // Function to scale value to marker size
+    // Function to scale value to marker size using exponential scaling
     function valueToMarkerSize(value) {
         // Handle invalid values
         if (isNaN(value) || !isFinite(value) || value <= 0) {
@@ -5331,7 +5331,10 @@ function addTradeHistoryMarkersToChart(tradeHistoryData, symbol) {
         if (isNaN(normalizedValue)) {
             return minMarkerSize;
         }
-        const markerSize = minMarkerSize + (normalizedValue * (maxMarkerSize - minMarkerSize));
+        // Apply square root transformation for exponential scaling
+        // This makes smaller trades more visible while preventing large trades from dominating
+        const exponentialValue = Math.sqrt(normalizedValue);
+        const markerSize = minMarkerSize + (exponentialValue * (maxMarkerSize - minMarkerSize));
         return Math.max(minMarkerSize, Math.min(markerSize, maxMarkerSize)); // Clamp within bounds
     }
 

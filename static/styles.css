@@ -51,6 +51,24 @@ body {
     cursor: crosshair !important;
 }
 
+/* Ensure line markers are visible */
+.js-plotly-plot .shapelayer .point {
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+.js-plotly-plot .shapelayer circle {
+    fill: currentColor !important;
+    stroke: white !important;
+    stroke-width: 2px !important;
+    opacity: 0.95 !important;
+}
+
+.js-plotly-plot .shapelayer path {
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
 .timeframe-buttons {
     display: flex;
     gap: 5px;
@@ -227,5 +245,23 @@ body {
     .js-plotly-plot .modebar-btn {
         min-width: 32px !important;
         min-height: 32px !important;
+    }
+
+    /* Ensure line markers are visible on mobile */
+    .js-plotly-plot .shapelayer .point {
+        opacity: 1 !important;
+        visibility: visible !important;
+    }
+
+    .js-plotly-plot .shapelayer circle {
+        fill: currentColor !important;
+        stroke: white !important;
+        stroke-width: 2px !important;
+        opacity: 0.95 !important;
+    }
+
+    .js-plotly-plot .shapelayer path {
+        opacity: 1 !important;
+        visibility: visible !important;
     }
 }
