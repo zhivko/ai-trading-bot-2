@@ -637,7 +637,7 @@ async def handle_config_message(data: dict, websocket: WebSocket, request_id: st
             logger.info(f"HISTORY: Filtered trades: {len(trades)} remain after filtering with {min_value_percentage*100}% min value")
 
     # Fetch drawings
-    drawings = await get_drawings(config_symbol, None, resolution, email)
+    drawings = await get_drawings(config_symbol, None, None, email)
     logger.info(f"Fetched {len(drawings) if drawings else 0} drawings for config")
 
     # Calculate volume profile for rectangle drawings if we have a time range
@@ -687,7 +687,7 @@ async def handle_config_message(data: dict, websocket: WebSocket, request_id: st
                             ]
                             logger.info(f"Filtered to {len(filtered_klines)} klines within price range for rectangle {drawing_id}")
                             if filtered_klines:
-                                volume_profile_data = calculate_volume_profile(filtered_klines)
+                                volume_profile_data = calculate_volume_profile(filtered_klines, drawing_id)
                                 drawing['volume_profile'] = volume_profile_data
                                 logger.info(f"Added volume profile to rectangle {drawing_id} with {len(volume_profile_data.get('volume_profile', []))} levels")
                             else:
@@ -930,7 +930,7 @@ async def handle_get_drawings(data: dict, websocket: WebSocket, request_id: str)
         symbol = data.get('symbol', 'BTCUSDT')  # Default fallback
         resolution = data.get('resolution', '1h')  # Default fallback
 
-        drawings = await get_drawings(symbol, None, resolution, email)
+        drawings = await get_drawings(symbol, None, None, email)
 
         return {
             "type": "response",
@@ -1681,7 +1681,7 @@ async def handle_history_message(data: dict, websocket: WebSocket, request_id: s
                 logger.info(f"HISTORY: Filtered trades: {len(trades)} remain after filtering with {min_value_percentage*100}% min value")
 
         # Fetch drawings
-        drawings = await get_drawings(symbol, None, resolution, email)
+        drawings = await get_drawings(symbol, None, None, email)
         logger.info(f"Fetched {len(drawings) if drawings else 0} drawings for history")
 
         # Calculate volume profile for rectangle drawings
@@ -1731,7 +1731,7 @@ async def handle_history_message(data: dict, websocket: WebSocket, request_id: s
                                 ]
                                 logger.info(f"Filtered to {len(filtered_klines)} klines within price range for rectangle {drawing_id}")
                                 if filtered_klines:
-                                    volume_profile_data = calculate_volume_profile(filtered_klines)
+                                    volume_profile_data = calculate_volume_profile(filtered_klines, drawing['id'])
                                     drawing['volume_profile'] = volume_profile_data
                                     logger.info(f"Added volume profile to rectangle {drawing_id} with {len(volume_profile_data.get('volume_profile', []))} levels")
                                 else:
@@ -1812,6 +1812,27 @@ async def handle_trade_history_message(data: dict, websocket: WebSocket, request
         to_ts = data.get("to_ts")
 
         logger.info(f"Processing trade_history request for symbol {symbol}, email {email}, valueFilter {value_filter}")
+
+        # Persist minValueFilter to user settings in Redis
+        if email:
+            try:
+                redis_conn = await get_redis_connection()
+                settings_key = f"settings:{email}:{symbol}"
+                settings_json = await redis_conn.get(settings_key)
+                if settings_json:
+                    settings_data = json.loads(settings_json)
+                else:
+                    settings_data = {}
+
+                # Update minValueFilter
+                settings_data['minValueFilter'] = value_filter
+
+                # Save back to Redis
+                updated_settings_json = json.dumps(settings_data)
+                await redis_conn.set(settings_key, updated_settings_json)
+                logger.info(f"Persisted minValueFilter {value_filter} to settings for {email}:{symbol}")
+            except Exception as e:
+                logger.error(f"Error persisting minValueFilter to settings: {e}")
 
         if not from_ts or not to_ts:
             return {
@@ -1944,6 +1965,74 @@ async def handle_shape_message(data: dict, websocket: WebSocket, request_id: str
                 result = {"success": True, "id": drawing_id}
 
             if result and result.get('success'):
+                # Send volume profile request for rectangles
+                if drawing_data.get('type') == 'rect' and drawing_id:
+                    try:
+                        # Get rectangle data to calculate volume profile
+                        drawings = await get_drawings(symbol, None, None, email)
+                        rect_drawing = next((d for d in drawings if d.get('id') == drawing_id), None)
+
+                        if rect_drawing:
+                            start_time = rect_drawing.get("start_time")
+                            end_time = rect_drawing.get("end_time")
+                            start_price = rect_drawing.get("start_price")
+                            end_price = rect_drawing.get("end_price")
+
+                            if all([start_time, end_time, start_price is not None, end_price is not None]):
+                                # Calculate volume profile directly and send success message
+                                try:
+                                    # Convert timestamps from milliseconds to seconds if needed
+                                    if start_time > 1e12:  # > 1 trillion, likely milliseconds
+                                        start_time = int(start_time / 1000)
+                                    if end_time > 1e12:  # > 1 trillion, likely milliseconds
+                                        end_time = int(end_time / 1000)
+
+                                    # Fetch klines for rectangle time range
+                                    rect_klines = await get_cached_klines(symbol, resolution, start_time, end_time)
+
+                                    if rect_klines:
+                                        # Filter klines within price range
+                                        price_min = min(float(start_price), float(end_price))
+                                        price_max = max(float(start_price), float(end_price))
+
+                                        filtered_klines = [
+                                            k for k in rect_klines
+                                            if k.get('high', 0) >= price_min and k.get('low', 0) <= price_max
+                                        ]
+
+                                        if filtered_klines:
+                                            # Calculate volume profile
+                                            volume_profile_data = calculate_volume_profile(filtered_klines, drawing_id)
+
+                                            # Send volume_profile_success message
+                                            volume_profile_success_message = {
+                                                "type": "volume_profile_success",
+                                                "rectangle_id": drawing_id,
+                                                "symbol": symbol,
+                                                "rectangle": {
+                                                    "start_time": start_time,
+                                                    "end_time": end_time,
+                                                    "start_price": start_price,
+                                                    "end_price": end_price
+                                                },
+                                                "data": volume_profile_data,
+                                                "timestamp": int(time.time()),
+                                                "request_id": f"vp_{request_id}"
+                                            }
+
+                                            await websocket.send_json(volume_profile_success_message)
+                                            logger.info(f"📊 Sent volume profile success for rectangle {drawing_id}")
+                                        else:
+                                            logger.warning(f"No klines within price range for rectangle {drawing_id}")
+                                    else:
+                                        logger.warning(f"No klines available for rectangle {drawing_id} time range")
+
+                                except Exception as calc_error:
+                                    logger.error(f"Error calculating volume profile for rectangle {drawing_id}: {calc_error}")
+
+                    except Exception as vp_error:
+                        logger.error(f"Error sending volume profile request for rectangle {drawing_id}: {vp_error}")
+
                 return {
                     "type": "shape_success",
                     "symbol": symbol,
@@ -2060,7 +2149,7 @@ async def handle_get_volume_profile_direct(message: dict, websocket: WebSocket, 
         rectangle_id = message.get("rectangle_id")
         rectangle_symbol = message.get("symbol", "BTCUSDT")
         resolution = message.get("resolution", "1h")
-
+    
         logger.info(f"Processing get_volume_profile request for rectangle {rectangle_id}, symbol {rectangle_symbol}")
 
         # Get rectangle data from database
@@ -2072,17 +2161,19 @@ async def handle_get_volume_profile_direct(message: dict, websocket: WebSocket, 
                 "request_id": request_id
             }
 
-        # Get drawing data for the rectangle
-        rectangle_drawings = await get_drawings(rectangle_symbol, rectangle_id, resolution, email)
+        # Get drawing data for the rectangle directly from Redis by ID
+        redis_conn = await get_redis_connection()
+        drawing_key = f"drawing:{email}:{rectangle_symbol}:{rectangle_id}"
+        drawing_data_str = await redis_conn.get(drawing_key)
 
-        if not rectangle_drawings or len(rectangle_drawings) == 0:
+        if not drawing_data_str:
             return {
                 "type": "error",
                 "message": f"No rectangle data found for id {rectangle_id}",
                 "request_id": request_id
             }
 
-        rect_drawing = rectangle_drawings[0]  # Should be only one
+        rect_drawing = json.loads(drawing_data_str)
         start_time = rect_drawing.get("start_time")
         end_time = rect_drawing.get("end_time")
         start_price = rect_drawing.get("start_price")
@@ -2124,12 +2215,12 @@ async def handle_get_volume_profile_direct(message: dict, websocket: WebSocket, 
             }
 
         # Calculate volume profile for the filtered data
-        volume_profile_data = calculate_volume_profile(filtered_klines)
+        volume_profile_data = calculate_volume_profile(filtered_klines, rectangle_id)
         logger.info(f"Calculated volume profile for rectangle {rectangle_id} with {len(volume_profile_data.get('volume_profile', []))} price levels")
 
         # Return volume profile data for this rectangle
         return {
-            "type": "volume_profile",
+            "type": "volume_profile_success",
             "symbol": rectangle_symbol,
             "rectangle_id": rectangle_id,
             "rectangle": {
@@ -2273,15 +2364,13 @@ async def background_tasks_health():
                 "exists": fetch_task is not None,
                 "running": fetch_task is not None and not fetch_task.done(),
                 "done": fetch_task.done() if fetch_task else None,
-                "cancelled": fetch_task.cancelled() if fetch_task else None,
-                "exception": str(fetch_task.exception()) if fetch_task and fetch_task.exception() else None
+                "cancelled": fetch_task.cancelled() if fetch_task else None
             },
             "trade_aggregator_task": {
                 "exists": trade_aggregator_task is not None,
                 "running": trade_aggregator_task is not None and not trade_aggregator_task.done(),
                 "done": trade_aggregator_task.done() if trade_aggregator_task else None,
-                "cancelled": trade_aggregator_task.cancelled() if trade_aggregator_task else None,
-                "exception": str(trade_aggregator_task.exception()) if trade_aggregator_task and trade_aggregator_task.exception() else None
+                "cancelled": trade_aggregator_task.cancelled() if trade_aggregator_task else None
             },
             "trade_gap_filler_task": {
                 "exists": trade_gap_filler_task is not None,

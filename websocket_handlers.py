@@ -63,7 +63,7 @@ async def fetch_positions_from_trading_service(email: str, symbol: str = None) -
         return []
 
 
-def calculate_volume_profile(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
+def calculate_volume_profile(trades: List[Dict[str, Any]], rectangle_id: str) -> Dict[str, Any]:
     """
     Calculate volume profile from trade history data.
     Works with both individual trade data and k-line data formats.
@@ -72,7 +72,7 @@ def calculate_volume_profile(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     if not trades or len(trades) == 0:
         logger.warning("No trades available for volume profile calculation")
-        return {"volume_profile": []}
+        return {"volume_profile_success": []}
 
     logger.debug(f"Processing {len(trades)} trades/klines for volume profile")
 
@@ -91,7 +91,7 @@ def calculate_volume_profile(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     if not prices:
         logger.warning("No valid prices found for volume profile calculation")
-        return {"volume_profile": []}
+        return {"volume_profile_success": []}
 
     price_min = min(prices)
     price_max = max(prices)
@@ -183,6 +183,7 @@ def calculate_volume_profile(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
     logger.info(f"Calculated volume profile with {len(volume_profile)} price levels from {len(trades)} trades")
 
     return {
+        "rectangle_id": rectangle_id,
         "volume_profile": volume_profile,
         "total_trades": len(trades),
         "price_levels": len(volume_profile)
@@ -1365,12 +1366,12 @@ async def stream_combined_data_websocket_endpoint(websocket: WebSocket, symbol: 
 
                             # Calculate volume profile for all klines in the time range
                             # Client-side filtering will handle price range display
-                            volume_profile_data = calculate_volume_profile(rect_klines)
+                            volume_profile_data = calculate_volume_profile(rect_klines, drawing_id)
                             logger.info(f"Calculated volume profile for rectangle {drawing_id} with {len(volume_profile_data.get('volume_profile', []))} price levels")
 
                             # Send volume profile data for this rectangle
                             await send_to_client({
-                                "type": "volume_profile",
+                                "type": "volume_profile_success",
                                 "symbol": active_symbol,
                                 "rectangle_id": drawing_id,
                                 "rectangle": {

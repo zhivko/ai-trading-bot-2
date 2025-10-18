@@ -524,7 +524,7 @@ class EmailAlertService:
             if btc_drawings:
                 drawing = btc_drawings[0]  # First drawing (most recent after sorting)
                 logger.info(f"TEST MODE: Using drawing {drawing.get('id')} for {drawing['user_email']}")
-                symbol = 'BTCUSDT'
+                symbol = drawing['symbol']
                 resolution = drawing['resolution']
                 kline_zset_key = f"zset:kline:{symbol}:{resolution}"
                 latest_kline_list = await redis.zrevrange(kline_zset_key, 0, 1)
@@ -804,7 +804,7 @@ class EmailAlertService:
         while True:
             # Start check_price_alerts in background to ensure exact 60-second intervals
             asyncio.create_task(self.check_price_alerts())
-            await asyncio.sleep(20)
+            await asyncio.sleep(15)
 
 def get_smtp_config() -> SMTPConfig:
     # logger.info("Loading SMTP config...")

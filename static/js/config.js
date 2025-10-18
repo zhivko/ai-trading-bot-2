@@ -57,7 +57,7 @@ const config = {
     },
     // Enable pinch-to-zoom and other mobile gestures
     staticPlot: false,
-    doubleClick: 'reset'
+    doubleClick: false // Disable default double-click reset to prevent 1970 issue
 };
 
 // Function to disable hover on mobile devices
@@ -81,7 +81,7 @@ function enableMobilePinchZoom(gd) {
         scrollZoom: true,
         responsive: true,
         dragmode: 'zoom', // Use zoom mode instead of pan for better mobile pinch behavior
-        doubleClick: 'reset'
+        doubleClick: false // Disable default double-click reset to prevent 1970 issue
     });
 
     // Add touch event handling specifically for pinch gestures only

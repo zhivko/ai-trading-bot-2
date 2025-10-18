@@ -53,14 +53,14 @@ window.handleVolumeProfileMessage = handleVolumeProfileMessage;
     }
 
     // Process non-empty volume profile data within rectangle bounds
-    renderVolumeProfileWithinRectangle(volumeProfileArray, message.symbol || 'BTCUSDT', message.data.rectangle_id);
+    renderVolumeProfileWithinRectangle(volumeProfileArray, message.data.rectangle_id);
 }
 
 // Render volume profile bars within a rectangle's bounds
-function renderVolumeProfileWithinRectangle(volumeProfileData, symbol, rectangleId) {
+function renderVolumeProfileWithinRectangle(volumeProfileData, rectangleId) {
 
     if (!volumeProfileData || !Array.isArray(volumeProfileData) || volumeProfileData.length === 0) {
-        console.warn(`🚑 Combined WebSocket: No volume profile data to render for ${symbol}`);
+        console.warn(`🚑 Combined WebSocket: No volume profile data to render.`);
         return;
     }
 
@@ -135,7 +135,7 @@ function renderVolumeProfileWithinRectangle(volumeProfileData, symbol, rectangle
 
 
     // Create volume profile bars positioned within the rectangle
-    const volumeProfileTraces = createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRange, rectangleId, symbol);
+    const volumeProfileTraces = createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRange, rectangleId);
 
     if (!volumeProfileTraces || volumeProfileTraces.length === 0) {
         console.warn(`🚑 Combined WebSocket: Failed to create volume profile bars for rectangle ${rectangleId}`);
@@ -547,7 +547,7 @@ function handleShapeVolumeProfilesMessage(message) {
 }
 
 // Create horizontal volume profile bars for a rectangle
-function createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRange, rectangleId, symbol) {
+function createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRange, rectangleId) {
 
     if (!volumeProfileData || !Array.isArray(volumeProfileData) || volumeProfileData.length === 0) {
         console.warn(`🚑 No volume profile data for rectangle ${rectangleId}`);
@@ -769,7 +769,6 @@ function createRectangleVolumeProfileBars(volumeProfileData, timeRange, priceRan
                     hovertemplate:
                         `<b>Rectangle Volume Profile - BUYERS</b><br>` +
                         `Rectangle: ${rectangleId}<br>` +
-                        `Symbol: ${symbol}<br>` +
                         `Price: $${price.toFixed(2)}<br>` +
                         `Buy Volume: ${buyVol.toFixed(4)}<br>` +
                         `Total Volume: ${totalVol.toFixed(4)}<br>` +
@@ -1098,13 +1097,13 @@ function updateOrAddRealtimePriceLine(gd, price, candleStartTimeMs, candleEndTim
             yanchor: 'bottom', // Anchor the text from its bottom (places it above the line)
             font: {
                 family: 'Arial, sans-serif',
-                size: 24, // Increased font size for better visibility
+                size: 10, // Reduced font size for smaller display
                 color: 'black' // Solid black for better contrast
             },
             bgcolor: 'white', // Solid white background for SVG
             bordercolor: 'black', // Black border for visibility
             borderwidth: 2,  // Thicker border
-            borderpad: 6     // More padding
+            borderpad: 1     // More padding
         };
 
         if (lineIndex !== -1) {

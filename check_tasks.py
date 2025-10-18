@@ -4,7 +4,7 @@ import requests
 import json
 
 try:
-    response = requests.get('http://192.16:5000/health/background-tasks', timeout=5)
+    response = requests.get('http://192.168.1.52:5000/health/background-tasks', timeout=5)
     if response.status_code == 200:
         data = response.json()
 

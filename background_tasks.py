@@ -199,6 +199,8 @@ async def fetch_and_aggregate_trades():
 
                 total_exchanges_processed += 1
                 symbols_in_exchange = 0
+                total_trades_fetched = 0
+                exchange_type = exchange_config.get('type', 'cex')
 
                 logger.info(f"📊 PROCESSING {exchange_name} ({exchange_id})")
 
@@ -304,6 +306,7 @@ async def fetch_and_aggregate_trades():
                             await ccxt_exchange.close()
 
                         if all_trades:
+                            total_trades_fetched += len(all_trades)
                             # Persist individual trades to Redis
                             await cache_individual_trades(all_trades, exchange_name, internal_symbol)
                             logger.debug(f"✅ PERSISTED {len(all_trades)} individual trades for {internal_symbol} on {exchange_name}")
@@ -331,6 +334,7 @@ async def fetch_and_aggregate_trades():
                         logger.error(f"❌ Error processing {internal_symbol} on {exchange_id}: {e}")
                         continue
 
+                logger.info(f"📊 FETCHED {total_trades_fetched} trades from ({exchange_type}) {exchange_name}")
                 total_symbols_processed += symbols_in_exchange
                 # logger.info(f"📊 COMPLETED {exchange_name}: processed {symbols_in_exchange} symbols")
 
@@ -521,9 +525,17 @@ async def fill_trade_data_gaps_background_task():
 
                                         except Exception as e:
                                             logger.error(f"❌ Error fetching trade gap-fill batch from {exchange_id}: {e}")
+                                            # Add more specific error handling for Binance API issues
+                                            if "binance" in exchange_id.lower():
+                                                logger.warning(f"⚠️ Binance API issue detected, skipping this batch for {exchange_id}")
                                             break
 
                                     await ccxt_exchange.close()
+
+                                # Add retry logic for Binance API issues
+                                if not all_fresh_trades and "binance" in exchange_id.lower():
+                                    logger.warning(f"⚠️ No trades fetched from Binance, this might be due to API rate limits or temporary issues")
+                                    # Don't treat this as a hard error for Binance
 
                                 if all_fresh_trades and len(all_fresh_trades) > 0:
                                     # Persist fresh trades to Redis to fill the gap

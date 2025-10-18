@@ -362,6 +362,18 @@ function initializePlotlyEventHandlers(gd) {
 
 
 
+    // Add custom double-click handler using DOM event
+    const chartElement = document.getElementById('chart');
+    if (chartElement) {
+        chartElement.addEventListener('dblclick', function(event) {
+            console.log('[DOUBLE-CLICK] Custom double-click detected on chart element');
+            alert('Double-click detected! This would normally zoom out/reset the chart view.');
+            event.preventDefault();
+            event.stopPropagation();
+            return false;
+        });
+    }
+
     gd.on('plotly_relayout', async function(eventData) {
 
         // 🚨 PANNING DETECTION 🚨 - Check for ANY range changes

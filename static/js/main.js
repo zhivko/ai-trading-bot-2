@@ -797,7 +797,7 @@ async function initializeWebSocketClient() {
         window.wsAPI.onMessage('trade_history_success', handleTradeHistorySuccess);
         window.wsAPI.onMessage('trading_sessions', handleTradingSessionsData);
         window.wsAPI.onMessage('get_trading_sessions_response', handleGetTradingSessionsResponse);
-        window.wsAPI.onMessage('volume_profile', handleVolumeProfileData);
+        window.wsAPI.onMessage('volume_profile_success', handleVolumeProfileData);
         window.wsAPI.onMessage('live', handleLiveData);
         window.wsAPI.onMessage('history_success', handleHistorySuccess);
         window.wsAPI.onMessage('config_success', handleConfigSuccess);
